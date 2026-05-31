@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Forsaken</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --panel: rgba(18, 18, 30, 0.92);
+    --accent: #e94560;
+    --good: #66e08a;
+    --text: #e8e8f0;
+    --muted: #8888a0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden; user-select: none; -webkit-user-select: none;
+    touch-action: none; overscroll-behavior: none;
+  }
+  #game { display: block; position: absolute; inset: 0; background: #0a0a14; }
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px; z-index: 10;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 24px 28px;
+    min-width: 280px; max-width: 360px; width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .title {
+    font-size: 38px; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--accent); text-align: center;
+    margin: 0 0 4px 0;
+  }
+  .subtitle {
+    color: var(--muted); text-align: center;
+    font-size: 13px; margin: 0 0 20px 0; letter-spacing: 0.05em;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.05em; }
+  input[type="text"] {
+    width: 100%; padding: 10px 12px; font-size: 16px;
+    background: rgba(255,255,255,0.06); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+    font-family: inherit; margin-bottom: 14px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    width: 100%; padding: 12px; font-size: 16px; font-weight: 600;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; cursor: pointer;
+    font-family: inherit; margin-top: 4px;
+    transition: transform 0.08s, opacity 0.15s;
+  }
+  button.secondary {
+    background: rgba(255,255,255,0.08); color: var(--text);
+  }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; margin-top: 8px; }
+  .row > * { flex: 1; }
+  .player-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.04); margin-bottom: 6px;
+  }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .tag {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.1); color: var(--muted); letter-spacing: 0.05em;
+  }
+  .tag.host { background: rgba(233,69,96,0.2); color: var(--accent); }
+  .tag.you { background: rgba(102,224,138,0.2); color: var(--good); }
+  .status { font-size: 13px; color: var(--muted); text-align: center; margin: 14px 0 0 0; }
+  .error { color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
+
+  /* HUD */
+  #hud {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .hud-top {
+    position: absolute; top: 12px; left: 12px;
+    padding: 8px 12px; background: rgba(0,0,0,0.45); border-radius: 8px;
+    font-size: 14px; line-height: 1.4;
+  }
+  .hud-top .role { font-weight: 700; letter-spacing: 0.08em; font-size: 16px; }
+  .hud-top .gens { color: #b8f0c8; font-size: 13px; margin-top: 2px; }
+  .hud-prompt {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 30%; padding: 10px 18px;
+    background: rgba(0,0,0,0.55); border-radius: 8px;
+    font-size: 16px; color: #ffe680; font-weight: 600;
+  }
+  .hud-banner {
+    position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    text-align: center; font-size: 56px; font-weight: 800; letter-spacing: 0.1em;
+    text-shadow: 0 6px 30px rgba(0,0,0,0.8);
+  }
+  .hud-banner .sub { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; opacity: 0.8; margin-top: 8px; }
+
+  /* Touch controls */
+  #touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 6; display: none; }
+  body.touch #touch-controls { display: block; }
+  body.touch #key-hints { display: none; }
+  #joystick {
+    position: absolute; left: 0; bottom: 0;
+    width: 40vw; height: 40vw; max-width: 220px; max-height: 220px;
+    min-width: 140px; min-height: 140px;
+    pointer-events: auto; touch-action: none;
+  }
+  #joystick .base {
+    position: absolute; left: 20px; bottom: calc(20px + env(safe-area-inset-bottom));
+    width: calc(100% - 40px); height: calc(100% - 40px - env(safe-area-inset-bottom));
+    background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 50%;
+  }
+  #joystick .knob {
+    position: absolute; width: 36%; height: 36%;
+    background: rgba(255,255,255,0.3); border: 2px solid rgba(255,255,255,0.6);
+    border-radius: 50%;
+    left: 32%; top: 32%; transition: transform 0.05s linear;
+  }
+  #action-btn {
+    position: absolute; right: calc(30px + env(safe-area-inset-right));
+    bottom: calc(50px + env(safe-area-inset-bottom));
+    width: 100px; height: 100px; border-radius: 50%;
+    background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.35);
+    color: #fff; font-weight: 800; font-size: 16px; letter-spacing: 0.08em;
+    pointer-events: auto; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #action-btn.attack { background: rgba(233,69,96,0.6); border-color: rgba(255,255,255,0.5); }
+  #action-btn.interact { background: rgba(102,224,138,0.4); border-color: rgba(255,255,255,0.5); }
+  #action-btn.escape { background: rgba(255,230,128,0.6); border-color: rgba(255,255,255,0.7); color: #2a1c00; }
+  #action-btn:active { transform: scale(0.95); }
+  #leave-btn {
+    position: absolute; top: calc(12px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right));
+    padding: 6px 10px; font-size: 12px; border-radius: 6px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--muted); pointer-events: auto; cursor: pointer; width: auto; margin: 0;
+  }
+  #key-hints {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 0.05em;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="role" id="hud-role">SURVIVOR</div>
+    <div class="gens" id="hud-gens">Generators: 0/4</div>
+  </div>
+  <div class="hud-prompt hidden" id="hud-prompt"></div>
+  <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div></div>
+  <button id="leave-btn" class="secondary">Leave</button>
+  <div id="key-hints">WASD move &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; E interact &nbsp;·&nbsp; Q attack</div>
+</div>
+
+<div id="touch-controls" class="hidden">
+  <div id="joystick">
+    <div class="base"></div>
+    <div class="knob" id="knob"></div>
+  </div>
+  <button id="action-btn">ACT</button>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1 class="title">FORSAKEN</h1>
+    <div class="subtitle">1 KILLER vs SURVIVORS</div>
+    <label>Your name</label>
+    <input id="name-input" type="text" maxlength="16" placeholder="Pick a name">
+    <button id="join-btn">Enter Lobby</button>
+    <div id="menu-status" class="status"></div>
+    <div class="hint">Everyone who opens this link joins the same room.<br>Share the URL with friends.</div>
+  </div>
+</div>
+
+<div id="lobby" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" style="font-size: 28px;">LOBBY</h1>
+    <div id="player-list"></div>
+    <div id="lobby-status" class="status"></div>
+    <div class="row">
+      <button id="start-btn" disabled>Start Round</button>
+      <button id="leave-lobby-btn" class="secondary">Leave</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- Constants (must match server geometry) ----------
+const MAP_W = 1800, MAP_H = 1200;
+const WALL_T = 30;
+const PLAYER_R = 18;
+const SURV_SPEED = 200, KILL_SPEED = 230;
+const SPRINT = 1.35;
+const INTERACT_R = 55;
+const ESCAPE_R = 60;
+const SEND_RATE = 50;
+
+const WALLS = [
+  // outer
+  { x: MAP_W / 2, y: WALL_T / 2, w: MAP_W, h: WALL_T },
+  { x: MAP_W / 2, y: MAP_H - WALL_T / 2, w: MAP_W, h: WALL_T },
+  { x: WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
+  { x: MAP_W - WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
+  // interior dividers
+  { x: MAP_W / 2, y: 300, w: MAP_W * 0.55, h: WALL_T },
+  { x: MAP_W / 2, y: 900, w: MAP_W * 0.55, h: WALL_T },
+  { x: 600, y: MAP_H / 2, w: WALL_T, h: 400 },
+  { x: 1200, y: MAP_H / 2, w: WALL_T, h: 400 },
+];
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id);
+const canvas = $("game");
+const ctx = canvas.getContext("2d");
+const menuEl = $("menu");
+const lobbyEl = $("lobby");
+const hudEl = $("hud");
+const touchEl = $("touch-controls");
+
+// ---------- State ----------
+const G = {
+  ws: null,
+  myId: null,
+  phase: "menu", // "menu" | "lobby" | "playing" | "over"
+  players: new Map(),
+  gens: [],
+  exit: { x: MAP_W / 2, y: 30 },
+  exitOpen: false,
+  winner: null,
+  workingGen: -1,
+  name: "",
+};
+
+// Per-other-player: target from server, current rendered pos for lerp
+const remoteLerp = new Map();
+
+// ---------- Input ----------
+const keys = Object.create(null);
+const joystick = { x: 0, y: 0, active: false, touchId: null, baseX: 0, baseY: 0 };
+const actionBtnState = { down: false, touchId: null };
+
+window.addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  keys[e.key.toLowerCase()] = true;
+  if (e.code === "Space") keys[" "] = true;
+});
+window.addEventListener("keyup", (e) => {
+  keys[e.key.toLowerCase()] = false;
+  if (e.code === "Space") keys[" "] = false;
+});
+
+function inputVector() {
+  let x = 0, y = 0;
+  if (joystick.active) {
+    x = joystick.x; y = joystick.y;
+  } else {
+    if (keys["w"] || keys["arrowup"]) y -= 1;
+    if (keys["s"] || keys["arrowdown"]) y += 1;
+    if (keys["a"] || keys["arrowleft"]) x -= 1;
+    if (keys["d"] || keys["arrowright"]) x += 1;
+    const m = Math.hypot(x, y);
+    if (m > 1) { x /= m; y /= m; }
+  }
+  return { x, y };
+}
+function sprinting() {
+  // Always sprint on mobile (joystick); Shift on desktop.
+  return joystick.active || keys["shift"];
+}
+function interactHeld() {
+  return keys["e"] || (G.context === "interact" && actionBtnState.down);
+}
+function attackPressed() {
+  if (G.attackQueued) { G.attackQueued = false; return true; }
+  return false;
+}
+function escapePressed() {
+  if (G.escapeQueued) { G.escapeQueued = false; return true; }
+  return false;
+}
+
+// Buffered single-shot actions from keys.
+let prevKeyQ = false, prevKeyE = false;
+function pollKeyShots() {
+  const q = !!keys["q"];
+  if (q && !prevKeyQ) G.attackQueued = true;
+  prevKeyQ = q;
+  const e = !!keys["e"];
+  if (e && !prevKeyE && G.context === "escape") G.escapeQueued = true;
+  prevKeyE = e;
+}
+
+// ---------- Touch ----------
+function isTouchDevice() {
+  return ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+}
+if (isTouchDevice()) {
+  document.body.classList.add("touch");
+}
+
+const knobEl = $("knob");
+const joystickEl = $("joystick");
+const actionEl = $("action-btn");
+
+function setKnob(dx, dy) {
+  knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+
+joystickEl.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  joystick.touchId = t.identifier;
+  const r = joystickEl.getBoundingClientRect();
+  joystick.baseX = r.left + r.width / 2;
+  joystick.baseY = r.top + r.height / 2 - 8; // slight up bias
+  joystick.active = true;
+  updateJoystick(t.clientX, t.clientY);
+}, { passive: false });
+joystickEl.addEventListener("touchmove", (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.touchId) updateJoystick(t.clientX, t.clientY);
+  }
+}, { passive: false });
+joystickEl.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.touchId) endJoystick();
+  }
+}, { passive: false });
+joystickEl.addEventListener("touchcancel", (e) => {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joystick.touchId) endJoystick();
+  }
+});
+function updateJoystick(cx, cy) {
+  const r = joystickEl.getBoundingClientRect();
+  const maxR = r.width * 0.32;
+  let dx = cx - joystick.baseX, dy = cy - joystick.baseY;
+  const m = Math.hypot(dx, dy);
+  if (m > maxR) { dx = (dx / m) * maxR; dy = (dy / m) * maxR; }
+  setKnob(dx, dy);
+  const nx = dx / maxR, ny = dy / maxR;
+  joystick.x = Math.abs(nx) < 0.18 ? 0 : nx;
+  joystick.y = Math.abs(ny) < 0.18 ? 0 : ny;
+  const m2 = Math.hypot(joystick.x, joystick.y);
+  if (m2 > 1) { joystick.x /= m2; joystick.y /= m2; }
+}
+function endJoystick() {
+  joystick.active = false; joystick.touchId = null;
+  joystick.x = 0; joystick.y = 0;
+  setKnob(0, 0);
+}
+
+actionEl.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  actionBtnState.down = true;
+  actionBtnState.touchId = e.changedTouches[0].identifier;
+  if (G.context === "attack") G.attackQueued = true;
+  if (G.context === "escape") G.escapeQueued = true;
+}, { passive: false });
+actionEl.addEventListener("touchend", (e) => {
+  e.preventDefault();
+  actionBtnState.down = false;
+}, { passive: false });
+actionEl.addEventListener("touchcancel", () => { actionBtnState.down = false; });
+// also support mouse (for desktop preview of button)
+actionEl.addEventListener("mousedown", () => {
+  actionBtnState.down = true;
+  if (G.context === "attack") G.attackQueued = true;
+  if (G.context === "escape") G.escapeQueued = true;
+});
+window.addEventListener("mouseup", () => { actionBtnState.down = false; });
+
+// ---------- Canvas sizing ----------
+function resize() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  canvas.style.width = innerWidth + "px";
+  canvas.style.height = innerHeight + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+window.addEventListener("resize", resize);
+
+// ---------- Network ----------
+function connect() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${location.host}`;
+  $("menu-status").textContent = "Connecting…";
+  G.ws = new WebSocket(url);
+  G.ws.addEventListener("open", () => {
+    $("menu-status").textContent = "";
+    G.ws.send(JSON.stringify({ type: "join", name: G.name }));
+  });
+  G.ws.addEventListener("message", (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    onMessage(msg);
+  });
+  G.ws.addEventListener("close", () => {
+    $("menu-status").innerHTML = '<span class="error">Disconnected. Reload to try again.</span>';
+    G.phase = "menu"; showOnly(menuEl);
+  });
+  G.ws.addEventListener("error", () => {
+    $("menu-status").innerHTML = '<span class="error">Connection failed.</span>';
+  });
+}
+
+function sendMsg(m) {
+  if (G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify(m));
+}
+
+function onMessage(msg) {
+  switch (msg.type) {
+    case "welcome":
+      G.myId = msg.id;
+      G.exit = msg.exit;
+      G.gens = msg.gens.map(g => ({ ...g }));
+      break;
+    case "lobby":
+      G.phase = msg.phase || "lobby";
+      mergeRoster(msg.players);
+      // Always show the lobby screen on lobby messages; renderLobby handles
+      // the "round in progress, you'll join next" wait state.
+      // (Unless we're mid-round playing locally — start message already swapped us into the game.)
+      if (hudEl.classList.contains("hidden")) {
+        showOnly(lobbyEl);
+        renderLobby();
+      } else {
+        renderLobby();
+      }
+      break;
+    case "start":
+      mergeRoster(msg.players);
+      G.gens = msg.gens.map(g => ({ ...g }));
+      G.exitOpen = false;
+      G.workingGen = -1;
+      G.winner = null;
+      G.phase = "playing";
+      // teleport local player to server spawn
+      const me = G.players.get(G.myId);
+      if (me) { me.x = msg.players.find(p => p.id === G.myId).x; me.y = msg.players.find(p => p.id === G.myId).y; }
+      for (const sp of msg.players) {
+        remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
+      }
+      showOnly(null);
+      hudEl.classList.remove("hidden");
+      if (document.body.classList.contains("touch")) touchEl.classList.remove("hidden");
+      $("hud-banner").classList.add("hidden");
+      break;
+    case "state":
+      for (const s of msg.players) {
+        const p = G.players.get(s.id);
+        if (!p) continue;
+        p.alive = s.alive; p.escaped = s.escaped;
+        if (s.id === G.myId) {
+          // server-corrected clamp; usually noop
+        } else {
+          remoteLerp.set(s.id, { x: s.x, y: s.y, fx: s.fx, fy: s.fy });
+        }
+      }
+      for (let i = 0; i < msg.progress.length; i++) {
+        if (G.gens[i] && !G.gens[i].done) G.gens[i].progress = msg.progress[i];
+      }
+      break;
+    case "gen_done":
+      for (const i of msg.indices) {
+        if (G.gens[i]) { G.gens[i].done = true; G.gens[i].progress = 1; }
+      }
+      break;
+    case "exit_open":
+      G.exitOpen = true;
+      break;
+    case "down":
+      const v = G.players.get(msg.id);
+      if (v) v.alive = false;
+      break;
+    case "escape":
+      const x = G.players.get(msg.id);
+      if (x) x.escaped = true;
+      break;
+    case "over":
+      G.phase = "over";
+      G.winner = msg.winner;
+      showBanner(msg.winner);
+      break;
+  }
+}
+
+function mergeRoster(list) {
+  const seen = new Set();
+  for (const sp of list) {
+    seen.add(sp.id);
+    let p = G.players.get(sp.id);
+    const isNew = !p;
+    if (isNew) {
+      p = { id: sp.id, x: sp.x, y: sp.y, fx: 1, fy: 0 };
+      G.players.set(sp.id, p);
+    }
+    p.name = sp.name; p.color = sp.color; p.role = sp.role;
+    p.isHost = sp.isHost; p.alive = sp.alive; p.escaped = sp.escaped;
+    if (sp.id !== G.myId) {
+      const lerp = remoteLerp.get(sp.id);
+      if (!lerp) remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
+    } else if (isNew || G.phase !== "playing") {
+      // only seed local position from roster on first entry or when not in active play
+      p.x = sp.x; p.y = sp.y;
+    }
+  }
+  for (const id of [...G.players.keys()]) {
+    if (!seen.has(id)) { G.players.delete(id); remoteLerp.delete(id); }
+  }
+}
+
+// ---------- Screens ----------
+function showOnly(el) {
+  menuEl.classList.add("hidden");
+  lobbyEl.classList.add("hidden");
+  hudEl.classList.add("hidden");
+  touchEl.classList.add("hidden");
+  if (el) el.classList.remove("hidden");
+}
+
+$("join-btn").addEventListener("click", () => {
+  const n = $("name-input").value.trim() || randomName();
+  G.name = n;
+  connect();
+});
+$("name-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("join-btn").click();
+});
+$("name-input").value = randomName();
+
+$("start-btn").addEventListener("click", () => sendMsg({ type: "start" }));
+$("leave-lobby-btn").addEventListener("click", leaveRoom);
+$("leave-btn").addEventListener("click", leaveRoom);
+
+function leaveRoom() {
+  if (G.ws) { try { G.ws.send(JSON.stringify({ type: "leave" })); G.ws.close(); } catch {} }
+  G.players.clear(); remoteLerp.clear();
+  G.phase = "menu";
+  showOnly(menuEl);
+  $("menu-status").textContent = "";
+}
+
+function renderLobby() {
+  const list = $("player-list");
+  list.innerHTML = "";
+  let me = null;
+  for (const p of G.players.values()) {
+    if (p.id === G.myId) me = p;
+    const row = document.createElement("div");
+    row.className = "player-row";
+    row.innerHTML = `
+      <div class="dot" style="background:${p.color}"></div>
+      <div style="flex:1">${escapeHTML(p.name)}</div>
+      ${p.isHost ? '<span class="tag host">HOST</span>' : ""}
+      ${p.id === G.myId ? '<span class="tag you">YOU</span>' : ""}
+    `;
+    list.appendChild(row);
+  }
+  const count = G.players.size;
+  const startBtn = $("start-btn");
+  const status = $("lobby-status");
+  if (G.phase === "playing" || G.phase === "over") {
+    startBtn.classList.add("hidden");
+    status.textContent = "A round is in progress. You'll join the next one.";
+    return;
+  }
+  if (me && me.isHost) {
+    startBtn.disabled = count < 1;
+    startBtn.classList.remove("hidden");
+    status.textContent = `Players: ${count}  (1 will be the killer)`;
+  } else {
+    startBtn.classList.add("hidden");
+    status.textContent = `Waiting for host to start… (${count} in lobby)`;
+  }
+}
+
+function showBanner(winner) {
+  const b = $("hud-banner");
+  const t = $("hud-banner-text");
+  const s = $("hud-banner-sub");
+  const me = G.players.get(G.myId);
+  if (winner === "survivors") { t.textContent = "SURVIVORS WIN"; t.style.color = "#9adcff"; }
+  else { t.textContent = "KILLER WINS"; t.style.color = "#e94560"; }
+  if (me) {
+    if (me.escaped) s.textContent = "You escaped";
+    else if (!me.alive) s.textContent = "You were caught";
+    else if (me.role === "killer") s.textContent = winner === "killer" ? "Well played" : "Better luck next time";
+    else s.textContent = "";
+  }
+  b.classList.remove("hidden");
+}
+
+function randomName() {
+  const adjs = ["Quick", "Quiet", "Wild", "Sly", "Bold", "Dim", "Lone"];
+  const nouns = ["Fox", "Owl", "Wolf", "Cat", "Crow", "Moth", "Hare"];
+  return adjs[Math.floor(Math.random()*adjs.length)] + nouns[Math.floor(Math.random()*nouns.length)];
+}
+
+function escapeHTML(s) {
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// ---------- Game tick (local prediction for own player) ----------
+let lastTime = performance.now();
+let lastSend = 0;
+let facing = { x: 1, y: 0 };
+
+function gameTick(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+
+  pollKeyShots();
+
+  if (G.phase === "playing") {
+    const me = G.players.get(G.myId);
+    if (me && me.alive && !me.escaped) {
+      // move
+      const v = inputVector();
+      let speed = (me.role === "killer" ? KILL_SPEED : SURV_SPEED);
+      if (sprinting()) speed *= SPRINT;
+      const moveX = v.x * speed * dt;
+      const moveY = v.y * speed * dt;
+      stepWithCollision(me, moveX, moveY);
+      if (v.x !== 0 || v.y !== 0) facing = { x: v.x, y: v.y };
+
+      // generator working
+      let target = -1;
+      if (me.role === "survivor" && interactHeld()) {
+        target = nearestGenIdx(me.x, me.y, INTERACT_R);
+        if (target !== -1 && G.gens[target].done) target = -1;
+      }
+      if (target !== G.workingGen) {
+        G.workingGen = target;
+        sendMsg({ type: "work", gen: target });
+      }
+
+      // attack
+      if (attackPressed() && me.role === "killer") {
+        sendMsg({ type: "attack" });
+      }
+      // escape
+      if (escapePressed() && me.role === "survivor" && G.exitOpen) {
+        sendMsg({ type: "escape" });
+      }
+
+      // periodic send
+      if (now - lastSend > SEND_RATE) {
+        lastSend = now;
+        sendMsg({ type: "pos", x: me.x, y: me.y, facing });
+      }
+    }
+
+    // smooth remote players toward server target
+    for (const [id, target] of remoteLerp) {
+      if (id === G.myId) continue;
+      const p = G.players.get(id);
+      if (!p) continue;
+      const t = 1 - Math.pow(0.0001, dt);
+      p.x += (target.x - p.x) * t;
+      p.y += (target.y - p.y) * t;
+      p.fx = target.fx; p.fy = target.fy;
+    }
+  }
+
+  render();
+  updateHUD();
+  requestAnimationFrame(gameTick);
+}
+requestAnimationFrame(gameTick);
+
+function stepWithCollision(p, dx, dy) {
+  p.x += dx;
+  for (const w of WALLS) {
+    const push = circleVsRect(p.x, p.y, PLAYER_R, w);
+    if (push) { p.x += push.x; }
+  }
+  p.y += dy;
+  for (const w of WALLS) {
+    const push = circleVsRect(p.x, p.y, PLAYER_R, w);
+    if (push) { p.y += push.y; }
+  }
+  p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
+  p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
+}
+
+function circleVsRect(cx, cy, r, w) {
+  const left = w.x - w.w / 2, right = w.x + w.w / 2;
+  const top = w.y - w.h / 2, bottom = w.y + w.h / 2;
+  const px = clamp(cx, left, right);
+  const py = clamp(cy, top, bottom);
+  const dx = cx - px, dy = cy - py;
+  const dist = Math.hypot(dx, dy);
+  if (dist >= r) return null;
+  if (dist === 0) {
+    // resolve by smallest axis
+    const dl = cx - left, dr = right - cx, dt = cy - top, db = bottom - cy;
+    const m = Math.min(dl, dr, dt, db);
+    if (m === dl) return { x: -(dl + r), y: 0 };
+    if (m === dr) return { x: dr + r, y: 0 };
+    if (m === dt) return { x: 0, y: -(dt + r) };
+    return { x: 0, y: db + r };
+  }
+  const n = (r - dist) / dist;
+  return { x: dx * n, y: dy * n };
+}
+
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+function nearestGenIdx(x, y, maxD) {
+  let best = -1, bestD = maxD;
+  for (let i = 0; i < G.gens.length; i++) {
+    if (G.gens[i].done) continue;
+    const d = Math.hypot(G.gens[i].x - x, G.gens[i].y - y);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+// ---------- Rendering ----------
+function render() {
+  const w = innerWidth, h = innerHeight;
+  ctx.fillStyle = "#0a0a14";
+  ctx.fillRect(0, 0, w, h);
+
+  if (G.phase !== "playing" && G.phase !== "over") return;
+
+  const me = G.players.get(G.myId);
+  const camX = me ? me.x : MAP_W / 2;
+  const camY = me ? me.y : MAP_H / 2;
+  // zoom: smaller screens get more zoomed in for visibility
+  const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
+
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-camX, -camY);
+
+  // floor
+  ctx.fillStyle = "#15151f";
+  ctx.fillRect(0, 0, MAP_W, MAP_H);
+  // subtle grid
+  ctx.strokeStyle = "rgba(255,255,255,0.03)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= MAP_W; x += 80) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP_H); ctx.stroke();
+  }
+  for (let y = 0; y <= MAP_H; y += 80) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP_W, y); ctx.stroke();
+  }
+
+  // walls
+  ctx.fillStyle = "#3a3a4d";
+  for (const w of WALLS) {
+    ctx.fillRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
+  }
+
+  // generators
+  for (let i = 0; i < G.gens.length; i++) {
+    const g = G.gens[i];
+    ctx.fillStyle = g.done ? "#3a5e7a" : "#7a5524";
+    ctx.fillRect(g.x - 30, g.y - 30, 60, 60);
+    ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
+    ctx.strokeRect(g.x - 30, g.y - 30, 60, 60);
+    // progress bar
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(g.x - 36, g.y - 50, 72, 8);
+    ctx.fillStyle = g.done ? "#9adcff" : "#66e08a";
+    ctx.fillRect(g.x - 36, g.y - 50, 72 * (g.progress || 0), 8);
+    // label
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+    ctx.font = "bold 14px system-ui";
+    ctx.textAlign = "center";
+    const txt = "GEN " + (i + 1);
+    ctx.strokeText(txt, g.x, g.y - 56);
+    ctx.fillText(txt, g.x, g.y - 56);
+  }
+
+  // exit
+  const ex = G.exit;
+  ctx.fillStyle = G.exitOpen ? "#66e08a" : "#3a2030";
+  ctx.fillRect(ex.x - 60, ex.y - 18, 120, 36);
+  ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
+  ctx.strokeRect(ex.x - 60, ex.y - 18, 120, 36);
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+  ctx.font = "bold 13px system-ui";
+  ctx.textAlign = "center";
+  const exitTxt = G.exitOpen ? "EXIT — OPEN" : "EXIT (LOCKED)";
+  ctx.strokeText(exitTxt, ex.x, ex.y - 26);
+  ctx.fillText(exitTxt, ex.x, ex.y - 26);
+
+  // players (z-sort by y)
+  const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
+  for (const p of sorted) {
+    drawPlayer(p);
+  }
+
+  ctx.restore();
+}
+
+function drawPlayer(p) {
+  if (p.escaped) {
+    // small ghost icon at exit area
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    return;
+  }
+  // shadow
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath(); ctx.ellipse(p.x, p.y + PLAYER_R - 2, PLAYER_R, 6, 0, 0, Math.PI*2); ctx.fill();
+
+  // body
+  ctx.fillStyle = p.alive ? p.color : "#454557";
+  ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // killer spikes
+  if (p.role === "killer" && p.alive) {
+    ctx.strokeStyle = "#e94560"; ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI * 2 / 8;
+      const dx = Math.cos(a), dy = Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(p.x + dx * PLAYER_R, p.y + dy * PLAYER_R);
+      ctx.lineTo(p.x + dx * (PLAYER_R + 6), p.y + dy * (PLAYER_R + 6));
+      ctx.stroke();
+    }
+  }
+
+  // facing dot
+  const fx = (p.fx !== undefined) ? p.fx : facing.x;
+  const fy = (p.fy !== undefined) ? p.fy : facing.y;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(p.x + fx * (PLAYER_R - 6), p.y + fy * (PLAYER_R - 6), 4.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // name
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+  ctx.font = "bold 12px system-ui";
+  ctx.textAlign = "center";
+  ctx.strokeText(p.name || "", p.x, p.y - PLAYER_R - 10);
+  ctx.fillText(p.name || "", p.x, p.y - PLAYER_R - 10);
+}
+
+// ---------- HUD ----------
+function updateHUD() {
+  if (G.phase !== "playing" && G.phase !== "over") return;
+  const me = G.players.get(G.myId);
+  if (!me) return;
+
+  const role = $("hud-role");
+  const gens = $("hud-gens");
+  if (me.role === "killer") {
+    role.textContent = "★ KILLER";
+    role.style.color = "#e94560";
+  } else {
+    role.textContent = "SURVIVOR";
+    role.style.color = "#9adcff";
+  }
+  const doneCount = G.gens.filter(g => g.done).length;
+  gens.textContent = `Generators: ${doneCount} / ${G.gens.length}` + (G.exitOpen ? "  •  EXIT OPEN" : "");
+
+  // Context-aware prompt + action button label
+  let prompt = "", ctx2 = "none";
+  if (G.phase === "playing" && me.alive && !me.escaped) {
+    if (me.role === "killer") {
+      prompt = "Tap to attack";
+      ctx2 = "attack";
+    } else {
+      const atExit = G.exitOpen && Math.hypot(me.x - G.exit.x, me.y - G.exit.y) < ESCAPE_R;
+      const nearGen = nearestGenIdx(me.x, me.y, INTERACT_R);
+      if (atExit) { prompt = "Hold/Tap to escape"; ctx2 = "escape"; }
+      else if (nearGen !== -1) { prompt = "Hold to repair generator"; ctx2 = "interact"; }
+    }
+  } else if (!me.alive) {
+    prompt = "You were caught.";
+  } else if (me.escaped) {
+    prompt = "You escaped.";
+  }
+  G.context = ctx2;
+  const promptEl = $("hud-prompt");
+  if (prompt) { promptEl.textContent = prompt; promptEl.classList.remove("hidden"); }
+  else promptEl.classList.add("hidden");
+
+  // Action button label/style
+  actionEl.classList.remove("attack", "interact", "escape");
+  if (ctx2 === "attack") { actionEl.textContent = "ATK"; actionEl.classList.add("attack"); }
+  else if (ctx2 === "interact") { actionEl.textContent = "FIX"; actionEl.classList.add("interact"); }
+  else if (ctx2 === "escape") { actionEl.textContent = "ESC"; actionEl.classList.add("escape"); }
+  else { actionEl.textContent = "—"; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "forsaken-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-based 1v4 hide-and-survive for me and my friends.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
