@@ -1,7 +1,8 @@
-// Forsaken — browser multiplayer server (Forsaken-style timer + skill checks).
-// One room, up to 8 players. First to connect is host.
-// Authoritative for: roster, roles, generator progress, attack outcomes, round timer, win condition.
-// Trusts: each player reports their own position; each player classifies their own skill check.
+// Forsaken — browser multiplayer server.
+// Authoritative: roster, roles, generator progress, HP, ability cooldowns,
+//                projectile motion, attack outcomes, round timer, win condition.
+// Trusts: client positions (and client classification of its own skill check).
+// Stamina is client-side state — used only as a gate on sprint speed locally.
 
 const http = require("http");
 const fs = require("fs");
@@ -26,20 +27,48 @@ const SURVIVOR_CHARS = [
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
 ];
 const KILLER_CHARS = [
-  { id: "slasher",  name: "Slasher",  color: "#e94560", speedMult: 1.00, attackRadius: 70,  blurb: "balanced reach" },
-  { id: "stalker",  name: "Stalker",  color: "#7a2030", speedMult: 0.92, attackRadius: 110, blurb: "long reach, slower" },
+  { id: "slasher",  name: "Slasher",  color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 25, blurb: "balanced reach" },
+  { id: "stalker",  name: "Stalker",  color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 25, blurb: "long reach, slower" },
 ];
 
-// ---- Round mechanics ----
-const ROUND_DURATION = 180;     // seconds at start
-const TIME_PER_GEN = -30;       // generator completed: survivors gain "win progress"
-const TIME_PER_DOWN = +25;      // survivor downed: killer gains "hunt time"
+// ---- HP ----
+const SURVIVOR_HP_MAX = 100;
+
+// ---- Abilities ----
+// type drives applyAbility's switch. cd is in seconds.
+const ABILITIES = {
+  runner: [
+    { id: "dash",  name: "Dash",       cd: 5,  type: "speed_self",  mult: 2.5,   duration: 0.8 },
+    { id: "smoke", name: "Smoke Bomb", cd: 12, type: "smoke",       radius: 110, duration: 3.0 },
+  ],
+  engineer: [
+    { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
+    { id: "mend",       name: "Mend",       cd: 20, type: "heal_self", amount: 50,   duration: 2.0 },
+  ],
+  scout: [
+    { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
+    { id: "scan",  name: "Scan",  cd: 12, type: "reveal",     duration: 2.0 },
+  ],
+  slasher: [
+    { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 20, speed: 700, range: 700 },
+    { id: "frenzy", name: "Frenzy",      cd: 14, type: "speed_self", mult: 1.30, duration: 4.0 },
+  ],
+  stalker: [
+    { id: "step",  name: "Shadow Step", cd: 6,  type: "teleport",    distance: 220 },
+    { id: "stalk", name: "Stalk",       cd: 15, type: "buff_attack", multiplier: 2, duration: 4.0 },
+  ],
+};
+
+// ---- Round ----
+const ROUND_DURATION = 180;
+const TIME_PER_GEN = -30;
+const TIME_PER_DOWN = +25;
 const RESULT_HOLD_MS = 5000;
 
 // ---- Skill check ----
 const SKILL_PROGRESS = { green: 0.22, yellow: 0.10, red: -0.12 };
 const SKILL_NEAR_RADIUS = 90;
-const SKILL_COOLDOWN_MS = 400; // server-side rate limit per player
+const SKILL_COOLDOWN_MS = 400;
 
 const state = {
   phase: "lobby",
@@ -49,7 +78,10 @@ const state = {
   roundTimer: ROUND_DURATION,
   winner: null,
   resetAt: 0,
-  lastSkill: new Map(), // playerId -> ts
+  lastSkill: new Map(),
+  projectiles: [],
+  smokes: [],
+  nextEntityId: 1,
 };
 
 function freshGens() {
@@ -63,6 +95,17 @@ const server = http.createServer((req, res) => {
     return sendFile(res, "index.html", "text/html; charset=utf-8");
   }
   if (url === "/health") { res.writeHead(200); res.end("ok"); return; }
+  if (url === "/chars") {
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify({
+      survivorChars: SURVIVOR_CHARS,
+      killerChars: KILLER_CHARS,
+      abilities: ABILITIES,
+      survivorHpMax: SURVIVOR_HP_MAX,
+      roundDuration: ROUND_DURATION,
+    }));
+    return;
+  }
   res.writeHead(404); res.end("not found");
 });
 function sendFile(res, name, type) {
@@ -96,6 +139,7 @@ function handle(id, ws, msg) {
     case "start":     return onStart(id);
     case "pos":       return onPos(id, msg);
     case "attack":    return onAttack(id);
+    case "ability":   return onAbility(id, msg);
     case "skill":     return onSkill(id, msg);
     case "leave":     return removePlayer(id);
   }
@@ -113,19 +157,32 @@ function onJoin(id, ws, msg) {
     x: MAP.w / 2, y: MAP.h - 200,
     facing: { x: 1, y: 0 },
     alive: true,
+    hp: SURVIVOR_HP_MAX,
+    cooldowns: [0, 0],        // ms epoch when ability slot becomes ready
+    effects: freshEffects(),
     isHost,
     joinedAt: Date.now(),
   };
   state.players.set(id, player);
   send(ws, {
     type: "welcome",
-    id, map: MAP,
-    gens: state.generators,
+    id, map: MAP, gens: state.generators,
     survivorChars: SURVIVOR_CHARS,
     killerChars: KILLER_CHARS,
+    abilities: ABILITIES,
     roundDuration: ROUND_DURATION,
+    survivorHpMax: SURVIVOR_HP_MAX,
   });
   broadcastLobby();
+}
+
+function freshEffects() {
+  return {
+    speedMult: 1, speedUntil: 0,
+    healUntil: 0, healRate: 0,
+    stalkUntil: 0,
+    revealedUntil: 0,
+  };
 }
 
 function onPickChar(id, msg) {
@@ -137,7 +194,6 @@ function onPickChar(id, msg) {
   if (msg.killerChar && KILLER_CHARS.some(c => c.id === msg.killerChar)) {
     p.killerChar = msg.killerChar;
   }
-  // lobby-only: update visible color to chosen survivor color (visual preview)
   if (state.phase === "lobby") {
     const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
     p.color = sc.color;
@@ -165,6 +221,7 @@ function removePlayer(id) {
   const wasHost = p.isHost;
   state.players.delete(id);
   state.lastSkill.delete(id);
+  state.projectiles = state.projectiles.filter(pr => pr.ownerId !== id);
   if (state.designatedKillerId === id) state.designatedKillerId = null;
   if (wasHost && state.players.size > 0) {
     const next = [...state.players.values()].sort((a, b) => a.joinedAt - b.joinedAt)[0];
@@ -209,10 +266,145 @@ function onAttack(id) {
     if (d < bestD) { bestD = d; best = p; }
   }
   if (best) {
-    best.alive = false;
+    let dmg = kch.attackDamage;
+    if (Date.now() < a.effects.stalkUntil) {
+      dmg *= 2;
+      a.effects.stalkUntil = 0; // consume
+    }
+    applyDamage(best, dmg, a);
+  }
+}
+
+function applyDamage(target, amount, attacker) {
+  if (!target.alive) return;
+  target.hp = Math.max(0, target.hp - amount);
+  broadcast({
+    type: "damage",
+    id: target.id,
+    hp: Math.round(target.hp),
+    by: attacker.id,
+    amount,
+  });
+  if (target.hp <= 0) {
+    target.alive = false;
     state.roundTimer += TIME_PER_DOWN;
-    broadcast({ type: "down", id: best.id, by: a.id, timer: state.roundTimer });
+    broadcast({ type: "down", id: target.id, by: attacker.id, timer: state.roundTimer });
     checkRoundEnd();
+  }
+}
+
+function onAbility(id, msg) {
+  if (state.phase !== "playing") return;
+  const p = state.players.get(id);
+  if (!p || !p.alive) return;
+  const slot = msg.slot | 0;
+  if (slot !== 0 && slot !== 1) return;
+  const charId = p.role === "killer" ? p.killerChar : p.survivorChar;
+  const list = ABILITIES[charId];
+  if (!list || !list[slot]) return;
+  const ab = list[slot];
+  const now = Date.now();
+  if (now < p.cooldowns[slot]) return;
+  p.cooldowns[slot] = now + ab.cd * 1000;
+  applyAbility(p, ab, slot);
+}
+
+function applyAbility(p, ab, slot) {
+  const now = Date.now();
+  switch (ab.type) {
+    case "speed_self":
+      p.effects.speedMult = ab.mult;
+      p.effects.speedUntil = now + ab.duration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, mult: ab.mult, duration: ab.duration });
+      break;
+    case "smoke":
+      state.smokes.push({
+        id: state.nextEntityId++,
+        x: p.x, y: p.y,
+        radius: ab.radius,
+        ttl: ab.duration,
+        ownerId: p.id,
+      });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y });
+      break;
+    case "gen_boost": {
+      let bestIdx = -1, bestD = ab.range;
+      for (let i = 0; i < state.generators.length; i++) {
+        const g = state.generators[i];
+        if (g.done) continue;
+        const d = Math.hypot(g.x - p.x, g.y - p.y);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      if (bestIdx >= 0) {
+        const g = state.generators[bestIdx];
+        g.progress = Math.min(1, g.progress + ab.amount);
+        if (g.progress >= 1) {
+          g.progress = 1; g.done = true;
+          state.roundTimer = Math.max(0, state.roundTimer + TIME_PER_GEN);
+          broadcast({ type: "gen_done", indices: [bestIdx], timer: state.roundTimer });
+          if (state.roundTimer <= 0) endRound("survivors");
+        }
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
+      break;
+    }
+    case "heal_self":
+      p.effects.healUntil = now + ab.duration * 1000;
+      p.effects.healRate = ab.amount / ab.duration;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
+    case "speed_team": {
+      const affected = [];
+      for (const other of state.players.values()) {
+        if (other.role !== "survivor" || !other.alive) continue;
+        if (Math.hypot(other.x - p.x, other.y - p.y) <= ab.radius) {
+          other.effects.speedMult = ab.mult;
+          other.effects.speedUntil = now + ab.duration * 1000;
+          affected.push(other.id);
+        }
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius, affected });
+      break;
+    }
+    case "reveal":
+      for (const other of state.players.values()) {
+        if (other.role === "killer") {
+          other.effects.revealedUntil = now + ab.duration * 1000;
+        }
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
+    case "projectile": {
+      const f = p.facing;
+      const norm = Math.hypot(f.x, f.y) || 1;
+      const fxn = f.x / norm, fyn = f.y / norm;
+      state.projectiles.push({
+        id: state.nextEntityId++,
+        x: p.x + fxn * 25,
+        y: p.y + fyn * 25,
+        vx: fxn * ab.speed,
+        vy: fyn * ab.speed,
+        ownerId: p.id,
+        damage: ab.damage,
+        range: ab.range,
+        dist: 0,
+      });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fx: fxn, fy: fyn });
+      break;
+    }
+    case "teleport": {
+      const f = p.facing;
+      const norm = Math.hypot(f.x, f.y) || 1;
+      const fromX = p.x, fromY = p.y;
+      p.x = clamp(p.x + (f.x / norm) * ab.distance, 30, MAP.w - 30);
+      p.y = clamp(p.y + (f.y / norm) * ab.distance, 30, MAP.h - 30);
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fromX, fromY, x: p.x, y: p.y });
+      break;
+    }
+    case "buff_attack":
+      p.effects.stalkUntil = now + ab.duration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
   }
 }
 
@@ -224,14 +416,11 @@ function onSkill(id, msg) {
   if (typeof idx !== "number" || idx < 0 || idx >= state.generators.length) return;
   const g = state.generators[idx];
   if (g.done) return;
-  // Distance check.
   if (Math.hypot(p.x - g.x, p.y - g.y) > SKILL_NEAR_RADIUS) return;
-  // Rate limit.
   const now = Date.now();
   const last = state.lastSkill.get(id) || 0;
   if (now - last < SKILL_COOLDOWN_MS) return;
   state.lastSkill.set(id, now);
-  // Apply.
   const result = msg.result === "green" || msg.result === "yellow" ? msg.result : "red";
   let delta = SKILL_PROGRESS[result];
   if (delta > 0) {
@@ -243,7 +432,6 @@ function onSkill(id, msg) {
     g.progress = 1; g.done = true;
     state.roundTimer = Math.max(0, state.roundTimer + TIME_PER_GEN);
     broadcast({ type: "gen_done", indices: [idx], timer: state.roundTimer });
-    // Timer could hit 0 from a gen completion -> survivors win.
     if (state.roundTimer <= 0) endRound("survivors");
   }
 }
@@ -253,6 +441,8 @@ function startRound() {
   state.roundTimer = ROUND_DURATION;
   state.winner = null;
   state.lastSkill.clear();
+  state.projectiles = [];
+  state.smokes = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -264,7 +454,10 @@ function startRound() {
   killer.x = MAP.w / 2;
   killer.y = 220;
   killer.alive = true;
+  killer.hp = SURVIVOR_HP_MAX; // unused for killer
   killer.facing = { x: 1, y: 0 };
+  killer.cooldowns = [0, 0];
+  killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
     const p = state.players.get(sid);
@@ -274,7 +467,10 @@ function startRound() {
     p.x = MAP.w / 2 + (idx - (survIds.length - 1) / 2) * 80;
     p.y = MAP.h - 220;
     p.alive = true;
+    p.hp = SURVIVOR_HP_MAX;
     p.facing = { x: 1, y: 0 };
+    p.cooldowns = [0, 0];
+    p.effects = freshEffects();
   });
 
   state.phase = "playing";
@@ -315,6 +511,39 @@ function tick() {
 
   if (state.phase === "playing") {
     state.roundTimer = Math.max(0, state.roundTimer - dt);
+
+    // Heal ticks
+    for (const p of state.players.values()) {
+      if (p.role !== "survivor" || !p.alive) continue;
+      if (now < p.effects.healUntil) {
+        p.hp = Math.min(SURVIVOR_HP_MAX, p.hp + p.effects.healRate * dt);
+      }
+    }
+
+    // Projectiles
+    const survivors = [...state.players.values()].filter(p => p.role === "survivor" && p.alive);
+    const projHits = [];
+    state.projectiles = state.projectiles.filter(pr => {
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+      pr.dist += Math.hypot(pr.vx, pr.vy) * dt;
+      if (pr.dist > pr.range) return false;
+      if (pr.x < 0 || pr.x > MAP.w || pr.y < 0 || pr.y > MAP.h) return false;
+      for (const s of survivors) {
+        if (Math.hypot(s.x - pr.x, s.y - pr.y) < 22) {
+          const att = state.players.get(pr.ownerId);
+          if (att) projHits.push({ s, dmg: pr.damage, att });
+          return false;
+        }
+      }
+      return true;
+    });
+    for (const h of projHits) applyDamage(h.s, h.dmg, h.att);
+
+    // Smokes
+    for (const sm of state.smokes) sm.ttl -= dt;
+    state.smokes = state.smokes.filter(sm => sm.ttl > 0);
+
     if (state.roundTimer <= 0) {
       endRound("survivors");
     } else {
@@ -325,18 +554,33 @@ function tick() {
           id: p.id, x: Math.round(p.x), y: Math.round(p.y),
           fx: +p.facing.x.toFixed(2), fy: +p.facing.y.toFixed(2),
           alive: p.alive,
+          hp: p.role === "survivor" ? Math.round(p.hp) : null,
+          se: now < p.effects.speedUntil ? 1 : 0,
+          st: now < p.effects.stalkUntil ? 1 : 0,
+          re: now < p.effects.revealedUntil ? 1 : 0,
         })),
         progress: state.generators.map(g => +g.progress.toFixed(3)),
+        projectiles: state.projectiles.map(pr => ({
+          id: pr.id, x: Math.round(pr.x), y: Math.round(pr.y),
+          vx: +pr.vx.toFixed(1), vy: +pr.vy.toFixed(1),
+        })),
+        smokes: state.smokes.map(sm => ({
+          id: sm.id, x: sm.x, y: sm.y, radius: sm.radius, ttl: +sm.ttl.toFixed(2),
+        })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
     state.phase = "lobby";
     state.generators = freshGens();
     state.roundTimer = ROUND_DURATION;
+    state.projectiles = [];
+    state.smokes = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
-      // re-apply lobby visual to survivor pick
+      p.hp = SURVIVOR_HP_MAX;
+      p.cooldowns = [0, 0];
+      p.effects = freshEffects();
       const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
       if (sc) p.color = sc.color;
     }
@@ -359,6 +603,7 @@ function serializePlayers() {
     role: p.role, isHost: p.isHost,
     x: Math.round(p.x), y: Math.round(p.y),
     alive: p.alive,
+    hp: p.role === "survivor" ? Math.round(p.hp) : null,
     survivorChar: p.survivorChar,
     killerChar: p.killerChar,
   }));
