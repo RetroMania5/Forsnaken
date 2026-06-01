@@ -270,6 +270,22 @@ const DIAL_YELLOW = 55 * Math.PI / 180;
 const DIAL_SPEED = 2 * Math.PI / 1.5;       // one rev per 1.5s
 const SKILL_LOCAL_COOLDOWN = 420;           // ms
 
+// ---------- Sprites ----------
+const SPRITE_SIZE = 44;
+const SPRITE_FRAMES = ["idle", "walkA", "walkB", "action"];
+const WALK_FRAME_MS = 180;
+const ACTION_HOLD_MS = 320;
+
+// Per-character pixel-art palette + features. Side-view, faces right by default.
+const CHAR_VISUALS = {
+  runner:   { skin: "#f4c8a0", shirt: "#ff80c0", pants: "#4a2040", hair: "#3a1828", hat: null,    weapon: null   },
+  engineer: { skin: "#e0b890", shirt: "#ffd84a", pants: "#7a5520", hair: "#a06030", hat: "helmet", weapon: null   },
+  scout:    { skin: "#f0d0b0", shirt: "#6cb6ff", pants: "#2d4a7a", hair: "#3a3025", hat: null,    weapon: null   },
+  slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",  weapon: "knife"},
+  stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",  weapon: "claws"},
+};
+let sprites = {}; // charId -> { idle, walkA, walkB, action }  (offscreen canvases)
+
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
 const canvas = $("game"); const ctx = canvas.getContext("2d");
@@ -415,9 +431,141 @@ function resize() {
   canvas.style.width = innerWidth + "px";
   canvas.style.height = innerHeight + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
 }
 resize();
 window.addEventListener("resize", resize);
+buildSprites();
+
+function buildSprites() {
+  for (const id of Object.keys(CHAR_VISUALS)) {
+    sprites[id] = {};
+    for (const frame of SPRITE_FRAMES) {
+      const c = document.createElement("canvas");
+      c.width = SPRITE_SIZE; c.height = SPRITE_SIZE;
+      const sx = c.getContext("2d");
+      sx.imageSmoothingEnabled = false;
+      drawCharFrame(sx, CHAR_VISUALS[id], frame);
+      sprites[id][frame] = c;
+    }
+  }
+}
+
+// Side-view character, faces right, drawn at integer pixels for a chunky look.
+function drawCharFrame(sx, v, frame) {
+  const cx = SPRITE_SIZE / 2;
+  const walkOff = frame === "walkA" ? 1 : frame === "walkB" ? -1 : 0;
+  const isAction = frame === "action";
+
+  // Shadow under feet
+  sx.fillStyle = "rgba(0,0,0,0.45)";
+  sx.beginPath();
+  sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2);
+  sx.fill();
+
+  // Legs
+  sx.fillStyle = v.pants;
+  sx.fillRect(cx - 5, 30 + walkOff, 4, 10 - walkOff);
+  sx.fillRect(cx + 1, 30 - walkOff, 4, 10 + walkOff);
+  // Shoes
+  sx.fillStyle = "#2a1a10";
+  sx.fillRect(cx - 5, 39 + walkOff, 4, 2);
+  sx.fillRect(cx + 1, 39 - walkOff, 4, 2);
+
+  // Torso
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx - 7, 18, 14, 12);
+  // Shirt shading (bottom row)
+  sx.fillStyle = "rgba(0,0,0,0.18)";
+  sx.fillRect(cx - 7, 28, 14, 2);
+
+  // Back arm (behind torso)
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx - 9, 20 + walkOff, 3, 9);
+  // Sleeve
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx - 9, 20 + walkOff, 3, 4);
+
+  // Front arm — raised + extended for action
+  if (isAction) {
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 16, 3, 7);
+    sx.fillRect(cx + 9, 17, 5, 3);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 6, 16, 3, 4);
+  } else {
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 20 - walkOff, 3, 9);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 6, 20 - walkOff, 3, 4);
+  }
+
+  // Weapon
+  if (isAction && v.weapon === "knife") {
+    sx.fillStyle = "#dddddd";
+    sx.fillRect(cx + 14, 13, 2, 9);
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx + 14, 13, 1, 9);
+    sx.fillStyle = "#7a5524";
+    sx.fillRect(cx + 13, 20, 4, 3);
+  } else if (isAction && v.weapon === "claws") {
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx + 14, 16, 1, 5);
+    sx.fillRect(cx + 16, 16, 1, 5);
+    sx.fillRect(cx + 18, 16, 1, 5);
+    sx.fillStyle = "rgba(233,69,96,0.7)";
+    sx.fillRect(cx + 14, 20, 5, 1);
+  }
+
+  // Head
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx - 5, 8, 10, 10);
+  // Jaw shading
+  sx.fillStyle = "rgba(0,0,0,0.12)";
+  sx.fillRect(cx - 5, 17, 10, 1);
+
+  // Hair / hat / mask
+  if (v.hat === "helmet") {
+    sx.fillStyle = "#c8c8d0";
+    sx.fillRect(cx - 6, 5, 12, 5);
+    sx.fillStyle = "#8a8a94";
+    sx.fillRect(cx - 6, 9, 12, 1);
+    sx.fillStyle = "#3a3a44";
+    sx.fillRect(cx - 4, 12, 8, 2); // visor band
+    // Eyes behind visor
+    sx.fillStyle = "#88e0ff";
+    sx.fillRect(cx - 2, 13, 1, 1);
+    sx.fillRect(cx + 2, 13, 1, 1);
+  } else if (v.hat === "hood") {
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 5, 14, 11);
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.fillRect(cx - 5, 10, 10, 6); // face shadow
+    sx.fillStyle = "#e94560";
+    sx.fillRect(cx - 2, 12, 1, 1);
+    sx.fillRect(cx + 2, 12, 1, 1);
+  } else if (v.hat === "mask") {
+    sx.fillStyle = "#f4f4f4";
+    sx.fillRect(cx - 5, 8, 10, 7);
+    sx.fillStyle = "#000000";
+    sx.fillRect(cx - 3, 11, 2, 2);
+    sx.fillRect(cx + 1, 11, 2, 2);
+    sx.fillStyle = "#7a0010";
+    sx.fillRect(cx - 2, 14, 4, 1); // crooked smile
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 6, 6, 12, 3);
+  } else {
+    // Hair
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 5, 7, 10, 3);
+    sx.fillRect(cx - 6, 8, 1, 4);
+    sx.fillRect(cx + 5, 8, 1, 4);
+    // Eyes
+    sx.fillStyle = "#000000";
+    sx.fillRect(cx - 2, 12, 1, 1);
+    sx.fillRect(cx + 2, 12, 1, 1);
+  }
+}
 
 // ---------- Network ----------
 function connect() {
@@ -506,6 +654,8 @@ function onMessage(msg) {
     case "down": {
       const v = G.players.get(msg.id);
       if (v) v.alive = false;
+      const a = G.players.get(msg.by);
+      if (a && a._anim) a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
       if (typeof msg.timer === "number") G.timer = msg.timer;
       break;
     }
@@ -524,6 +674,7 @@ function mergeRoster(list) {
     const isNew = !p;
     if (isNew) {
       p = { id: sp.id, x: sp.x, y: sp.y, fx: 1, fy: 0 };
+      p._anim = { frame: "idle", accum: 0, actionUntil: 0, lastX: sp.x, lastY: sp.y };
       G.players.set(sp.id, p);
     }
     p.name = sp.name; p.color = sp.color; p.role = sp.role;
@@ -706,6 +857,7 @@ function attemptSkill() {
   sendMsg({ type: "skill", gen: idx, result });
   const colors = { green: "#66e08a", yellow: "#ffd84a", red: "#e94560" };
   G.flash = { color: colors[result], until: now + 350 };
+  if (result !== "red" && me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
 }
 
 // ---------- Game tick ----------
@@ -740,7 +892,10 @@ function gameTick(now) {
       // Attack
       if (G.attackQueued) {
         G.attackQueued = false;
-        if (me.role === "killer") sendMsg({ type: "attack" });
+        if (me.role === "killer") {
+          sendMsg({ type: "attack" });
+          if (me._anim) me._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+        }
       }
 
       if (now - lastSend > SEND_RATE) {
@@ -761,12 +916,45 @@ function gameTick(now) {
       p.y += (target.y - p.y) * t;
       p.fx = target.fx; p.fy = target.fy;
     }
+
+    // Update animation state for every visible player.
+    for (const p of G.players.values()) updatePlayerAnim(p, dt);
   }
 
   render(); updateHUD();
   requestAnimationFrame(gameTick);
 }
 requestAnimationFrame(gameTick);
+
+function charIdFor(p) {
+  if (p.role === "killer") return p.killerChar || "slasher";
+  return p.survivorChar || "scout";
+}
+
+function updatePlayerAnim(p, dt) {
+  if (!p._anim) p._anim = { frame: "idle", accum: 0, actionUntil: 0, lastX: p.x, lastY: p.y };
+  const a = p._anim;
+  const now = performance.now();
+  const dx = p.x - a.lastX, dy = p.y - a.lastY;
+  const dist = Math.hypot(dx, dy);
+  a.lastX = p.x; a.lastY = p.y;
+
+  if (!p.alive) { a.frame = "idle"; return; }
+  if (now < a.actionUntil) { a.frame = "action"; return; }
+
+  // Moving threshold ~30 px/s (dt is per-frame; at 60fps that's >0.5 px/frame).
+  if (dist > 0.5) {
+    a.accum += dt * 1000;
+    if (a.frame !== "walkA" && a.frame !== "walkB") {
+      a.frame = "walkA"; a.accum = 0;
+    } else if (a.accum >= WALK_FRAME_MS) {
+      a.accum -= WALK_FRAME_MS;
+      a.frame = a.frame === "walkA" ? "walkB" : "walkA";
+    }
+  } else {
+    a.frame = "idle"; a.accum = 0;
+  }
+}
 
 function charSpeedMult(p) {
   if (p.role === "killer") {
@@ -873,35 +1061,45 @@ function render() {
 }
 
 function drawPlayer(p) {
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.beginPath(); ctx.ellipse(p.x, p.y + PLAYER_R - 2, PLAYER_R, 6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = p.alive ? p.color : "#454557";
-  ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5; ctx.stroke();
+  const charId = charIdFor(p);
+  const sheet = sprites[charId];
+  if (!sheet) return;
 
-  if (p.role === "killer" && p.alive) {
-    ctx.strokeStyle = "#e94560"; ctx.lineWidth = 2;
-    for (let i = 0; i < 8; i++) {
-      const a = i * Math.PI * 2 / 8;
-      const dx = Math.cos(a), dy = Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(p.x + dx * PLAYER_R, p.y + dy * PLAYER_R);
-      ctx.lineTo(p.x + dx * (PLAYER_R + 6), p.y + dy * (PLAYER_R + 6));
-      ctx.stroke();
-    }
+  const a = p._anim || { frame: "idle", actionUntil: 0 };
+  const frame = (performance.now() < a.actionUntil) ? "action" : a.frame;
+  const img = sheet[frame] || sheet.idle;
+
+  // Facing direction (use local facing for own player to avoid network lag).
+  const fx = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
+  const flip = fx < 0;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(p.x, p.y);
+
+  if (!p.alive) {
+    // Downed: lay flat on the ground, dimmed.
+    ctx.rotate(Math.PI / 2);
+    ctx.globalAlpha = 0.55;
+  } else if (flip) {
+    ctx.scale(-1, 1);
   }
 
-  const fx = (p.fx !== undefined) ? p.fx : facing.x;
-  const fy = (p.fy !== undefined) ? p.fy : facing.y;
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.arc(p.x + fx * (PLAYER_R - 6), p.y + fy * (PLAYER_R - 6), 4.5, 0, Math.PI * 2);
-  ctx.fill();
+  // Anchor: center sprite horizontally on p.x; place feet ~12px below p.y so the
+  // hit circle sits roughly on the character's torso.
+  ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
+  ctx.restore();
 
-  ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+  // Subtle outline tint by char shirt color (helps distinguish at distance).
+  // (handled implicitly by the sprite's shirt color; nothing extra here.)
+
+  // Name label above the sprite.
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
   ctx.font = "bold 12px system-ui"; ctx.textAlign = "center";
-  ctx.strokeText(p.name || "", p.x, p.y - PLAYER_R - 10);
-  ctx.fillText(p.name || "", p.x, p.y - PLAYER_R - 10);
+  const nameY = p.y - 28;
+  ctx.strokeText(p.name || "", p.x, nameY);
+  ctx.fillText(p.name || "", p.x, nameY);
 }
 
 function drawSkillDial(W, H) {
