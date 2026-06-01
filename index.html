@@ -13,6 +13,7 @@
     --panel: rgba(18, 18, 30, 0.92);
     --accent: #e94560;
     --good: #66e08a;
+    --warn: #ffd84a;
     --text: #e8e8f0;
     --muted: #8888a0;
   }
@@ -29,13 +30,14 @@
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     padding: 16px; z-index: 10;
+    overflow: auto;
   }
   .panel {
     background: var(--panel);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 16px;
-    padding: 24px 28px;
-    min-width: 280px; max-width: 360px; width: 100%;
+    padding: 20px 22px;
+    min-width: 300px; max-width: 420px; width: 100%;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   .title {
@@ -62,25 +64,48 @@
     font-family: inherit; margin-top: 4px;
     transition: transform 0.08s, opacity 0.15s;
   }
-  button.secondary {
-    background: rgba(255,255,255,0.08); color: var(--text);
-  }
+  button.secondary { background: rgba(255,255,255,0.08); color: var(--text); }
   button:active { transform: scale(0.98); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
   .row { display: flex; gap: 10px; margin-top: 8px; }
   .row > * { flex: 1; }
+
+  /* Lobby */
+  .section { margin: 14px 0 4px 0; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
   .player-row {
     display: flex; align-items: center; gap: 10px;
     padding: 8px 10px; border-radius: 6px;
     background: rgba(255,255,255,0.04); margin-bottom: 6px;
   }
+  .player-row.designated { background: rgba(233,69,96,0.18); }
+  .player-row.designable { cursor: pointer; }
+  .player-row.designable:hover { background: rgba(255,255,255,0.08); }
   .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
   .tag {
     font-size: 11px; padding: 2px 6px; border-radius: 4px;
     background: rgba(255,255,255,0.1); color: var(--muted); letter-spacing: 0.05em;
   }
   .tag.host { background: rgba(233,69,96,0.2); color: var(--accent); }
-  .tag.you { background: rgba(102,224,138,0.2); color: var(--good); }
+  .tag.you  { background: rgba(102,224,138,0.2); color: var(--good); }
+  .tag.killer { background: rgba(233,69,96,0.35); color: #fff; }
+  .char-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 4px;
+  }
+  .char-grid.k2 { grid-template-columns: 1fr 1fr; }
+  .char-btn {
+    width: auto; padding: 8px 6px;
+    background: rgba(255,255,255,0.05); color: var(--text);
+    border: 2px solid transparent; border-radius: 8px;
+    font-size: 12px; font-weight: 600; text-align: center;
+    margin: 0; cursor: pointer;
+  }
+  .char-btn .swatch {
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    vertical-align: middle; margin-right: 4px;
+  }
+  .char-btn .blurb { display: block; font-size: 10px; font-weight: 400; color: var(--muted); margin-top: 2px; letter-spacing: 0; }
+  .char-btn.selected { border-color: var(--accent); background: rgba(233,69,96,0.12); }
+  .char-btn:hover:not(.selected) { background: rgba(255,255,255,0.1); }
   .status { font-size: 13px; color: var(--muted); text-align: center; margin: 14px 0 0 0; }
   .error { color: var(--accent); }
   .hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
@@ -97,6 +122,15 @@
   }
   .hud-top .role { font-weight: 700; letter-spacing: 0.08em; font-size: 16px; }
   .hud-top .gens { color: #b8f0c8; font-size: 13px; margin-top: 2px; }
+  #hud-timer {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    padding: 6px 16px; background: rgba(0,0,0,0.55); border-radius: 10px;
+    font-size: 28px; font-weight: 800; letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+  }
+  #hud-timer.low { color: var(--accent); animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
   .hud-prompt {
     position: absolute; left: 50%; transform: translateX(-50%);
     bottom: 30%; padding: 10px 18px;
@@ -135,15 +169,14 @@
   #action-btn {
     position: absolute; right: calc(30px + env(safe-area-inset-right));
     bottom: calc(50px + env(safe-area-inset-bottom));
-    width: 100px; height: 100px; border-radius: 50%;
+    width: 110px; height: 110px; border-radius: 50%;
     background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.35);
-    color: #fff; font-weight: 800; font-size: 16px; letter-spacing: 0.08em;
+    color: #fff; font-weight: 800; font-size: 18px; letter-spacing: 0.08em;
     pointer-events: auto; touch-action: none;
     display: flex; align-items: center; justify-content: center;
   }
-  #action-btn.attack { background: rgba(233,69,96,0.6); border-color: rgba(255,255,255,0.5); }
-  #action-btn.interact { background: rgba(102,224,138,0.4); border-color: rgba(255,255,255,0.5); }
-  #action-btn.escape { background: rgba(255,230,128,0.6); border-color: rgba(255,255,255,0.7); color: #2a1c00; }
+  #action-btn.attack { background: rgba(233,69,96,0.65); border-color: rgba(255,255,255,0.5); }
+  #action-btn.interact { background: rgba(102,224,138,0.45); border-color: rgba(255,255,255,0.55); }
   #action-btn:active { transform: scale(0.95); }
   #leave-btn {
     position: absolute; top: calc(12px + env(safe-area-inset-top));
@@ -156,7 +189,6 @@
     position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
     font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 0.05em;
   }
-
   .hidden { display: none !important; }
 </style>
 </head>
@@ -168,18 +200,16 @@
     <div class="role" id="hud-role">SURVIVOR</div>
     <div class="gens" id="hud-gens">Generators: 0/4</div>
   </div>
+  <div id="hud-timer">3:00</div>
   <div class="hud-prompt hidden" id="hud-prompt"></div>
   <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div></div>
   <button id="leave-btn" class="secondary">Leave</button>
-  <div id="key-hints">WASD move &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; E interact &nbsp;·&nbsp; Q attack</div>
+  <div id="key-hints">WASD move &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; E lock skill check &nbsp;·&nbsp; Q attack</div>
 </div>
 
 <div id="touch-controls" class="hidden">
-  <div id="joystick">
-    <div class="base"></div>
-    <div class="knob" id="knob"></div>
-  </div>
-  <button id="action-btn">ACT</button>
+  <div id="joystick"><div class="base"></div><div class="knob" id="knob"></div></div>
+  <button id="action-btn">—</button>
 </div>
 
 <div id="menu" class="overlay">
@@ -198,6 +228,10 @@
   <div class="panel">
     <h1 class="title" style="font-size: 28px;">LOBBY</h1>
     <div id="player-list"></div>
+    <div class="section">YOUR SURVIVOR</div>
+    <div class="char-grid" id="surv-grid"></div>
+    <div class="section">YOUR KILLER (if chosen)</div>
+    <div class="char-grid k2" id="kill-grid"></div>
     <div id="lobby-status" class="status"></div>
     <div class="row">
       <button id="start-btn" disabled>Start Round</button>
@@ -209,75 +243,79 @@
 <script>
 "use strict";
 
-// ---------- Constants (must match server geometry) ----------
+// ---------- Constants (geometry mirrors server) ----------
 const MAP_W = 1800, MAP_H = 1200;
 const WALL_T = 30;
 const PLAYER_R = 18;
-const SURV_SPEED = 200, KILL_SPEED = 230;
-const SPRINT = 1.35;
-const INTERACT_R = 55;
-const ESCAPE_R = 60;
+const BASE_SURV_SPEED = 200, BASE_KILL_SPEED = 230;
+const SPRINT_MULT = 1.35;
+const INTERACT_R = 80;
 const SEND_RATE = 50;
 
 const WALLS = [
-  // outer
   { x: MAP_W / 2, y: WALL_T / 2, w: MAP_W, h: WALL_T },
   { x: MAP_W / 2, y: MAP_H - WALL_T / 2, w: MAP_W, h: WALL_T },
   { x: WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
   { x: MAP_W - WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
-  // interior dividers
   { x: MAP_W / 2, y: 300, w: MAP_W * 0.55, h: WALL_T },
   { x: MAP_W / 2, y: 900, w: MAP_W * 0.55, h: WALL_T },
   { x: 600, y: MAP_H / 2, w: WALL_T, h: 400 },
   { x: 1200, y: MAP_H / 2, w: WALL_T, h: 400 },
 ];
 
+// Skill-check geometry (radians).
+const DIAL_RADIUS = 70;
+const DIAL_GREEN = 35 * Math.PI / 180;
+const DIAL_YELLOW = 55 * Math.PI / 180;
+const DIAL_SPEED = 2 * Math.PI / 1.5;       // one rev per 1.5s
+const SKILL_LOCAL_COOLDOWN = 420;           // ms
+
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
-const canvas = $("game");
-const ctx = canvas.getContext("2d");
-const menuEl = $("menu");
-const lobbyEl = $("lobby");
-const hudEl = $("hud");
-const touchEl = $("touch-controls");
+const canvas = $("game"); const ctx = canvas.getContext("2d");
+const menuEl = $("menu"); const lobbyEl = $("lobby");
+const hudEl = $("hud"); const touchEl = $("touch-controls");
 
 // ---------- State ----------
 const G = {
   ws: null,
   myId: null,
-  phase: "menu", // "menu" | "lobby" | "playing" | "over"
+  phase: "menu",
   players: new Map(),
   gens: [],
-  exit: { x: MAP_W / 2, y: 30 },
-  exitOpen: false,
+  designatedKillerId: null,
+  survivorChars: [],   // from welcome
+  killerChars: [],     // from welcome
+  myChars: { survivor: "scout", killer: "slasher" },
+  roundDuration: 180,
+  timer: 180,
   winner: null,
-  workingGen: -1,
   name: "",
+  context: "none",     // "attack" | "interact" | "none"
+  attackQueued: false,
+  skillQueued: false,
+  // Skill check local state
+  dialAngle: 0,
+  lastSkillAt: 0,
+  flash: { color: null, until: 0 },
 };
-
-// Per-other-player: target from server, current rendered pos for lerp
 const remoteLerp = new Map();
 
 // ---------- Input ----------
 const keys = Object.create(null);
 const joystick = { x: 0, y: 0, active: false, touchId: null, baseX: 0, baseY: 0 };
-const actionBtnState = { down: false, touchId: null };
+const actionBtnState = { down: false };
 
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   keys[e.key.toLowerCase()] = true;
-  if (e.code === "Space") keys[" "] = true;
 });
-window.addEventListener("keyup", (e) => {
-  keys[e.key.toLowerCase()] = false;
-  if (e.code === "Space") keys[" "] = false;
-});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
 
 function inputVector() {
   let x = 0, y = 0;
-  if (joystick.active) {
-    x = joystick.x; y = joystick.y;
-  } else {
+  if (joystick.active) { x = joystick.x; y = joystick.y; }
+  else {
     if (keys["w"] || keys["arrowup"]) y -= 1;
     if (keys["s"] || keys["arrowdown"]) y += 1;
     if (keys["a"] || keys["arrowleft"]) x -= 1;
@@ -287,30 +325,16 @@ function inputVector() {
   }
   return { x, y };
 }
-function sprinting() {
-  // Always sprint on mobile (joystick); Shift on desktop.
-  return joystick.active || keys["shift"];
-}
-function interactHeld() {
-  return keys["e"] || (G.context === "interact" && actionBtnState.down);
-}
-function attackPressed() {
-  if (G.attackQueued) { G.attackQueued = false; return true; }
-  return false;
-}
-function escapePressed() {
-  if (G.escapeQueued) { G.escapeQueued = false; return true; }
-  return false;
-}
+function sprinting() { return joystick.active || keys["shift"]; }
 
-// Buffered single-shot actions from keys.
+// Edge-trigger keyboard
 let prevKeyQ = false, prevKeyE = false;
 function pollKeyShots() {
   const q = !!keys["q"];
   if (q && !prevKeyQ) G.attackQueued = true;
   prevKeyQ = q;
   const e = !!keys["e"];
-  if (e && !prevKeyE && G.context === "escape") G.escapeQueued = true;
+  if (e && !prevKeyE && G.context === "interact") G.skillQueued = true;
   prevKeyE = e;
 }
 
@@ -318,44 +342,36 @@ function pollKeyShots() {
 function isTouchDevice() {
   return ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 }
-if (isTouchDevice()) {
-  document.body.classList.add("touch");
-}
+if (isTouchDevice()) document.body.classList.add("touch");
 
 const knobEl = $("knob");
 const joystickEl = $("joystick");
 const actionEl = $("action-btn");
 
-function setKnob(dx, dy) {
-  knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
-}
-
+function setKnob(dx, dy) { knobEl.style.transform = `translate(${dx}px, ${dy}px)`; }
 joystickEl.addEventListener("touchstart", (e) => {
   e.preventDefault();
   const t = e.changedTouches[0];
   joystick.touchId = t.identifier;
   const r = joystickEl.getBoundingClientRect();
   joystick.baseX = r.left + r.width / 2;
-  joystick.baseY = r.top + r.height / 2 - 8; // slight up bias
+  joystick.baseY = r.top + r.height / 2 - 8;
   joystick.active = true;
   updateJoystick(t.clientX, t.clientY);
 }, { passive: false });
 joystickEl.addEventListener("touchmove", (e) => {
   e.preventDefault();
-  for (const t of e.changedTouches) {
+  for (const t of e.changedTouches)
     if (t.identifier === joystick.touchId) updateJoystick(t.clientX, t.clientY);
-  }
 }, { passive: false });
 joystickEl.addEventListener("touchend", (e) => {
   e.preventDefault();
-  for (const t of e.changedTouches) {
+  for (const t of e.changedTouches)
     if (t.identifier === joystick.touchId) endJoystick();
-  }
 }, { passive: false });
 joystickEl.addEventListener("touchcancel", (e) => {
-  for (const t of e.changedTouches) {
+  for (const t of e.changedTouches)
     if (t.identifier === joystick.touchId) endJoystick();
-  }
 });
 function updateJoystick(cx, cy) {
   const r = joystickEl.getBoundingClientRect();
@@ -372,29 +388,24 @@ function updateJoystick(cx, cy) {
 }
 function endJoystick() {
   joystick.active = false; joystick.touchId = null;
-  joystick.x = 0; joystick.y = 0;
-  setKnob(0, 0);
+  joystick.x = 0; joystick.y = 0; setKnob(0, 0);
 }
 
-actionEl.addEventListener("touchstart", (e) => {
-  e.preventDefault();
+function onActionDown(e) {
+  if (e) e.preventDefault?.();
   actionBtnState.down = true;
-  actionBtnState.touchId = e.changedTouches[0].identifier;
   if (G.context === "attack") G.attackQueued = true;
-  if (G.context === "escape") G.escapeQueued = true;
-}, { passive: false });
-actionEl.addEventListener("touchend", (e) => {
-  e.preventDefault();
+  if (G.context === "interact") G.skillQueued = true;
+}
+function onActionUp(e) {
+  if (e) e.preventDefault?.();
   actionBtnState.down = false;
-}, { passive: false });
-actionEl.addEventListener("touchcancel", () => { actionBtnState.down = false; });
-// also support mouse (for desktop preview of button)
-actionEl.addEventListener("mousedown", () => {
-  actionBtnState.down = true;
-  if (G.context === "attack") G.attackQueued = true;
-  if (G.context === "escape") G.escapeQueued = true;
-});
-window.addEventListener("mouseup", () => { actionBtnState.down = false; });
+}
+actionEl.addEventListener("touchstart", onActionDown, { passive: false });
+actionEl.addEventListener("touchend", onActionUp, { passive: false });
+actionEl.addEventListener("touchcancel", onActionUp);
+actionEl.addEventListener("mousedown", onActionDown);
+window.addEventListener("mouseup", onActionUp);
 
 // ---------- Canvas sizing ----------
 function resize() {
@@ -430,27 +441,25 @@ function connect() {
     $("menu-status").innerHTML = '<span class="error">Connection failed.</span>';
   });
 }
-
-function sendMsg(m) {
-  if (G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify(m));
-}
+function sendMsg(m) { if (G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify(m)); }
 
 function onMessage(msg) {
   switch (msg.type) {
     case "welcome":
       G.myId = msg.id;
-      G.exit = msg.exit;
       G.gens = msg.gens.map(g => ({ ...g }));
+      G.survivorChars = msg.survivorChars;
+      G.killerChars = msg.killerChars;
+      G.roundDuration = msg.roundDuration;
+      G.timer = msg.roundDuration;
+      buildCharGrids();
       break;
     case "lobby":
       G.phase = msg.phase || "lobby";
+      G.designatedKillerId = msg.designatedKillerId;
       mergeRoster(msg.players);
-      // Always show the lobby screen on lobby messages; renderLobby handles
-      // the "round in progress, you'll join next" wait state.
-      // (Unless we're mid-round playing locally — start message already swapped us into the game.)
       if (hudEl.classList.contains("hidden")) {
-        showOnly(lobbyEl);
-        renderLobby();
+        showOnly(lobbyEl); renderLobby();
       } else {
         renderLobby();
       }
@@ -458,15 +467,16 @@ function onMessage(msg) {
     case "start":
       mergeRoster(msg.players);
       G.gens = msg.gens.map(g => ({ ...g }));
-      G.exitOpen = false;
-      G.workingGen = -1;
+      G.timer = msg.timer;
       G.winner = null;
       G.phase = "playing";
-      // teleport local player to server spawn
-      const me = G.players.get(G.myId);
-      if (me) { me.x = msg.players.find(p => p.id === G.myId).x; me.y = msg.players.find(p => p.id === G.myId).y; }
       for (const sp of msg.players) {
         remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
+      }
+      const me = G.players.get(G.myId);
+      if (me) {
+        const meSp = msg.players.find(p => p.id === G.myId);
+        if (meSp) { me.x = meSp.x; me.y = meSp.y; }
       }
       showOnly(null);
       hudEl.classList.remove("hidden");
@@ -474,13 +484,12 @@ function onMessage(msg) {
       $("hud-banner").classList.add("hidden");
       break;
     case "state":
+      G.timer = msg.timer;
       for (const s of msg.players) {
         const p = G.players.get(s.id);
         if (!p) continue;
-        p.alive = s.alive; p.escaped = s.escaped;
-        if (s.id === G.myId) {
-          // server-corrected clamp; usually noop
-        } else {
+        p.alive = s.alive;
+        if (s.id !== G.myId) {
           remoteLerp.set(s.id, { x: s.x, y: s.y, fx: s.fx, fy: s.fy });
         }
       }
@@ -492,21 +501,16 @@ function onMessage(msg) {
       for (const i of msg.indices) {
         if (G.gens[i]) { G.gens[i].done = true; G.gens[i].progress = 1; }
       }
+      if (typeof msg.timer === "number") G.timer = msg.timer;
       break;
-    case "exit_open":
-      G.exitOpen = true;
-      break;
-    case "down":
+    case "down": {
       const v = G.players.get(msg.id);
       if (v) v.alive = false;
+      if (typeof msg.timer === "number") G.timer = msg.timer;
       break;
-    case "escape":
-      const x = G.players.get(msg.id);
-      if (x) x.escaped = true;
-      break;
+    }
     case "over":
-      G.phase = "over";
-      G.winner = msg.winner;
+      G.phase = "over"; G.winner = msg.winner;
       showBanner(msg.winner);
       break;
   }
@@ -523,13 +527,18 @@ function mergeRoster(list) {
       G.players.set(sp.id, p);
     }
     p.name = sp.name; p.color = sp.color; p.role = sp.role;
-    p.isHost = sp.isHost; p.alive = sp.alive; p.escaped = sp.escaped;
+    p.isHost = sp.isHost; p.alive = sp.alive;
+    p.survivorChar = sp.survivorChar;
+    p.killerChar = sp.killerChar;
     if (sp.id !== G.myId) {
-      const lerp = remoteLerp.get(sp.id);
-      if (!lerp) remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
+      if (!remoteLerp.has(sp.id)) remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
     } else if (isNew || G.phase !== "playing") {
-      // only seed local position from roster on first entry or when not in active play
       p.x = sp.x; p.y = sp.y;
+      // sync our local picks from server (so picks persist after reset)
+      if (G.phase === "lobby" || G.phase === "over") {
+        G.myChars.survivor = sp.survivorChar;
+        G.myChars.killer = sp.killerChar;
+      }
     }
   }
   for (const id of [...G.players.keys()]) {
@@ -539,23 +548,19 @@ function mergeRoster(list) {
 
 // ---------- Screens ----------
 function showOnly(el) {
-  menuEl.classList.add("hidden");
-  lobbyEl.classList.add("hidden");
-  hudEl.classList.add("hidden");
-  touchEl.classList.add("hidden");
+  menuEl.classList.add("hidden"); lobbyEl.classList.add("hidden");
+  hudEl.classList.add("hidden"); touchEl.classList.add("hidden");
   if (el) el.classList.remove("hidden");
 }
 
 $("join-btn").addEventListener("click", () => {
   const n = $("name-input").value.trim() || randomName();
-  G.name = n;
-  connect();
+  G.name = n; connect();
 });
 $("name-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
 });
 $("name-input").value = randomName();
-
 $("start-btn").addEventListener("click", () => sendMsg({ type: "start" }));
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
@@ -568,37 +573,92 @@ function leaveRoom() {
   $("menu-status").textContent = "";
 }
 
+function buildCharGrids() {
+  const sg = $("surv-grid"); sg.innerHTML = "";
+  for (const c of G.survivorChars) {
+    const b = document.createElement("button");
+    b.className = "char-btn";
+    b.innerHTML = `<span class="swatch" style="background:${c.color}"></span>${escapeHTML(c.name)}<span class="blurb">${escapeHTML(c.blurb)}</span>`;
+    b.addEventListener("click", () => {
+      G.myChars.survivor = c.id;
+      sendMsg({ type: "pick_char", survivorChar: c.id });
+      renderCharSelection();
+    });
+    b.dataset.id = c.id;
+    sg.appendChild(b);
+  }
+  const kg = $("kill-grid"); kg.innerHTML = "";
+  for (const c of G.killerChars) {
+    const b = document.createElement("button");
+    b.className = "char-btn";
+    b.innerHTML = `<span class="swatch" style="background:${c.color}"></span>${escapeHTML(c.name)}<span class="blurb">${escapeHTML(c.blurb)}</span>`;
+    b.addEventListener("click", () => {
+      G.myChars.killer = c.id;
+      sendMsg({ type: "pick_char", killerChar: c.id });
+      renderCharSelection();
+    });
+    b.dataset.id = c.id;
+    kg.appendChild(b);
+  }
+  renderCharSelection();
+}
+
+function renderCharSelection() {
+  for (const b of $("surv-grid").children)
+    b.classList.toggle("selected", b.dataset.id === G.myChars.survivor);
+  for (const b of $("kill-grid").children)
+    b.classList.toggle("selected", b.dataset.id === G.myChars.killer);
+}
+
 function renderLobby() {
-  const list = $("player-list");
-  list.innerHTML = "";
+  const list = $("player-list"); list.innerHTML = "";
   let me = null;
+  const iAmHost = (() => {
+    const p = G.players.get(G.myId); return p && p.isHost;
+  })();
   for (const p of G.players.values()) {
     if (p.id === G.myId) me = p;
     const row = document.createElement("div");
-    row.className = "player-row";
+    const isDesignated = p.id === G.designatedKillerId;
+    row.className = "player-row" + (isDesignated ? " designated" : "")
+      + (iAmHost && G.phase === "lobby" ? " designable" : "");
     row.innerHTML = `
       <div class="dot" style="background:${p.color}"></div>
       <div style="flex:1">${escapeHTML(p.name)}</div>
       ${p.isHost ? '<span class="tag host">HOST</span>' : ""}
       ${p.id === G.myId ? '<span class="tag you">YOU</span>' : ""}
+      ${isDesignated ? '<span class="tag killer">KILLER</span>' : ""}
     `;
+    if (iAmHost && G.phase === "lobby") {
+      row.addEventListener("click", () => {
+        const newId = (G.designatedKillerId === p.id) ? null : p.id;
+        sendMsg({ type: "designate", id: newId });
+      });
+    }
     list.appendChild(row);
   }
   const count = G.players.size;
-  const startBtn = $("start-btn");
-  const status = $("lobby-status");
+  const startBtn = $("start-btn"); const status = $("lobby-status");
   if (G.phase === "playing" || G.phase === "over") {
     startBtn.classList.add("hidden");
     status.textContent = "A round is in progress. You'll join the next one.";
     return;
   }
+  startBtn.classList.remove("hidden");
   if (me && me.isHost) {
-    startBtn.disabled = count < 1;
-    startBtn.classList.remove("hidden");
-    status.textContent = `Players: ${count}  (1 will be the killer)`;
+    const haveKiller = G.designatedKillerId !== null && G.players.has(G.designatedKillerId);
+    startBtn.disabled = count < 2 || !haveKiller;
+    if (!haveKiller && count >= 2) status.textContent = "Tap a player to make them the killer.";
+    else if (!haveKiller) status.textContent = `Players: ${count} — need at least 2.`;
+    else status.textContent = `Ready: killer set, ${count} players.`;
   } else {
     startBtn.classList.add("hidden");
-    status.textContent = `Waiting for host to start… (${count} in lobby)`;
+    if (G.designatedKillerId && G.players.has(G.designatedKillerId)) {
+      const k = G.players.get(G.designatedKillerId);
+      status.textContent = `Killer: ${k.name}.  Waiting for host to start…`;
+    } else {
+      status.textContent = `Waiting for host to pick killer… (${count} in lobby)`;
+    }
   }
 }
 
@@ -610,10 +670,9 @@ function showBanner(winner) {
   if (winner === "survivors") { t.textContent = "SURVIVORS WIN"; t.style.color = "#9adcff"; }
   else { t.textContent = "KILLER WINS"; t.style.color = "#e94560"; }
   if (me) {
-    if (me.escaped) s.textContent = "You escaped";
-    else if (!me.alive) s.textContent = "You were caught";
-    else if (me.role === "killer") s.textContent = winner === "killer" ? "Well played" : "Better luck next time";
-    else s.textContent = "";
+    if (!me.alive) s.textContent = "You were caught";
+    else if (me.role === "killer") s.textContent = winner === "killer" ? "Well played" : "Outlasted";
+    else s.textContent = "You survived";
   }
   b.classList.remove("hidden");
 }
@@ -621,64 +680,78 @@ function showBanner(winner) {
 function randomName() {
   const adjs = ["Quick", "Quiet", "Wild", "Sly", "Bold", "Dim", "Lone"];
   const nouns = ["Fox", "Owl", "Wolf", "Cat", "Crow", "Moth", "Hare"];
-  return adjs[Math.floor(Math.random()*adjs.length)] + nouns[Math.floor(Math.random()*nouns.length)];
+  return adjs[Math.floor(Math.random() * adjs.length)] + nouns[Math.floor(Math.random() * nouns.length)];
 }
-
 function escapeHTML(s) {
-  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
-// ---------- Game tick (local prediction for own player) ----------
-let lastTime = performance.now();
-let lastSend = 0;
+// ---------- Skill check helpers ----------
+function classifyAngle(a) {
+  let n = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const dist = Math.min(n, 2 * Math.PI - n);
+  if (dist <= DIAL_GREEN) return "green";
+  if (dist <= DIAL_YELLOW) return "yellow";
+  return "red";
+}
+function attemptSkill() {
+  const now = performance.now();
+  if (now - G.lastSkillAt < SKILL_LOCAL_COOLDOWN) return;
+  const me = G.players.get(G.myId);
+  if (!me || me.role !== "survivor" || !me.alive) return;
+  const idx = nearestGenIdx(me.x, me.y, INTERACT_R);
+  if (idx === -1 || G.gens[idx].done) return;
+  G.lastSkillAt = now;
+  const result = classifyAngle(G.dialAngle);
+  sendMsg({ type: "skill", gen: idx, result });
+  const colors = { green: "#66e08a", yellow: "#ffd84a", red: "#e94560" };
+  G.flash = { color: colors[result], until: now + 350 };
+}
+
+// ---------- Game tick ----------
+let lastTime = performance.now(); let lastSend = 0;
 let facing = { x: 1, y: 0 };
 
 function gameTick(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-
   pollKeyShots();
 
   if (G.phase === "playing") {
+    G.dialAngle = (G.dialAngle + DIAL_SPEED * dt) % (2 * Math.PI);
+
     const me = G.players.get(G.myId);
-    if (me && me.alive && !me.escaped) {
-      // move
+    if (me && me.alive) {
       const v = inputVector();
-      let speed = (me.role === "killer" ? KILL_SPEED : SURV_SPEED);
-      if (sprinting()) speed *= SPRINT;
-      const moveX = v.x * speed * dt;
-      const moveY = v.y * speed * dt;
-      stepWithCollision(me, moveX, moveY);
+      const baseSpeed = (me.role === "killer" ? BASE_KILL_SPEED : BASE_SURV_SPEED);
+      const charMult = charSpeedMult(me);
+      let speed = baseSpeed * charMult;
+      if (sprinting()) speed *= SPRINT_MULT;
+      stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
       if (v.x !== 0 || v.y !== 0) facing = { x: v.x, y: v.y };
 
-      // generator working
-      let target = -1;
-      if (me.role === "survivor" && interactHeld()) {
-        target = nearestGenIdx(me.x, me.y, INTERACT_R);
-        if (target !== -1 && G.gens[target].done) target = -1;
+      // Skill check: trigger from queued input
+      if (G.skillQueued && me.role === "survivor") {
+        G.skillQueued = false;
+        attemptSkill();
+      } else if (G.skillQueued) {
+        G.skillQueued = false; // discard if not survivor
       }
-      if (target !== G.workingGen) {
-        G.workingGen = target;
-        sendMsg({ type: "work", gen: target });
-      }
-
-      // attack
-      if (attackPressed() && me.role === "killer") {
-        sendMsg({ type: "attack" });
-      }
-      // escape
-      if (escapePressed() && me.role === "survivor" && G.exitOpen) {
-        sendMsg({ type: "escape" });
+      // Attack
+      if (G.attackQueued) {
+        G.attackQueued = false;
+        if (me.role === "killer") sendMsg({ type: "attack" });
       }
 
-      // periodic send
       if (now - lastSend > SEND_RATE) {
         lastSend = now;
         sendMsg({ type: "pos", x: me.x, y: me.y, facing });
       }
+    } else {
+      G.skillQueued = false; G.attackQueued = false;
     }
 
-    // smooth remote players toward server target
+    // smooth remote players
     for (const [id, target] of remoteLerp) {
       if (id === G.myId) continue;
       const p = G.players.get(id);
@@ -690,27 +763,29 @@ function gameTick(now) {
     }
   }
 
-  render();
-  updateHUD();
+  render(); updateHUD();
   requestAnimationFrame(gameTick);
 }
 requestAnimationFrame(gameTick);
 
+function charSpeedMult(p) {
+  if (p.role === "killer") {
+    const c = G.killerChars.find(c => c.id === p.killerChar);
+    return c ? c.speedMult : 1.0;
+  } else {
+    const c = G.survivorChars.find(c => c.id === p.survivorChar);
+    return c ? c.speedMult : 1.0;
+  }
+}
+
 function stepWithCollision(p, dx, dy) {
   p.x += dx;
-  for (const w of WALLS) {
-    const push = circleVsRect(p.x, p.y, PLAYER_R, w);
-    if (push) { p.x += push.x; }
-  }
+  for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.x += push.x; }
   p.y += dy;
-  for (const w of WALLS) {
-    const push = circleVsRect(p.x, p.y, PLAYER_R, w);
-    if (push) { p.y += push.y; }
-  }
+  for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.y += push.y; }
   p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
   p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
 }
-
 function circleVsRect(cx, cy, r, w) {
   const left = w.x - w.w / 2, right = w.x + w.w / 2;
   const top = w.y - w.h / 2, bottom = w.y + w.h / 2;
@@ -720,7 +795,6 @@ function circleVsRect(cx, cy, r, w) {
   const dist = Math.hypot(dx, dy);
   if (dist >= r) return null;
   if (dist === 0) {
-    // resolve by smallest axis
     const dl = cx - left, dr = right - cx, dt = cy - top, db = bottom - cy;
     const m = Math.min(dl, dr, dt, db);
     if (m === dl) return { x: -(dl + r), y: 0 };
@@ -731,9 +805,7 @@ function circleVsRect(cx, cy, r, w) {
   const n = (r - dist) / dist;
   return { x: dx * n, y: dy * n };
 }
-
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
-
 function nearestGenIdx(x, y, maxD) {
   let best = -1, bestD = maxD;
   for (let i = 0; i < G.gens.length; i++) {
@@ -749,13 +821,11 @@ function render() {
   const w = innerWidth, h = innerHeight;
   ctx.fillStyle = "#0a0a14";
   ctx.fillRect(0, 0, w, h);
-
   if (G.phase !== "playing" && G.phase !== "over") return;
 
   const me = G.players.get(G.myId);
   const camX = me ? me.x : MAP_W / 2;
   const camY = me ? me.y : MAP_H / 2;
-  // zoom: smaller screens get more zoomed in for visibility
   const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
 
   ctx.save();
@@ -764,23 +834,15 @@ function render() {
   ctx.translate(-camX, -camY);
 
   // floor
-  ctx.fillStyle = "#15151f";
-  ctx.fillRect(0, 0, MAP_W, MAP_H);
-  // subtle grid
-  ctx.strokeStyle = "rgba(255,255,255,0.03)";
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= MAP_W; x += 80) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP_H); ctx.stroke();
-  }
-  for (let y = 0; y <= MAP_H; y += 80) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP_W, y); ctx.stroke();
-  }
+  ctx.fillStyle = "#15151f"; ctx.fillRect(0, 0, MAP_W, MAP_H);
+  // grid
+  ctx.strokeStyle = "rgba(255,255,255,0.03)"; ctx.lineWidth = 1;
+  for (let x = 0; x <= MAP_W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP_H); ctx.stroke(); }
+  for (let y = 0; y <= MAP_H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP_W, y); ctx.stroke(); }
 
   // walls
   ctx.fillStyle = "#3a3a4d";
-  for (const w of WALLS) {
-    ctx.fillRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
-  }
+  for (const w of WALLS) ctx.fillRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
 
   // generators
   for (let i = 0; i < G.gens.length; i++) {
@@ -789,64 +851,34 @@ function render() {
     ctx.fillRect(g.x - 30, g.y - 30, 60, 60);
     ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
     ctx.strokeRect(g.x - 30, g.y - 30, 60, 60);
-    // progress bar
     ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillRect(g.x - 36, g.y - 50, 72, 8);
     ctx.fillStyle = g.done ? "#9adcff" : "#66e08a";
     ctx.fillRect(g.x - 36, g.y - 50, 72 * (g.progress || 0), 8);
-    // label
-    ctx.fillStyle = "#fff";
-    ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-    ctx.font = "bold 14px system-ui";
-    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+    ctx.font = "bold 14px system-ui"; ctx.textAlign = "center";
     const txt = "GEN " + (i + 1);
     ctx.strokeText(txt, g.x, g.y - 56);
     ctx.fillText(txt, g.x, g.y - 56);
   }
 
-  // exit
-  const ex = G.exit;
-  ctx.fillStyle = G.exitOpen ? "#66e08a" : "#3a2030";
-  ctx.fillRect(ex.x - 60, ex.y - 18, 120, 36);
-  ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
-  ctx.strokeRect(ex.x - 60, ex.y - 18, 120, 36);
-  ctx.fillStyle = "#fff";
-  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-  ctx.font = "bold 13px system-ui";
-  ctx.textAlign = "center";
-  const exitTxt = G.exitOpen ? "EXIT — OPEN" : "EXIT (LOCKED)";
-  ctx.strokeText(exitTxt, ex.x, ex.y - 26);
-  ctx.fillText(exitTxt, ex.x, ex.y - 26);
-
   // players (z-sort by y)
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
-  for (const p of sorted) {
-    drawPlayer(p);
-  }
+  for (const p of sorted) drawPlayer(p);
 
   ctx.restore();
+
+  // Skill check dial (screen-space)
+  drawSkillDial(w, h);
 }
 
 function drawPlayer(p) {
-  if (p.escaped) {
-    // small ghost icon at exit area
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    return;
-  }
-  // shadow
   ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.beginPath(); ctx.ellipse(p.x, p.y + PLAYER_R - 2, PLAYER_R, 6, 0, 0, Math.PI*2); ctx.fill();
-
-  // body
+  ctx.beginPath(); ctx.ellipse(p.x, p.y + PLAYER_R - 2, PLAYER_R, 6, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = p.alive ? p.color : "#454557";
   ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5;
-  ctx.stroke();
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2.5; ctx.stroke();
 
-  // killer spikes
   if (p.role === "killer" && p.alive) {
     ctx.strokeStyle = "#e94560"; ctx.lineWidth = 2;
     for (let i = 0; i < 8; i++) {
@@ -859,7 +891,6 @@ function drawPlayer(p) {
     }
   }
 
-  // facing dot
   const fx = (p.fx !== undefined) ? p.fx : facing.x;
   const fy = (p.fy !== undefined) ? p.fy : facing.y;
   ctx.fillStyle = "#000";
@@ -867,23 +898,88 @@ function drawPlayer(p) {
   ctx.arc(p.x + fx * (PLAYER_R - 6), p.y + fy * (PLAYER_R - 6), 4.5, 0, Math.PI * 2);
   ctx.fill();
 
-  // name
-  ctx.fillStyle = "#fff";
-  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
-  ctx.font = "bold 12px system-ui";
-  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+  ctx.font = "bold 12px system-ui"; ctx.textAlign = "center";
   ctx.strokeText(p.name || "", p.x, p.y - PLAYER_R - 10);
   ctx.fillText(p.name || "", p.x, p.y - PLAYER_R - 10);
 }
 
+function drawSkillDial(W, H) {
+  const me = G.players.get(G.myId);
+  if (!me || !me.alive || me.role !== "survivor") return;
+  const idx = nearestGenIdx(me.x, me.y, INTERACT_R);
+  if (idx === -1 || G.gens[idx].done) return;
+
+  const cx = W / 2;
+  // Place above touch action button on mobile, otherwise above the prompt area.
+  const cy = document.body.classList.contains("touch") ? H - 200 : H - 140;
+  const R = DIAL_RADIUS;
+  const TOP = -Math.PI / 2;
+
+  // background
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 2; ctx.stroke();
+
+  // red base ring (just leave dark)
+  // yellow wedges
+  ctx.fillStyle = "rgba(255, 216, 74, 0.65)";
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, R - 6, TOP - DIAL_YELLOW, TOP - DIAL_GREEN);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, R - 6, TOP + DIAL_GREEN, TOP + DIAL_YELLOW);
+  ctx.closePath(); ctx.fill();
+  // green wedge
+  ctx.fillStyle = "rgba(102, 224, 138, 0.75)";
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, R - 6, TOP - DIAL_GREEN, TOP + DIAL_GREEN);
+  ctx.closePath(); ctx.fill();
+
+  // pointer
+  const pa = TOP + G.dialAngle;
+  const px = cx + Math.cos(pa) * (R - 8);
+  const py = cy + Math.sin(pa) * (R - 8);
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py);
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff"; ctx.fill();
+
+  // flash
+  const now = performance.now();
+  if (G.flash.color && now < G.flash.until) {
+    const t = (G.flash.until - now) / 350;
+    ctx.strokeStyle = G.flash.color;
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = Math.max(0, Math.min(1, t));
+    ctx.beginPath(); ctx.arc(cx, cy, R + 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // label
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 3;
+  ctx.font = "bold 11px system-ui"; ctx.textAlign = "center";
+  const lab = document.body.classList.contains("touch") ? "TAP IN GREEN" : "E IN GREEN";
+  ctx.strokeText(lab, cx, cy + R + 18);
+  ctx.fillText(lab, cx, cy + R + 18);
+}
+
 // ---------- HUD ----------
+function fmtTime(s) {
+  s = Math.max(0, Math.ceil(s));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ":" + (r < 10 ? "0" : "") + r;
+}
 function updateHUD() {
   if (G.phase !== "playing" && G.phase !== "over") return;
-  const me = G.players.get(G.myId);
-  if (!me) return;
+  const me = G.players.get(G.myId); if (!me) return;
 
-  const role = $("hud-role");
-  const gens = $("hud-gens");
+  const role = $("hud-role"); const gens = $("hud-gens");
   if (me.role === "killer") {
     role.textContent = "★ KILLER";
     role.style.color = "#e94560";
@@ -892,36 +988,35 @@ function updateHUD() {
     role.style.color = "#9adcff";
   }
   const doneCount = G.gens.filter(g => g.done).length;
-  gens.textContent = `Generators: ${doneCount} / ${G.gens.length}` + (G.exitOpen ? "  •  EXIT OPEN" : "");
+  gens.textContent = `Generators: ${doneCount} / ${G.gens.length}`;
 
-  // Context-aware prompt + action button label
-  let prompt = "", ctx2 = "none";
-  if (G.phase === "playing" && me.alive && !me.escaped) {
+  const timerEl = $("hud-timer");
+  timerEl.textContent = fmtTime(G.timer);
+  timerEl.classList.toggle("low", G.timer <= 30);
+
+  // Action button context
+  let ctx2 = "none", prompt = "";
+  if (G.phase === "playing" && me.alive) {
     if (me.role === "killer") {
-      prompt = "Tap to attack";
       ctx2 = "attack";
+      prompt = ""; // killers don't need a prompt
     } else {
-      const atExit = G.exitOpen && Math.hypot(me.x - G.exit.x, me.y - G.exit.y) < ESCAPE_R;
       const nearGen = nearestGenIdx(me.x, me.y, INTERACT_R);
-      if (atExit) { prompt = "Hold/Tap to escape"; ctx2 = "escape"; }
-      else if (nearGen !== -1) { prompt = "Hold to repair generator"; ctx2 = "interact"; }
+      if (nearGen !== -1) { ctx2 = "interact"; prompt = ""; }
     }
   } else if (!me.alive) {
     prompt = "You were caught.";
-  } else if (me.escaped) {
-    prompt = "You escaped.";
   }
   G.context = ctx2;
+
   const promptEl = $("hud-prompt");
   if (prompt) { promptEl.textContent = prompt; promptEl.classList.remove("hidden"); }
   else promptEl.classList.add("hidden");
 
-  // Action button label/style
-  actionEl.classList.remove("attack", "interact", "escape");
+  actionEl.classList.remove("attack", "interact");
   if (ctx2 === "attack") { actionEl.textContent = "ATK"; actionEl.classList.add("attack"); }
   else if (ctx2 === "interact") { actionEl.textContent = "FIX"; actionEl.classList.add("interact"); }
-  else if (ctx2 === "escape") { actionEl.textContent = "ESC"; actionEl.classList.add("escape"); }
-  else { actionEl.textContent = "—"; }
+  else actionEl.textContent = "—";
 }
 </script>
 </body>
