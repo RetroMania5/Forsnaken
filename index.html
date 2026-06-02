@@ -946,9 +946,10 @@ function onMessage(msg) {
     case "ability": {
       const p = G.players.get(msg.id);
       if (p && p._anim) p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
-      // Special-case visuals for some abilities
-      if (msg.abilityType === "teleport") {
-        // Add a brief "ghost" at the from position
+      // Teleport: snap remote players to the server position.
+      // Local player already predicted in tryFireAbility — skip the snap +
+      // ghost so we don't fight prediction or double-render.
+      if (msg.abilityType === "teleport" && msg.id !== G.myId) {
         G.teleportGhosts = G.teleportGhosts || [];
         G.teleportGhosts.push({ x: msg.fromX, y: msg.fromY, until: performance.now() + 400, charId: p ? charIdFor(p) : "stalker", fx: 1 });
         if (p) { p.x = msg.x; p.y = msg.y; }
@@ -1583,6 +1584,18 @@ function tryFireAbility(slot, me) {
     me._localStalkUntil = now + ab.duration * 1000;
   } else if (ab.type === "reveal") {
     G.scanArrowUntil = now + ab.duration * 1000;
+  } else if (ab.type === "teleport" && !G.testMode) {
+    // Teleport locally on press. Without this, pos messages sent in
+    // the round-trip window overwrite the server-side teleport.
+    // In test mode, applyLocalAbility handles teleport directly so we
+    // skip this to avoid double-applying.
+    const f = facing;
+    const norm = Math.hypot(f.x, f.y) || 1;
+    const fromX = me.x, fromY = me.y;
+    me.x = Math.max(30, Math.min(MAP_W - 30, me.x + (f.x / norm) * ab.distance));
+    me.y = Math.max(30, Math.min(MAP_H - 30, me.y + (f.y / norm) * ab.distance));
+    G.teleportGhosts = G.teleportGhosts || [];
+    G.teleportGhosts.push({ x: fromX, y: fromY, until: now + 400, charId: charIdFor(me), fx: facing.x });
   }
   if (G.testMode) {
     applyLocalAbility(me, ab);

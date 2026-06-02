@@ -575,6 +575,9 @@ function tick() {
     // Slow-field sustained effect on killers standing in a field.
     for (const k of state.players.values()) {
       if (k.role !== "killer" || !k.alive) continue;
+      // Reset stale slow first — previous stun_burst values shouldn't
+      // bleed forward and clobber a weaker field slow.
+      if (now >= k.effects.slowUntil) k.effects.slowMult = 1;
       let bestSlow = 1;
       for (const f of state.slowFields) {
         if (Math.hypot(k.x - f.x, k.y - f.y) <= f.radius) {
