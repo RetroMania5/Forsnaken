@@ -428,11 +428,9 @@
     <div class="subtitle">1 KILLER vs SURVIVORS</div>
     <label>Your name</label>
     <input id="name-input" type="text" maxlength="16" placeholder="Pick a name">
-    <label>Account password</label>
-    <input id="pw-input" type="password" maxlength="32" placeholder="Your account password" autocomplete="current-password">
     <button id="join-btn">Enter Lobby</button>
     <div id="menu-status" class="status"></div>
-    <div class="hint">Same password = same account (coins + unlocks). Account lives in this browser only.</div>
+    <div class="hint">Your coins and unlocks are saved automatically in this browser.</div>
   </div>
   <button id="test-btn">▶ Test a character</button>
   <button id="guide-btn">📖 Guide</button>
@@ -1338,28 +1336,12 @@ function closeGuide() { $("guide").classList.add("hidden"); }
 $("join-btn").addEventListener("click", () => {
   primeAudio();
   const n = $("name-input").value.trim() || randomName();
-  const pw = $("pw-input").value;
-  if (!pw) {
-    $("menu-status").innerHTML = '<span class="error">Pick a password — that\'s your account.</span>';
-    $("pw-input").focus();
-    return;
-  }
-  loadAccount(pw);
   G.name = n; connect();
 });
 $("name-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("pw-input").focus();
-});
-$("pw-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
 });
 $("name-input").value = randomName();
-$("pw-input").addEventListener("input", () => {
-  const pw = $("pw-input").value;
-  if (!pw) { $("menu-status").textContent = ""; return; }
-  const exists = !!localStorage.getItem(accountKey(pw));
-  $("menu-status").textContent = exists ? "Welcome back." : "New account — starts at 0 coins.";
-});
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
@@ -1518,33 +1500,34 @@ const PAYOUT = {
   killer:   { win: 50, loss: 0 },
 };
 const Account = {
-  password: null,
+  loaded: false,
   coins: 0,
   unlocks: [...DEFAULT_UNLOCKS],
 };
-function accountKey(pw) { return "fk:account:" + pw; }
-function loadAccount(pw) {
-  Account.password = pw;
+const ACCOUNT_KEY = "fk:account";
+function loadAccount() {
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(accountKey(pw)) || "null"); } catch {}
+  try { saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || "null"); } catch {}
   if (saved && typeof saved.coins === "number" && Array.isArray(saved.unlocks)) {
     Account.coins = saved.coins;
-    // Ensure defaults are always unlocked (in case we add a new default char later).
+    // Ensure defaults stay unlocked even if we later add new starter chars.
     const set = new Set([...DEFAULT_UNLOCKS, ...saved.unlocks]);
     Account.unlocks = [...set];
   } else {
     Account.coins = 0;
     Account.unlocks = [...DEFAULT_UNLOCKS];
-    saveAccount();
   }
+  Account.loaded = true;
+  saveAccount();
 }
 function saveAccount() {
-  if (!Account.password) return;
-  localStorage.setItem(accountKey(Account.password), JSON.stringify({
+  localStorage.setItem(ACCOUNT_KEY, JSON.stringify({
     coins: Account.coins,
     unlocks: Account.unlocks,
   }));
 }
+// Auto-load on script start so coins/unlocks are ready before any UI shows.
+loadAccount();
 function isUnlocked(charId) { return Account.unlocks.includes(charId); }
 function priceOf(charId) {
   if (DEFAULT_UNLOCKS.includes(charId)) return 0;
@@ -1954,7 +1937,7 @@ function clickPortal(portalId) {
   if (!G.testMode) sendMsg({ type: "ability", slot, portalId });
 }
 function awardRoundPayout(winner) {
-  if (!Account.password) return;        // Test mode / no account
+  if (G.testMode) return;               // No payout in the sandbox.
   const me = G.players.get(G.myId);
   if (!me || (me.role !== "survivor" && me.role !== "killer")) return;
   const won = (me.role === "survivor" && winner === "survivors")
