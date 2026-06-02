@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 8080;
 const TICK_MS = 50;
 
 const MAP = { w: 2400, h: 1600 };
+const WALL_T = 30;
 const GEN_POSITIONS = [
   { x: MAP.w * 0.18,        y: MAP.h * 0.17 },
   { x: MAP.w * (1 - 0.18),  y: MAP.h * 0.17 },
@@ -20,12 +21,56 @@ const GEN_POSITIONS = [
   { x: MAP.w * (1 - 0.18),  y: MAP.h * (1 - 0.17) },
 ];
 
+// Walls and obstacles — duplicated from client so the server can resolve
+// sniper-projectile collisions authoritatively. Must stay in sync with
+// the client's WALLS / OBSTACLES arrays.
+const WALLS = [
+  { x: MAP.w / 2, y: WALL_T / 2, w: MAP.w, h: WALL_T },
+  { x: MAP.w / 2, y: MAP.h - WALL_T / 2, w: MAP.w, h: WALL_T },
+  { x: WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
+  { x: MAP.w - WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
+  { x: MAP.w / 2, y: MAP.h * 0.25, w: MAP.w * 0.55, h: WALL_T },
+  { x: MAP.w / 2, y: MAP.h * 0.75, w: MAP.w * 0.55, h: WALL_T },
+  { x: MAP.w / 3,     y: MAP.h / 2, w: WALL_T, h: MAP.h * 0.33 },
+  { x: 2 * MAP.w / 3, y: MAP.h / 2, w: WALL_T, h: MAP.h * 0.33 },
+];
+const OBSTACLES = [
+  { x: 300,  y: 360,  w: 50, h: 50 },
+  { x: 560,  y: 300,  w: 50, h: 50 },
+  { x: 200,  y: 180,  w: 36, h: 36 },
+  { x: 700,  y: 200,  w: 32, h: 70 },
+  { x: MAP.w - 300, y: 360, w: 50, h: 50 },
+  { x: MAP.w - 560, y: 300, w: 50, h: 50 },
+  { x: MAP.w - 200, y: 180, w: 36, h: 36 },
+  { x: MAP.w - 700, y: 200, w: 32, h: 70 },
+  { x: 300,  y: MAP.h - 360, w: 50, h: 50 },
+  { x: 560,  y: MAP.h - 300, w: 50, h: 50 },
+  { x: 200,  y: MAP.h - 180, w: 36, h: 36 },
+  { x: 700,  y: MAP.h - 200, w: 32, h: 70 },
+  { x: MAP.w - 300, y: MAP.h - 360, w: 50, h: 50 },
+  { x: MAP.w - 560, y: MAP.h - 300, w: 50, h: 50 },
+  { x: MAP.w - 200, y: MAP.h - 180, w: 36, h: 36 },
+  { x: MAP.w - 700, y: MAP.h - 200, w: 32, h: 70 },
+  { x: MAP.w / 2,    y: MAP.h * 0.38, w: 50, h: 50 },
+  { x: MAP.w / 2,    y: MAP.h * 0.62, w: 50, h: 50 },
+  { x: MAP.w * 0.42, y: MAP.h / 2,    w: 50, h: 50 },
+  { x: MAP.w * 0.58, y: MAP.h / 2,    w: 50, h: 50 },
+  { x: MAP.w * 0.3,  y: MAP.h / 2,    w: 36, h: 36 },
+  { x: MAP.w * 0.7,  y: MAP.h / 2,    w: 36, h: 36 },
+];
+
+function pointInRect(x, y, r) {
+  return x >= r.x - r.w / 2 && x <= r.x + r.w / 2 &&
+         y >= r.y - r.h / 2 && y <= r.y + r.h / 2;
+}
+
 // ---- Characters ----
 const SURVIVOR_CHARS = [
   { id: "runner",   name: "Runner",   color: "#ff80c0", speedMult: 1.10, repairMult: 1.00, blurb: "+10% speed" },
   { id: "engineer", name: "Engineer", color: "#ffd84a", speedMult: 1.00, repairMult: 1.30, blurb: "+30% repair" },
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
   { id: "sentinel", name: "Sentinel", color: "#4ad0c0", speedMult: 1.00, repairMult: 0.95, blurb: "slows the killer" },
+  { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -46,6 +91,14 @@ const ABILITIES = {
     { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 10.0 },
     // Slow Field persists until the killer attacks it (or the round ends).
     { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999 },
+  ],
+  sniper: [
+    // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
+    // travels in the supplied aim direction, breaks on the first wall or
+    // obstacle, and stuns the killer for stunDuration seconds on hit.
+    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 900, range: 1600, stunDuration: 10 },
+    // Reload: 5s channel before ammo refills. Only usable at 0 ammo.
+    { id: "reload", name: "Reload", cd: 20, type: "reload_sniper", reloadDuration: 5.0 },
   ],
   engineer: [
     { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
@@ -166,6 +219,9 @@ function onJoin(id, ws, msg) {
     alive: true,
     hp: SURVIVOR_HP_MAX,
     cooldowns: [0, 0],        // ms epoch when ability slot becomes ready
+    mainAttackCdUntil: 0,
+    ammo: 1,                  // sniper-specific; harmless on other chars
+    reloadUntil: 0,
     effects: freshEffects(),
     isHost,
     joinedAt: Date.now(),
@@ -329,11 +385,17 @@ function onAbility(id, msg) {
   const ab = list[slot];
   const now = Date.now();
   if (now < p.cooldowns[slot]) return;
+  // Pre-validate sniper-specific resource gates BEFORE consuming the CD.
+  if (ab.type === "shoot_sniper" && (p.ammo || 0) <= 0) return;
+  if (ab.type === "reload_sniper") {
+    if ((p.ammo || 0) >= 1) return;            // already loaded
+    if (now < (p.reloadUntil || 0)) return;    // already reloading
+  }
   p.cooldowns[slot] = now + ab.cd * 1000;
-  applyAbility(p, ab, slot);
+  applyAbility(p, ab, slot, msg);
 }
 
-function applyAbility(p, ab, slot) {
+function applyAbility(p, ab, slot, msg) {
   const now = Date.now();
   switch (ab.type) {
     case "speed_self":
@@ -454,6 +516,31 @@ function applyAbility(p, ab, slot) {
       });
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius });
       break;
+    case "shoot_sniper": {
+      // Consume 1 ammo. Spawn a projectile in the client-supplied aim direction.
+      p.ammo = Math.max(0, (p.ammo || 0) - 1);
+      const aim = (msg && msg.aim && typeof msg.aim.x === "number") ? msg.aim : p.facing;
+      const aimNorm = Math.hypot(aim.x, aim.y) || 1;
+      const fxn = aim.x / aimNorm, fyn = aim.y / aimNorm;
+      state.projectiles.push({
+        id: state.nextEntityId++,
+        x: p.x + fxn * 22,
+        y: p.y + fyn * 22,
+        vx: fxn * ab.speed,
+        vy: fyn * ab.speed,
+        ownerId: p.id,
+        range: ab.range,
+        dist: 0,
+        kind: "sniper",
+        stunDuration: ab.stunDuration,
+      });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fx: fxn, fy: fyn });
+      break;
+    }
+    case "reload_sniper":
+      p.reloadUntil = now + ab.reloadDuration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
+      break;
   }
 }
 
@@ -508,6 +595,7 @@ function startRound() {
   killer.facing = { x: 1, y: 0 };
   killer.cooldowns = [0, 0];
   killer.mainAttackCdUntil = 0;
+  killer.ammo = 1; killer.reloadUntil = 0;
   killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
@@ -522,6 +610,7 @@ function startRound() {
     p.facing = { x: 1, y: 0 };
     p.cooldowns = [0, 0];
     p.mainAttackCdUntil = 0;
+    p.ammo = 1; p.reloadUntil = 0;
     p.effects = freshEffects();
   });
 
@@ -607,25 +696,66 @@ function tick() {
     for (const f of state.slowFields) f.ttl -= dt;
     state.slowFields = state.slowFields.filter(f => f.ttl > 0);
 
-    // Projectiles
+    // Projectiles. Sub-step so fast bullets don't tunnel through 30px walls.
     const survivors = [...state.players.values()].filter(p => p.role === "survivor" && p.alive);
+    const killers   = [...state.players.values()].filter(p => p.role === "killer"   && p.alive);
     const projHits = [];
+    const broken = [];
+    const STEPS = 5;
     state.projectiles = state.projectiles.filter(pr => {
-      pr.x += pr.vx * dt;
-      pr.y += pr.vy * dt;
-      pr.dist += Math.hypot(pr.vx, pr.vy) * dt;
-      if (pr.dist > pr.range) return false;
-      if (pr.x < 0 || pr.x > MAP.w || pr.y < 0 || pr.y > MAP.h) return false;
-      for (const s of survivors) {
-        if (Math.hypot(s.x - pr.x, s.y - pr.y) < 22) {
-          const att = state.players.get(pr.ownerId);
-          if (att) projHits.push({ s, dmg: pr.damage, att });
-          return false;
+      const sx = pr.vx * dt / STEPS;
+      const sy = pr.vy * dt / STEPS;
+      const stepLen = Math.hypot(sx, sy);
+      for (let i = 0; i < STEPS; i++) {
+        pr.x += sx; pr.y += sy; pr.dist += stepLen;
+        if (pr.dist > pr.range) return false;
+        if (pr.x < 0 || pr.x > MAP.w || pr.y < 0 || pr.y > MAP.h) return false;
+        if (pr.kind === "sniper") {
+          // Bullet breaks on the first wall or obstacle.
+          for (const w of WALLS) {
+            if (pointInRect(pr.x, pr.y, w)) {
+              broken.push({ id: pr.id, x: pr.x, y: pr.y });
+              return false;
+            }
+          }
+          for (const o of OBSTACLES) {
+            if (pointInRect(pr.x, pr.y, o)) {
+              broken.push({ id: pr.id, x: pr.x, y: pr.y });
+              return false;
+            }
+          }
+          // Stun the killer on hit (no damage).
+          for (const k of killers) {
+            if (Math.hypot(k.x - pr.x, k.y - pr.y) < 22) {
+              k.effects.slowMult = 0.05;
+              k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, Date.now() + pr.stunDuration * 1000);
+              broadcast({ type: "stun", id: k.id, by: pr.ownerId, duration: pr.stunDuration });
+              return false;
+            }
+          }
+        } else {
+          // Throw Knife (Slasher): hits survivors.
+          for (const s of survivors) {
+            if (Math.hypot(s.x - pr.x, s.y - pr.y) < 22) {
+              const att = state.players.get(pr.ownerId);
+              if (att) projHits.push({ s, dmg: pr.damage, att });
+              return false;
+            }
+          }
         }
       }
       return true;
     });
     for (const h of projHits) applyDamage(h.s, h.dmg, h.att);
+    if (broken.length > 0) broadcast({ type: "projectile_break", projectiles: broken });
+
+    // Reload completion (sniper).
+    for (const p of state.players.values()) {
+      if (p.reloadUntil && now >= p.reloadUntil) {
+        p.ammo = 1;
+        p.reloadUntil = 0;
+      }
+    }
 
     // Smokes
     for (const sm of state.smokes) sm.ttl -= dt;
@@ -647,11 +777,14 @@ function tick() {
           re: now < p.effects.revealedUntil ? 1 : 0,
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
           sm: (p.role === "killer" && now < p.effects.slowUntil) ? +p.effects.slowMult.toFixed(2) : 1,
+          am: p.ammo || 0,
+          rl: p.reloadUntil || 0,
         })),
         progress: state.generators.map(g => +g.progress.toFixed(3)),
         projectiles: state.projectiles.map(pr => ({
           id: pr.id, x: Math.round(pr.x), y: Math.round(pr.y),
           vx: +pr.vx.toFixed(1), vy: +pr.vy.toFixed(1),
+          k: pr.kind || null,
         })),
         smokes: state.smokes.map(sm => ({
           id: sm.id, x: sm.x, y: sm.y, radius: sm.radius, ttl: +sm.ttl.toFixed(2),

@@ -237,6 +237,22 @@
     font-size: 16px; font-weight: 800;
   }
   .slot.main { background: rgba(233,69,96,0.45); border-color: rgba(255,255,255,0.4); }
+  .slot.disabled, .mob-ab.disabled { opacity: 0.45; filter: grayscale(0.6); }
+  .slot.aim-active, .mob-ab.aim-active { border-color: #ffd060; box-shadow: 0 0 0 2px rgba(255,208,96,0.4); }
+  .reload-fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: rgba(120,200,255,0.45);
+    pointer-events: none;
+  }
+  .ammo-dots {
+    position: absolute; top: 2px; right: 4px;
+    display: flex; gap: 2px;
+  }
+  .ammo-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #ffd060; box-shadow: 0 0 2px rgba(0,0,0,0.6);
+  }
+  .ammo-dot.empty { background: rgba(255,255,255,0.18); box-shadow: none; }
 
   /* Mobile ability buttons */
   body.touch #mobile-abilities {
@@ -316,8 +332,8 @@
   </div>
   <div class="ability-row" id="ability-row">
     <div class="slot main hidden" id="slot-main"><div class="key">Q</div><div class="name">—</div><div class="cd hidden">0</div></div>
-    <div class="slot" id="slot-0"><div class="key">1</div><div class="name">—</div><div class="cd hidden">0</div></div>
-    <div class="slot" id="slot-1"><div class="key">2</div><div class="name">—</div><div class="cd hidden">0</div></div>
+    <div class="slot" id="slot-0"><div class="key">1</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
+    <div class="slot" id="slot-1"><div class="key">2</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
   </div>
   <div class="hud-prompt hidden" id="hud-prompt"></div>
   <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div></div>
@@ -328,8 +344,8 @@
 <div id="touch-controls" class="hidden">
   <div id="joystick"><div class="base"></div><div class="knob" id="knob"></div></div>
   <div id="mobile-abilities">
-    <button class="mob-ab" id="mob-ab-1"><span id="mob-ab-1-name">—</span><div class="cd hidden">0</div></button>
-    <button class="mob-ab" id="mob-ab-0"><span id="mob-ab-0-name">—</span><div class="cd hidden">0</div></button>
+    <button class="mob-ab" id="mob-ab-1"><span id="mob-ab-1-name">—</span><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></button>
+    <button class="mob-ab" id="mob-ab-0"><span id="mob-ab-0-name">—</span><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></button>
   </div>
   <button id="action-btn"><span id="action-label">—</span><div class="cd hidden" id="action-cd">0</div></button>
 </div>
@@ -396,6 +412,11 @@
       <div class="gd-head"><span class="dot" style="background:#4ad0c0"></span><b>Sentinel</b><span class="gd-muted">slows the killer (-5% repair)</span></div>
       <div class="gd-ab"><b>1 — Stun Burst</b>: instant aoe, killers within 180px are slowed to 50% speed for <b>10s</b>. CD 12s.</div>
       <div class="gd-ab"><b>2 — Slow Field</b>: drop a frost field where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts until the killer destroys it with a basic attack</b> (or the round ends). CD 18s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
+      <div class="gd-ab"><b>1 — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts to where you're looking — steer with WASD / joystick). <b>Tap again to fire</b> a bullet in the aim direction. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Costs 1 ammo. CD 25s (starts on fire).</div>
+      <div class="gd-ab"><b>2 — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. While aiming, this button cancels aim.</div>
     </div>
 
     <div class="gd-h">KILLERS</div>
@@ -530,12 +551,13 @@ const ACTION_HOLD_MS = 320;
 
 // Per-character pixel-art palette + features. Side-view, faces right by default.
 const CHAR_VISUALS = {
-  runner:   { skin: "#f4c8a0", shirt: "#ff80c0", pants: "#4a2040", hair: "#3a1828", hat: null,    weapon: null   },
-  engineer: { skin: "#e0b890", shirt: "#ffd84a", pants: "#7a5520", hair: "#a06030", hat: "helmet", weapon: null   },
-  scout:    { skin: "#f0d0b0", shirt: "#6cb6ff", pants: "#2d4a7a", hair: "#3a3025", hat: null,    weapon: null   },
-  sentinel: { skin: "#e0c0a0", shirt: "#4ad0c0", pants: "#1a4a4a", hair: "#3a2820", hat: "visor", weapon: null   },
-  slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",  weapon: "knife"},
-  stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",  weapon: "claws"},
+  runner:   { skin: "#f4c8a0", shirt: "#ff80c0", pants: "#4a2040", hair: "#3a1828", hat: null,      weapon: null    },
+  engineer: { skin: "#e0b890", shirt: "#ffd84a", pants: "#7a5520", hair: "#a06030", hat: "helmet",  weapon: null    },
+  scout:    { skin: "#f0d0b0", shirt: "#6cb6ff", pants: "#2d4a7a", hair: "#3a3025", hat: null,      weapon: null    },
+  sentinel: { skin: "#e0c0a0", shirt: "#4ad0c0", pants: "#1a4a4a", hair: "#3a2820", hat: "visor",   weapon: null    },
+  sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
+  slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
+  stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
 };
 let sprites = {}; // charId -> { idle, walkA, walkB, action }  (offscreen canvases)
 
@@ -556,6 +578,7 @@ const G = {
   smokes: [],
   slowFields: [],
   fieldBreaks: [],
+  bulletBreaks: [],
   scanArrowUntil: 0,
   designatedKillerId: null,
   survivorChars: [],   // from welcome
@@ -574,6 +597,12 @@ const G = {
   cooldowns: [0, 0],   // local CD timestamps (perf.now() ms)
   mainAttackCd: 0,     // local main attack CD timestamp
   stamina: 100,
+  // Sniper-specific local state.
+  aiming: false,
+  aimDir: { x: 1, y: 0 },
+  ammo: 1,
+  reloadUntil: 0,      // perf.now() ms (mirrors server)
+  reloadDuration: 5,   // last reload duration for progress bar
   // Skill check local state
   dialAngle: 0,
   lastSkillAt: 0,
@@ -610,6 +639,24 @@ function inputVector() {
     if (m > 1) { x /= m; y /= m; }
   }
   return { x, y };
+}
+
+// Aim direction: same input sources as movement, but normalized to a unit
+// vector. Returns null when no input is held so the reticle stays put.
+function aimVector() {
+  if (joystick.active) {
+    const m = Math.hypot(joystick.x, joystick.y);
+    if (m < 0.05) return null;
+    return { x: joystick.x / m, y: joystick.y / m };
+  }
+  let x = 0, y = 0;
+  if (keys["w"] || keys["arrowup"]) y -= 1;
+  if (keys["s"] || keys["arrowdown"]) y += 1;
+  if (keys["a"] || keys["arrowleft"]) x -= 1;
+  if (keys["d"] || keys["arrowright"]) x += 1;
+  const m = Math.hypot(x, y);
+  if (m < 0.05) return null;
+  return { x: x / m, y: y / m };
 }
 function sprinting() {
   if (joystick.active) {
@@ -807,6 +854,20 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "rgba(233,69,96,0.7)";
     sx.fillRect(cx + 14, 20, 5, 1);
   }
+  // Sniper rifle: drawn whether idle or action (always shouldered).
+  if (v.weapon === "rifle") {
+    const ry = isAction ? 18 : 24;
+    sx.fillStyle = "#3a3a44";
+    sx.fillRect(cx + 6, ry, 14, 2);
+    sx.fillStyle = "#5a4030";
+    sx.fillRect(cx + 6, ry + 2, 4, 3);   // stock
+    sx.fillStyle = "#1a1a22";
+    sx.fillRect(cx + 14, ry - 1, 2, 2);  // scope
+    if (isAction) {
+      sx.fillStyle = "#fff7a0";
+      sx.fillRect(cx + 20, ry, 3, 2);    // muzzle flash
+    }
+  }
 
   // Head
   sx.fillStyle = v.skin;
@@ -849,6 +910,18 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = v.hair;
     sx.fillRect(cx - 6, 9, 1, 5);
     sx.fillRect(cx + 5, 9, 1, 5);
+  } else if (v.hat === "goggles") {
+    // Sniper: scope goggles with hair tuft
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 5, 7, 10, 3);
+    sx.fillStyle = "#222";
+    sx.fillRect(cx - 5, 10, 4, 3);   // left lens
+    sx.fillRect(cx + 1, 10, 4, 3);   // right lens
+    sx.fillStyle = "#7af";
+    sx.fillRect(cx - 4, 11, 2, 1);   // lens glint
+    sx.fillRect(cx + 2, 11, 2, 1);
+    sx.fillStyle = "#222";
+    sx.fillRect(cx - 5, 12, 10, 1);  // strap
   } else if (v.hat === "mask") {
     sx.fillStyle = "#f4f4f4";
     sx.fillRect(cx - 5, 8, 10, 7);
@@ -927,6 +1000,9 @@ function onMessage(msg) {
       G.phase = "playing";
       G.cooldowns = [0, 0];
       G.mainAttackCd = 0;
+      G.aiming = false;
+      G.ammo = 1;
+      G.reloadUntil = 0;
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
         remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
@@ -957,9 +1033,22 @@ function onMessage(msg) {
           p.revealed = !!s.re;
           p.hiddenInSmoke = !!s.hd;
           p.slowMult = typeof s.sm === "number" ? s.sm : 1;
+          p.ammo = typeof s.am === "number" ? s.am : (p.ammo == null ? 1 : p.ammo);
+          p.reloadingUntilServer = typeof s.rl === "number" ? s.rl : 0;
           // Only the killer's view hides survivors in smoke (and not themselves).
           p.hiddenFromMe = iAmKiller && s.id !== G.myId && p.hiddenInSmoke;
-          if (s.id !== G.myId) {
+          if (s.id === G.myId) {
+            // Mirror server's authoritative ammo/reload state locally.
+            if (typeof s.am === "number") G.ammo = s.am;
+            if (typeof s.rl === "number" && s.rl > 0) {
+              // Server gives an epoch-ms deadline; convert to perf.now() ms.
+              const delta = s.rl - Date.now();
+              G.reloadUntil = performance.now() + Math.max(0, delta);
+            } else {
+              G.reloadUntil = 0;
+            }
+            if (!p.alive && G.aiming) G.aiming = false;
+          } else {
             remoteLerp.set(s.id, { x: s.x, y: s.y, fx: s.fx, fy: s.fy });
           }
         }
@@ -1001,11 +1090,23 @@ function onMessage(msg) {
       const a = G.players.get(msg.by);
       if (a && a._anim) a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
       if (typeof msg.timer === "number") G.timer = msg.timer;
+      if (msg.id === G.myId) G.aiming = false;
       break;
     }
     case "over":
       G.phase = "over"; G.winner = msg.winner;
+      G.aiming = false;
       showBanner(msg.winner);
+      break;
+    case "stun": {
+      const v = G.players.get(msg.id);
+      if (v) v.stunnedUntil = performance.now() + (msg.duration || 0) * 1000;
+      break;
+    }
+    case "projectile_break":
+      for (const b of (msg.projectiles || [])) {
+        G.bulletBreaks.push({ x: b.x, y: b.y, until: performance.now() + 350 });
+      }
       break;
     case "field_break":
       for (const f of (msg.fields || [])) {
@@ -1167,6 +1268,10 @@ function startTestMode() {
   G.mainAttackCd = 0;
   G.stamina = maxStamFor(me);
   G.projectiles = []; G.smokes = []; G.slowFields = []; G.teleportGhosts = [];
+  G.bulletBreaks = [];
+  G.aiming = false;
+  G.ammo = 1;
+  G.reloadUntil = 0;
   // 5 practice generators, positioned proportionally so they scale with map.
   G.gens = [
     { x: MAP_W * 0.18, y: MAP_H * 0.14, progress: 0, done: false },
@@ -1191,7 +1296,7 @@ function exitTestMode() {
 }
 
 // Local ability simulation (used in test mode where there's no server).
-function applyLocalAbility(me, ab) {
+function applyLocalAbility(me, ab, aim) {
   const now = performance.now();
   switch (ab.type) {
     case "speed_self":
@@ -1256,6 +1361,23 @@ function applyLocalAbility(me, ab) {
         id: ++G.localEntityId, x: me.x, y: me.y,
         radius: ab.radius, slowMult: ab.slowMult, ttl: ab.duration,
       });
+      break;
+    case "shoot_sniper": {
+      const a = aim || facing;
+      const n = Math.hypot(a.x, a.y) || 1;
+      const fxn = a.x / n, fyn = a.y / n;
+      G.projectiles.push({
+        id: ++G.localEntityId,
+        x: me.x + fxn * 22, y: me.y + fyn * 22,
+        vx: fxn * ab.speed, vy: fyn * ab.speed,
+        dist: 0, range: ab.range,
+        kind: "sniper",
+      });
+      break;
+    }
+    case "reload_sniper":
+      // Local prediction already set G.reloadUntil; complete the refill on time.
+      setTimeout(() => { G.ammo = 1; }, ab.reloadDuration * 1000);
       break;
   }
 }
@@ -1432,6 +1554,12 @@ function gameTick(now) {
     const me = G.players.get(G.myId);
     if (me && me.alive) {
       const v = inputVector();
+      // While aiming the sniper, input steers the reticle instead of the player.
+      if (G.aiming) {
+        const a = aimVector();
+        if (a) { G.aimDir = a; facing = { x: a.x, y: a.y }; }
+        G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
+      } else {
       const moving = (v.x !== 0 || v.y !== 0);
       const wantSprint = sprinting() && moving;
       const myMaxStam = maxStamFor(me);
@@ -1454,6 +1582,7 @@ function gameTick(now) {
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
       stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
       if (moving) facing = { x: v.x, y: v.y };
+      }
 
       // Skill check
       if (G.skillQueued && me.role === "survivor") {
@@ -1510,14 +1639,30 @@ function gameTick(now) {
       G.projectiles = G.projectiles.filter(pr => {
         if ((pr.dist || 0) >= (pr.range || 600)) return false;
         if (pr.x < 0 || pr.x > MAP_W || pr.y < 0 || pr.y > MAP_H) return false;
-        for (const p of G.players.values()) {
-          if (p.id === G.myId) continue;
-          if (p.role !== "survivor" || !p.alive) continue;
-          if (Math.hypot(p.x - pr.x, p.y - pr.y) < 22) {
-            p.hp = Math.max(0, (p.hp || 0) - (pr.damage || 0));
-            p.hitFlashUntil = tnow + 250;
-            if (p.hp <= 0) { p.alive = false; p._downAt = tnow; }
-            return false;
+        // Sniper bullets break on walls/obstacles even in test mode.
+        if (pr.kind === "sniper") {
+          for (const w of WALLS) {
+            if (pointInRect(pr.x, pr.y, w)) {
+              G.bulletBreaks.push({ x: pr.x, y: pr.y, until: tnow + 350 });
+              return false;
+            }
+          }
+          for (const o of OBSTACLES) {
+            if (pointInRect(pr.x, pr.y, o)) {
+              G.bulletBreaks.push({ x: pr.x, y: pr.y, until: tnow + 350 });
+              return false;
+            }
+          }
+        } else {
+          for (const p of G.players.values()) {
+            if (p.id === G.myId) continue;
+            if (p.role !== "survivor" || !p.alive) continue;
+            if (Math.hypot(p.x - pr.x, p.y - pr.y) < 22) {
+              p.hp = Math.max(0, (p.hp || 0) - (pr.damage || 0));
+              p.hitFlashUntil = tnow + 250;
+              if (p.hp <= 0) { p.alive = false; p._downAt = tnow; }
+              return false;
+            }
           }
         }
         return true;
@@ -1606,6 +1751,51 @@ function tryFireAbility(slot, me) {
   const ab = list[slot];
   if (!ab) return;
   const now = performance.now();
+
+  // Sniper: shoot is a two-step aim-then-fire; cooldown only spent on fire.
+  if (ab.type === "shoot_sniper") {
+    if ((G.ammo | 0) <= 0) return;
+    if (!G.aiming) {
+      // First press: enter aim mode. Seed direction from current facing.
+      G.aiming = true;
+      const f = facing;
+      const n = Math.hypot(f.x, f.y) || 1;
+      G.aimDir = { x: f.x / n, y: f.y / n };
+      return;
+    }
+    if (now < G.cooldowns[slot]) return;
+    G.cooldowns[slot] = now + ab.cd * 1000;
+    if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+    // Predict ammo consumption locally so the slot greys out instantly.
+    G.ammo = 0;
+    G.aiming = false;
+    const aim = { x: G.aimDir.x, y: G.aimDir.y };
+    facing = aim;
+    if (G.testMode) {
+      applyLocalAbility(me, ab, aim);
+    } else {
+      sendMsg({ type: "ability", slot, aim });
+    }
+    return;
+  }
+  if (ab.type === "reload_sniper") {
+    // While aiming, this button doubles as a cancel — don't actually reload.
+    if (G.aiming) { G.aiming = false; return; }
+    if ((G.ammo | 0) >= 1) return;
+    if (now < (G.reloadUntil || 0)) return;
+    if (now < G.cooldowns[slot]) return;
+    G.cooldowns[slot] = now + ab.cd * 1000;
+    G.reloadDuration = ab.reloadDuration;
+    G.reloadUntil = now + ab.reloadDuration * 1000;
+    if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+    if (G.testMode) {
+      applyLocalAbility(me, ab);
+    } else {
+      sendMsg({ type: "ability", slot });
+    }
+    return;
+  }
+
   if (now < G.cooldowns[slot]) return;
   G.cooldowns[slot] = now + ab.cd * 1000;
   if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
@@ -1682,6 +1872,10 @@ function stepWithCollision(p, dx, dy) {
   p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
   p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
 }
+function pointInRect(x, y, r) {
+  return x >= r.x - r.w / 2 && x <= r.x + r.w / 2 &&
+         y >= r.y - r.h / 2 && y <= r.y + r.h / 2;
+}
 function circleVsRect(cx, cy, r, w) {
   const left = w.x - w.w / 2, right = w.x + w.w / 2;
   const top = w.y - w.h / 2, bottom = w.y + w.h / 2;
@@ -1720,8 +1914,15 @@ function render() {
   if (G.phase !== "playing" && G.phase !== "over") return;
 
   const me = G.players.get(G.myId);
-  const camX = me ? me.x : MAP_W / 2;
-  const camY = me ? me.y : MAP_H / 2;
+  let camX = me ? me.x : MAP_W / 2;
+  let camY = me ? me.y : MAP_H / 2;
+  // While aiming the sniper, push the camera out along the aim direction
+  // so the player can "look down" their shot.
+  if (me && G.aiming) {
+    const CAM_OFFSET = 340;
+    camX += G.aimDir.x * CAM_OFFSET;
+    camY += G.aimDir.y * CAM_OFFSET;
+  }
   const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
 
   ctx.save();
@@ -1775,6 +1976,10 @@ function render() {
   drawSmokes();
   // Scan arrow (in world space above the local player)
   drawScanArrow();
+  // Sniper aim reticle (in world space, only while local sniper is aiming)
+  drawAimReticle();
+  // Bullet break sparks (sniper projectile hit a wall/obstacle)
+  drawBulletBreaks();
 
   ctx.restore();
 
@@ -1850,12 +2055,24 @@ function drawProjectiles() {
     ctx.save();
     ctx.translate(pr.x, pr.y);
     ctx.rotate(ang);
-    ctx.fillStyle = "#dddddd";
-    ctx.fillRect(-10, -1, 14, 3);
-    ctx.fillStyle = "#7a5524";
-    ctx.fillRect(-10, -2, 4, 5);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(4, -1, 6, 1);
+    const kind = pr.k || pr.kind;
+    if (kind === "sniper") {
+      // Bright bullet with a streak tail.
+      ctx.fillStyle = "rgba(255,220,140,0.7)";
+      ctx.fillRect(-22, -1, 18, 2);
+      ctx.fillStyle = "#fff7c8";
+      ctx.fillRect(-4, -2, 8, 4);
+      ctx.fillStyle = "#ffd860";
+      ctx.fillRect(4, -1, 4, 2);
+    } else {
+      // Throw Knife
+      ctx.fillStyle = "#dddddd";
+      ctx.fillRect(-10, -1, 14, 3);
+      ctx.fillStyle = "#7a5524";
+      ctx.fillRect(-10, -2, 4, 5);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(4, -1, 6, 1);
+    }
     ctx.restore();
   }
 }
@@ -1931,6 +2148,63 @@ function drawSlowFields() {
       const sy = b.y + Math.sin(a) * r;
       ctx.fillRect(sx - 2, sy - 2, 4, 4);
     }
+  }
+}
+
+function drawAimReticle() {
+  if (!G.aiming) return;
+  const me = G.players.get(G.myId);
+  if (!me || !me.alive) return;
+  const now = performance.now();
+  const range = 600;
+  const ex = me.x + G.aimDir.x * range;
+  const ey = me.y + G.aimDir.y * range;
+
+  // Trace from player to reticle
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,200,80,0.35)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath();
+  ctx.moveTo(me.x, me.y - 6);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Reticle crosshair
+  const pulse = 1 + Math.sin(now * 0.012) * 0.08;
+  ctx.translate(ex, ey);
+  ctx.scale(pulse, pulse);
+  ctx.strokeStyle = "rgba(255,80,80,0.95)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-22, 0); ctx.lineTo(-8, 0);
+  ctx.moveTo(8, 0);   ctx.lineTo(22, 0);
+  ctx.moveTo(0, -22); ctx.lineTo(0, -8);
+  ctx.moveTo(0, 8);   ctx.lineTo(0, 22);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,80,80,0.95)";
+  ctx.fillRect(-1, -1, 2, 2);
+  ctx.restore();
+}
+
+function drawBulletBreaks() {
+  const now = performance.now();
+  G.bulletBreaks = G.bulletBreaks.filter(b => now < b.until);
+  for (const b of G.bulletBreaks) {
+    const t = (b.until - now) / 350;
+    const r = 4 + (1 - t) * 10;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,220,160,${t})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(255,240,200,${t})`;
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ctx.fillRect(b.x + Math.cos(a) * r - 1, b.y + Math.sin(a) * r - 1, 2, 2);
+    }
+    ctx.restore();
   }
 }
 
@@ -2019,6 +2293,33 @@ function drawPlayer(p) {
       ctx.setLineDash([6, 4]);
       ctx.beginPath(); ctx.arc(p.x, p.y, 30, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
+      ctx.restore();
+    }
+    // Sniper stun: bright shock ring + spinning stars above head
+    if (p.role === "killer" && p.stunnedUntil && now < p.stunnedUntil) {
+      ctx.save();
+      const t = (p.stunnedUntil - now) / 1000;
+      const pulse = 1 + Math.sin(now * 0.02) * 0.15;
+      ctx.strokeStyle = "rgba(255,230,90,0.95)";
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 24 * pulse, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,140,40,0.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 30 * pulse, 0, Math.PI * 2); ctx.stroke();
+      // Spinning stars
+      ctx.fillStyle = "rgba(255,230,90,0.95)";
+      for (let i = 0; i < 3; i++) {
+        const a = now * 0.005 + i * (Math.PI * 2 / 3);
+        const sx = p.x + Math.cos(a) * 18;
+        const sy = p.y - 32 + Math.sin(a) * 5;
+        ctx.fillRect(sx - 2, sy - 2, 4, 4);
+      }
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+      ctx.font = "bold 11px system-ui"; ctx.textAlign = "center";
+      const lbl = `STUNNED ${t.toFixed(1)}s`;
+      ctx.strokeText(lbl, p.x, p.y - 44);
+      ctx.fillText(lbl, p.x, p.y - 44);
       ctx.restore();
     }
     // Slow effect on killer: icy frost aura
@@ -2257,10 +2558,21 @@ function updateAbilitySlots(me) {
       slot.querySelector(".cd").classList.add("hidden");
       mob.querySelector("span").textContent = "—";
       mob.querySelector(".cd").classList.add("hidden");
+      slot.classList.remove("disabled", "aim-active");
+      mob.classList.remove("disabled", "aim-active");
+      slot.querySelector(".ammo-dots").classList.add("hidden");
+      mob.querySelector(".ammo-dots").classList.add("hidden");
+      slot.querySelector(".reload-fill").style.height = "0";
+      mob.querySelector(".reload-fill").style.height = "0";
       continue;
     }
-    slot.querySelector(".name").textContent = ab.name;
-    mob.querySelector("span").textContent = ab.name;
+    // Sniper Shoot in "tap to fire" state: relabel to FIRE while aiming.
+    let label = ab.name;
+    if (ab.type === "shoot_sniper" && G.aiming) label = "Fire";
+    if (ab.type === "reload_sniper" && G.aiming) label = "Cancel";
+    slot.querySelector(".name").textContent = label;
+    mob.querySelector("span").textContent = label;
+
     const cdLeft = Math.max(0, G.cooldowns[i] - now) / 1000;
     if (cdLeft > 0) {
       slot.querySelector(".cd").classList.remove("hidden");
@@ -2270,6 +2582,60 @@ function updateAbilitySlots(me) {
     } else {
       slot.querySelector(".cd").classList.add("hidden");
       mob.querySelector(".cd").classList.add("hidden");
+    }
+
+    // Sniper-specific state: gating, ammo dots, reload progress.
+    const isShoot = ab.type === "shoot_sniper";
+    const isReload = ab.type === "reload_sniper";
+    const sDots = slot.querySelector(".ammo-dots");
+    const mDots = mob.querySelector(".ammo-dots");
+    const sFill = slot.querySelector(".reload-fill");
+    const mFill = mob.querySelector(".reload-fill");
+
+    if (isShoot) {
+      // Greyed when out of ammo (and not currently in fire-pending aim).
+      const gated = G.ammo <= 0 && !G.aiming;
+      slot.classList.toggle("disabled", gated);
+      mob.classList.toggle("disabled", gated);
+      slot.classList.toggle("aim-active", !!G.aiming);
+      mob.classList.toggle("aim-active", !!G.aiming);
+      // 1-ammo display dot.
+      sDots.classList.remove("hidden");
+      mDots.classList.remove("hidden");
+      const dot = G.ammo > 0
+        ? `<div class="ammo-dot"></div>`
+        : `<div class="ammo-dot empty"></div>`;
+      sDots.innerHTML = dot;
+      mDots.innerHTML = dot;
+      sFill.style.height = "0";
+      mFill.style.height = "0";
+    } else if (isReload) {
+      // Greyed when you already have ammo; while reloading, show progress bar.
+      const reloading = now < (G.reloadUntil || 0);
+      const gated = (G.ammo > 0 && !G.aiming) || reloading;
+      slot.classList.toggle("disabled", gated);
+      mob.classList.toggle("disabled", gated);
+      slot.classList.remove("aim-active");
+      mob.classList.remove("aim-active");
+      sDots.classList.add("hidden");
+      mDots.classList.add("hidden");
+      if (reloading) {
+        const total = (G.reloadDuration || 5) * 1000;
+        const left = G.reloadUntil - now;
+        const pct = Math.max(0, Math.min(1, 1 - left / total));
+        sFill.style.height = (pct * 100) + "%";
+        mFill.style.height = (pct * 100) + "%";
+      } else {
+        sFill.style.height = "0";
+        mFill.style.height = "0";
+      }
+    } else {
+      slot.classList.remove("disabled", "aim-active");
+      mob.classList.remove("disabled", "aim-active");
+      sDots.classList.add("hidden");
+      mDots.classList.add("hidden");
+      sFill.style.height = "0";
+      mFill.style.height = "0";
     }
   }
 }
