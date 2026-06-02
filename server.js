@@ -39,11 +39,11 @@ const SURVIVOR_HP_MAX = 100;
 // type drives applyAbility's switch. cd is in seconds.
 const ABILITIES = {
   runner: [
-    { id: "dash",  name: "Dash",       cd: 5,  type: "speed_self",  mult: 2.5,   duration: 0.8 },
-    { id: "smoke", name: "Smoke Bomb", cd: 12, type: "smoke",       radius: 260, duration: 3.5 },
+    { id: "dash",  name: "Dash",       cd: 8,  type: "speed_self",  mult: 2.5,   duration: 0.8 },
+    { id: "smoke", name: "Smoke Bomb", cd: 20, type: "smoke",       radius: 260, duration: 3.5 },
   ],
   sentinel: [
-    { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 3.0 },
+    { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 10.0 },
     // Slow Field persists until the killer attacks it (or the round ends).
     { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999 },
   ],
@@ -66,8 +66,8 @@ const ABILITIES = {
 };
 
 // ---- Round ----
-const ROUND_DURATION = 180;
-const TIME_PER_GEN = -30;
+const ROUND_DURATION = 360;   // 6 minutes
+const TIME_PER_GEN = -20;
 const TIME_PER_DOWN = +25;
 const RESULT_HOLD_MS = 5000;
 
@@ -586,7 +586,8 @@ function tick() {
       }
       if (bestSlow < 1) {
         k.effects.slowMult = Math.min(k.effects.slowMult, bestSlow);
-        k.effects.slowUntil = Math.max(k.effects.slowUntil, now + 250); // refresh while inside
+        // Slow lingers ~5s after leaving the field.
+        k.effects.slowUntil = Math.max(k.effects.slowUntil, now + 5000);
       }
     }
 
