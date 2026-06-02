@@ -205,6 +205,13 @@ const server = http.createServer((req, res) => {
     return sendFile(res, "index.html", "text/html; charset=utf-8");
   }
   if (url === "/health") { res.writeHead(200); res.end("ok"); return; }
+  if (url.startsWith("/music/")) {
+    const file = url.slice("/music/".length);
+    if (!/^[a-zA-Z0-9_]+\.mp3$/.test(file)) {
+      res.writeHead(400); res.end("bad name"); return;
+    }
+    return sendFile(res, path.join("music", file), "audio/mpeg", "public, max-age=86400");
+  }
   if (url === "/chars") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({
@@ -218,10 +225,14 @@ const server = http.createServer((req, res) => {
   }
   res.writeHead(404); res.end("not found");
 });
-function sendFile(res, name, type) {
+function sendFile(res, name, type, cache) {
   fs.readFile(path.join(__dirname, name), (err, data) => {
-    if (err) { res.writeHead(500); res.end(); return; }
-    res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
+    if (err) { res.writeHead(err.code === "ENOENT" ? 404 : 500); res.end(); return; }
+    res.writeHead(200, {
+      "Content-Type": type,
+      "Cache-Control": cache || "no-store",
+      "Content-Length": data.length,
+    });
     res.end(data);
   });
 }

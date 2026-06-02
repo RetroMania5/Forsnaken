@@ -999,6 +999,8 @@ function onMessage(msg) {
       G.phase = msg.phase || "lobby";
       G.designatedKillerId = msg.designatedKillerId;
       mergeRoster(msg.players);
+      // Round is over or hasn't started — stop the mix.
+      if (G.phase === "lobby") stopMusic();
       if (hudEl.classList.contains("hidden")) {
         showOnly(lobbyEl); renderLobby();
       } else {
@@ -1031,6 +1033,14 @@ function onMessage(msg) {
       hudEl.classList.remove("hidden");
       if (document.body.classList.contains("touch")) touchEl.classList.remove("hidden");
       $("hud-banner").classList.add("hidden");
+      // Music: find this round's killer and start the layered mix.
+      {
+        let killerChar = null;
+        for (const p of G.players.values()) {
+          if (p.role === "killer") { killerChar = p.killerChar; break; }
+        }
+        if (killerChar) { setupMusic(killerChar); startMusic(); }
+      }
       break;
     case "state":
       G.timer = msg.timer;
@@ -1177,6 +1187,7 @@ function openGuide() { $("guide").classList.remove("hidden"); }
 function closeGuide() { $("guide").classList.add("hidden"); }
 
 $("join-btn").addEventListener("click", () => {
+  primeAudio();
   const n = $("name-input").value.trim() || randomName();
   G.name = n; connect();
 });
@@ -1184,7 +1195,7 @@ $("name-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
 });
 $("name-input").value = randomName();
-$("start-btn").addEventListener("click", () => sendMsg({ type: "start" }));
+$("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
 $("guide-btn").addEventListener("click", openGuide);
@@ -1196,6 +1207,7 @@ function leaveRoom() {
   if (G.ws) { try { G.ws.send(JSON.stringify({ type: "leave" })); G.ws.close(); } catch {} }
   G.players.clear(); remoteLerp.clear();
   G.phase = "menu";
+  stopMusic();
   showOnly(menuEl);
   $("menu-status").textContent = "";
 }
@@ -1211,7 +1223,7 @@ $("test-btn").addEventListener("click", () => {
   buildTestCharRow();
 });
 $("test-back-btn").addEventListener("click", () => showOnly(menuEl));
-$("test-start-btn").addEventListener("click", startTestMode);
+$("test-start-btn").addEventListener("click", () => { primeAudio(); startTestMode(); });
 for (const pill of $("test-role-row").querySelectorAll(".pill")) {
   pill.addEventListener("click", () => {
     G.testRole = pill.dataset.role;
@@ -1304,6 +1316,15 @@ function startTestMode() {
   hudEl.classList.remove("hidden");
   if (document.body.classList.contains("touch")) touchEl.classList.remove("hidden");
   $("hud-banner").classList.add("hidden");
+  // Test mode music: preview the killer the user is testing (or first
+  // killer in the list if they're testing as a survivor).
+  {
+    const previewKiller = (role === "killer" && charId)
+      ? charId
+      : ((G.killerChars[0] && G.killerChars[0].id) || "slasher");
+    setupMusic(previewKiller);
+    startMusic();
+  }
 }
 
 function exitTestMode() {
@@ -1311,7 +1332,101 @@ function exitTestMode() {
   G.players.clear(); remoteLerp.clear();
   G.myId = null;
   G.phase = "menu";
+  stopMusic();
   showOnly(menuEl);
+}
+
+// ---------- Music ----------
+// Five looped tracks crossfade by distance to the nearest opposite-role
+// player: base_map (far) → killer_1..3 (closer) → killer_4 (chase).
+// Volumes are recomputed every frame from a single "tension" value.
+const Music = {
+  base: null,
+  tier: [null, null, null, null],   // _1, _2, _3, _4
+  loadedFor: null,                  // killerChar we loaded for
+  started: false,
+  master: 0.55,
+  primed: false,
+};
+function mkAudio(url) {
+  const a = new Audio(url);
+  a.loop = true;
+  a.volume = 0;
+  a.preload = "auto";
+  return a;
+}
+function primeAudio() {
+  if (Music.primed) return;
+  Music.primed = true;
+  // Some mobile browsers block autoplay until an audio element is touched
+  // inside a user gesture. Kicking a silent element here unlocks the rest.
+  try {
+    const a = new Audio();
+    a.muted = true;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch {}
+}
+function setupMusic(killerChar) {
+  if (Music.loadedFor === killerChar) return;
+  stopMusic();
+  Music.base = mkAudio("/music/base_map.mp3");
+  for (let i = 0; i < 4; i++) {
+    Music.tier[i] = mkAudio(`/music/${killerChar}_${i + 1}.mp3`);
+  }
+  Music.loadedFor = killerChar;
+}
+function startMusic() {
+  if (!Music.base || Music.started) return;
+  const tracks = [Music.base, ...Music.tier].filter(Boolean);
+  Music.started = true;
+  for (const t of tracks) {
+    const p = t.play();
+    if (p && p.catch) p.catch(() => {});
+  }
+}
+function stopMusic() {
+  for (const t of [Music.base, ...Music.tier]) {
+    if (!t) continue;
+    try { t.pause(); t.src = ""; t.load(); } catch {}
+  }
+  Music.base = null;
+  Music.tier = [null, null, null, null];
+  Music.loadedFor = null;
+  Music.started = false;
+}
+function setMusicVols(baseV, tierV) {
+  const m = Music.master;
+  if (Music.base) Music.base.volume = Math.max(0, Math.min(1, baseV * m));
+  for (let i = 0; i < 4; i++) {
+    if (Music.tier[i]) Music.tier[i].volume = Math.max(0, Math.min(1, tierV[i] * m));
+  }
+}
+function updateMusic() {
+  if (!Music.base || !Music.started) return;
+  const me = G.players.get(G.myId);
+  if (!me || !me.alive || G.phase !== "playing") {
+    setMusicVols(0, [0, 0, 0, 0]);
+    return;
+  }
+  const opposite = me.role === "killer" ? "survivor" : "killer";
+  let bestD = Infinity;
+  for (const p of G.players.values()) {
+    if (p.role !== opposite || !p.alive) continue;
+    const d = Math.hypot(p.x - me.x, p.y - me.y);
+    if (d < bestD) bestD = d;
+  }
+  if (bestD === Infinity) {
+    setMusicVols(1, [0, 0, 0, 0]);   // no opponent → just base
+    return;
+  }
+  // tension 0 = far, 1 = chase distance
+  const DIST_MAX = 1100, DIST_MIN = 150;
+  const t = 1 - Math.max(0, Math.min(1, (bestD - DIST_MIN) / (DIST_MAX - DIST_MIN)));
+  // Five tracks centered evenly; each ramps up over a 0.25-wide window.
+  const centers = [0.0, 0.25, 0.5, 0.75, 1.0];
+  const v = centers.map(c => Math.max(0, 1 - Math.abs(t - c) / 0.25));
+  setMusicVols(v[0], [v[1], v[2], v[3], v[4]]);
 }
 
 // Local ability simulation (used in test mode where there's no server).
@@ -1708,7 +1823,7 @@ function gameTick(now) {
     }
   }
 
-  render(); updateHUD();
+  render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
 requestAnimationFrame(gameTick);
