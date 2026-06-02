@@ -395,7 +395,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#4ad0c0"></span><b>Sentinel</b><span class="gd-muted">slows the killer (-5% repair)</span></div>
       <div class="gd-ab"><b>1 — Stun Burst</b>: instant aoe, killers within 180px are slowed to 50% speed for 3s. CD 12s.</div>
-      <div class="gd-ab"><b>2 — Slow Field</b>: drop a frost field where you stand, 220 radius, lasts 5s. Killers inside it move at 60%. CD 18s.</div>
+      <div class="gd-ab"><b>2 — Slow Field</b>: drop a frost field where you stand, 220 radius. Killers inside it move at 60%. <b>Lasts until the killer destroys it with a basic attack</b> (or the round ends). CD 18s.</div>
     </div>
 
     <div class="gd-h">KILLERS</div>
@@ -522,6 +522,7 @@ const G = {
   projectiles: [],
   smokes: [],
   slowFields: [],
+  fieldBreaks: [],
   scanArrowUntil: 0,
   designatedKillerId: null,
   survivorChars: [],   // from welcome
@@ -971,6 +972,11 @@ function onMessage(msg) {
     case "over":
       G.phase = "over"; G.winner = msg.winner;
       showBanner(msg.winner);
+      break;
+    case "field_break":
+      for (const f of (msg.fields || [])) {
+        G.fieldBreaks.push({ x: f.x, y: f.y, radius: f.radius, until: performance.now() + 450 });
+      }
       break;
   }
 }
@@ -1532,6 +1538,7 @@ function tryAttack(me) {
 }
 
 function localKillerAttack(me, kch) {
+  const now = performance.now();
   let best = null, bestD = kch.attackRadius;
   for (const p of G.players.values()) {
     if (p.id === me.id) continue;
@@ -1539,21 +1546,25 @@ function localKillerAttack(me, kch) {
     const d = Math.hypot(p.x - me.x, p.y - me.y);
     if (d < bestD) { bestD = d; best = p; }
   }
-  if (!best) return;
-  let dmg = kch.attackDamage;
-  const now = performance.now();
-  // Stalk: prediction or server flag
-  if (me.stalkActive || now < (me._localStalkUntil || 0)) {
-    dmg *= 2;
-    me._localStalkUntil = 0;
-    me.stalkActive = false;
+  if (best) {
+    let dmg = kch.attackDamage;
+    if (me.stalkActive || now < (me._localStalkUntil || 0)) {
+      dmg *= 2;
+      me._localStalkUntil = 0;
+      me.stalkActive = false;
+    }
+    best.hp = Math.max(0, (best.hp || 0) - dmg);
+    best.hitFlashUntil = now + 250;
+    if (best.hp <= 0) { best.alive = false; best._downAt = now; }
   }
-  best.hp = Math.max(0, (best.hp || 0) - dmg);
-  best.hitFlashUntil = now + 250;
-  if (best.hp <= 0) {
-    best.alive = false;
-    best._downAt = now;
-  }
+  // Shatter any slow field within attack reach (whether or not a survivor was hit).
+  G.slowFields = G.slowFields.filter(f => {
+    if (Math.hypot(me.x - f.x, me.y - f.y) <= kch.attackRadius) {
+      G.fieldBreaks.push({ x: f.x, y: f.y, radius: f.radius, until: now + 450 });
+      return false;
+    }
+    return true;
+  });
 }
 
 function tryFireAbility(slot, me) {
@@ -1775,18 +1786,38 @@ function drawSmokes() {
 
 function drawSlowFields() {
   for (const f of G.slowFields) {
-    const fade = Math.min(1, f.ttl / 1.5);
+    // Fields are now persistent — full opacity until destroyed.
     const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.radius);
-    grad.addColorStop(0, `rgba(80,180,220,${0.45 * fade})`);
-    grad.addColorStop(0.7, `rgba(120,210,235,${0.30 * fade})`);
-    grad.addColorStop(1, `rgba(60,120,180,0)`);
+    grad.addColorStop(0, "rgba(80,180,220,0.45)");
+    grad.addColorStop(0.7, "rgba(120,210,235,0.30)");
+    grad.addColorStop(1, "rgba(60,120,180,0)");
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = `rgba(120,220,240,${0.55 * fade})`;
+    ctx.strokeStyle = "rgba(120,220,240,0.6)";
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+  }
+  // Shatter effect: expanding ring + fading inner glow
+  const now = performance.now();
+  G.fieldBreaks = G.fieldBreaks.filter(b => now < b.until);
+  for (const b of G.fieldBreaks) {
+    const t = (b.until - now) / 450;          // 1 -> 0
+    const grow = 1 + (1 - t) * 0.35;          // expand outward
+    const alpha = t;
+    ctx.strokeStyle = `rgba(180,240,255,${alpha})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.radius * grow, 0, Math.PI * 2); ctx.stroke();
+    // sparkle shards
+    ctx.fillStyle = `rgba(220,250,255,${alpha * 0.9})`;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      const r = b.radius * (0.92 + (1 - t) * 0.3);
+      const sx = b.x + Math.cos(a) * r;
+      const sy = b.y + Math.sin(a) * r;
+      ctx.fillRect(sx - 2, sy - 2, 4, 4);
+    }
   }
 }
 

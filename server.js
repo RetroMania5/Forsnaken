@@ -44,7 +44,8 @@ const ABILITIES = {
   ],
   sentinel: [
     { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 3.0 },
-    { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 5.0 },
+    // Slow Field persists until the killer attacks it (or the round ends).
+    { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999 },
   ],
   engineer: [
     { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
@@ -282,6 +283,19 @@ function onAttack(id) {
       a.effects.stalkUntil = 0; // consume
     }
     applyDamage(best, dmg, a);
+  }
+  // Killer's basic attack also shatters any slow field whose center
+  // is within their attack reach.
+  const brokenFields = [];
+  state.slowFields = state.slowFields.filter(f => {
+    if (Math.hypot(a.x - f.x, a.y - f.y) <= kch.attackRadius) {
+      brokenFields.push({ id: f.id, x: f.x, y: f.y, radius: f.radius });
+      return false;
+    }
+    return true;
+  });
+  if (brokenFields.length > 0) {
+    broadcast({ type: "field_break", fields: brokenFields, by: a.id });
   }
 }
 
