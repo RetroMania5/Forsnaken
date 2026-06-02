@@ -373,6 +373,15 @@
     border-radius: 10px;
     display: flex; flex-direction: column; align-items: center; gap: 6px;
     color: #e0d0ff; font-size: 12px; pointer-events: auto;
+    opacity: 1;
+    transition: opacity 0.22s ease-out, transform 0.22s ease-out;
+  }
+  /* Override the global .hidden rule so the bar can fade instead of vanish. */
+  #portal-bar.hidden {
+    display: flex !important;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(-12px);
   }
   #portal-bar .bar-title { font-weight: 700; letter-spacing: 0.1em; color: #c8a8ff; }
   .portal-list { display: flex; gap: 8px; }
@@ -387,7 +396,6 @@
   .portal-btn.green  { background: rgba(80,200,100,0.55);  border-color: rgba(120,255,140,0.8); cursor: default; }
   .portal-btn.yellow { background: rgba(220,180,60,0.6);   border-color: rgba(255,220,100,0.9); cursor: default; }
   .portal-btn.red    { background: rgba(220,60,80,0.7);    border-color: rgba(255,120,140,1.0); cursor: default; }
-  #portal-bar.hidden { display: none; }
 </style>
 </head>
 <body>
@@ -523,7 +531,7 @@
       <div class="gd-head"><span class="dot" style="background:#9070ff"></span><b>Lunar</b><span class="gd-muted">balanced speed, portal-based mobility</span></div>
       <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
-      <div class="gd-ab"><b>C — Teleport</b>: opens a bar of your portals at the top of the screen. Click one → 3s rooted channel, then warp to it. CD 20s (only spent on commit). Blocked while Scan is active.</div>
+      <div class="gd-ab"><b>C — Teleport</b>: opens a bar of your portals at the top of the screen. Click one → 2s rooted channel, then warp to it. CD 20s (only spent on commit). Blocked while Scan is active.</div>
       <div class="gd-ab"><b>V — Scan</b>: pulls up the same bar for 5s, with each portal color-coded by the nearest survivor: <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Teleport is locked during Scan. CD 10s.</div>
     </div>
 
@@ -1320,6 +1328,7 @@ function onMessage(msg) {
       const v = G.players.get(msg.id);
       if (v) {
         v.channelUntil = performance.now() + (msg.duration || 0) * 1000;
+        v.channelDuration = (msg.duration || 0) * 1000;
         v.channelType = msg.abilityType;
       }
       break;
@@ -2024,6 +2033,7 @@ function clickPortal(portalId) {
   if (now < G.cooldowns[slot]) return;
   G.cooldowns[slot] = now + ab.cd * 1000;
   me.channelUntil = now + (ab.channelDuration || 0) * 1000;
+  me.channelDuration = (ab.channelDuration || 0) * 1000;
   me.channelType = ab.type;
   G.portalMenu = "closed";
   renderPortalBar();
@@ -2468,6 +2478,7 @@ function tryFireAbility(slot, me) {
     if (now < G.cooldowns[slot]) return;
     G.cooldowns[slot] = now + ab.cd * 1000;
     me.channelUntil = now + (ab.channelDuration || 0) * 1000;
+    me.channelDuration = (ab.channelDuration || 0) * 1000;
     me.channelType = ab.type;
     G.portalMenu = "closed";
     if (G.testMode) applyLocalAbility(me, ab);
@@ -2537,6 +2548,7 @@ function tryFireAbility(slot, me) {
   } else if (ab.type === "slow_field" && ab.channelDuration) {
     // Local prediction: show summoning channel immediately on the caster.
     me.channelUntil = now + ab.channelDuration * 1000;
+    me.channelDuration = ab.channelDuration * 1000;
     me.channelType = ab.type;
   } else if (ab.type === "teleport" && !G.testMode) {
     // Teleport locally on press. Without this, pos messages sent in
@@ -3067,28 +3079,34 @@ function drawPlayer(p) {
 
   // Aura under sprite for buffs
   if (p.alive) {
-    // Sentinel slow-field summoning channel: pulsing ring + spinning runes.
+    // Channeling visual: pulsing ring + spinning runes + charge arc.
+    // Themed per channel type: Sentinel = cyan, Lunar = purple.
     if (p.channelUntil && now < p.channelUntil) {
       ctx.save();
       const remaining = p.channelUntil - now;
-      const dur = 700; // matches channelDuration on server
+      const dur = p.channelDuration || 700;
       const progress = 1 - Math.max(0, Math.min(1, remaining / dur));
       const r = 30 + progress * 22;
+      const ct = p.channelType;
+      const isLunar = ct === "build_portal" || ct === "teleport_portal";
+      const halo = isLunar
+        ? ["rgba(220,180,255,0.18)", "rgba(160,90,220,0.55)", "rgba(80,40,160,0)"]
+        : ["rgba(140,230,250,0.15)", "rgba(80,180,220,0.45)", "rgba(50,140,200,0)"];
+      const runeCol = isLunar ? "rgba(230,200,255,0.95)" : "rgba(200,245,255,0.95)";
+      const arcCol  = isLunar ? "rgba(210,170,255,0.95)" : "rgba(150,230,255,0.95)";
       const grad = ctx.createRadialGradient(p.x, p.y + 6, 0, p.x, p.y + 6, r);
-      grad.addColorStop(0, "rgba(140,230,250,0.15)");
-      grad.addColorStop(0.6, "rgba(80,180,220,0.45)");
-      grad.addColorStop(1, "rgba(50,140,200,0)");
+      grad.addColorStop(0, halo[0]);
+      grad.addColorStop(0.6, halo[1]);
+      grad.addColorStop(1, halo[2]);
       ctx.fillStyle = grad;
       ctx.beginPath(); ctx.arc(p.x, p.y + 6, r, 0, Math.PI * 2); ctx.fill();
-      // Spinning runes
-      ctx.fillStyle = "rgba(200,245,255,0.95)";
+      ctx.fillStyle = runeCol;
       for (let i = 0; i < 6; i++) {
         const a = now * 0.012 + i * (Math.PI / 3);
         const rr = 28 + Math.sin(now * 0.01 + i) * 3;
         ctx.fillRect(p.x + Math.cos(a) * rr - 2, p.y + 6 + Math.sin(a) * rr - 2, 4, 4);
       }
-      // Charge-up arc
-      ctx.strokeStyle = "rgba(150,230,255,0.95)";
+      ctx.strokeStyle = arcCol;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(p.x, p.y + 6, 32, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI);

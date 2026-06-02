@@ -172,7 +172,7 @@ const ABILITIES = {
     // Teleport Portal: opens a portal menu on the client. When the killer
     // picks a portal, the client sends this ability with portalId; server
     // validates, channels for channelDuration, then teleports the killer.
-    { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 3.0 },
+    { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 2.0 },
     // Scan Portals: pure client visual — 5s window where each portal's
     // proximity to the nearest survivor is color-coded. Locks Teleport on
     // the client while active.
