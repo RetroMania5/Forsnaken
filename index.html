@@ -1016,6 +1016,7 @@ function onMessage(msg) {
       G.aiming = false;
       G.ammo = 1;
       G.reloadUntil = 0;
+      G.sniperPredictLockUntil = 0;
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
         remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
@@ -1052,13 +1053,18 @@ function onMessage(msg) {
           p.hiddenFromMe = iAmKiller && s.id !== G.myId && p.hiddenInSmoke;
           if (s.id === G.myId) {
             // Mirror server's authoritative ammo/reload state locally.
-            if (typeof s.am === "number") G.ammo = s.am;
-            if (typeof s.rl === "number" && s.rl > 0) {
-              // Server gives an epoch-ms deadline; convert to perf.now() ms.
-              const delta = s.rl - Date.now();
-              G.reloadUntil = performance.now() + Math.max(0, delta);
-            } else {
-              G.reloadUntil = 0;
+            // While prediction lock is active, ignore stale packets that
+            // would undo a just-predicted fire or reload start.
+            const locked = performance.now() < (G.sniperPredictLockUntil || 0);
+            if (typeof s.am === "number" && !locked) G.ammo = s.am;
+            if (!locked) {
+              if (typeof s.rl === "number" && s.rl > 0) {
+                // Server gives an epoch-ms deadline; convert to perf.now() ms.
+                const delta = s.rl - Date.now();
+                G.reloadUntil = performance.now() + Math.max(0, delta);
+              } else {
+                G.reloadUntil = 0;
+              }
             }
             if (!p.alive && G.aiming) G.aiming = false;
           } else {
@@ -1335,9 +1341,11 @@ function applyLocalAbility(me, ab, aim) {
     case "teleport": {
       const f = facing;
       const norm = Math.hypot(f.x, f.y) || 1;
+      const fxn = f.x / norm, fyn = f.y / norm;
       const fromX = me.x, fromY = me.y;
-      me.x = Math.max(30, Math.min(MAP_W - 30, me.x + (f.x / norm) * ab.distance));
-      me.y = Math.max(30, Math.min(MAP_H - 30, me.y + (f.y / norm) * ab.distance));
+      const dest = teleportEnd(me.x, me.y, fxn, fyn, ab.distance);
+      me.x = Math.max(30, Math.min(MAP_W - 30, dest.x));
+      me.y = Math.max(30, Math.min(MAP_H - 30, dest.y));
       G.teleportGhosts = G.teleportGhosts || [];
       G.teleportGhosts.push({ x: fromX, y: fromY, until: now + 400, charId: charIdFor(me), fx: facing.x });
       break;
@@ -1781,6 +1789,9 @@ function tryFireAbility(slot, me) {
     if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
     // Predict ammo consumption locally so the slot greys out instantly.
     G.ammo = 0;
+    // Brief lock: ignore stale state packets that may still report am=1
+    // for one tick because they were built before our fire arrived.
+    G.sniperPredictLockUntil = now + 400;
     G.aiming = false;
     const aim = { x: G.aimDir.x, y: G.aimDir.y };
     facing = aim;
@@ -1794,9 +1805,10 @@ function tryFireAbility(slot, me) {
   if (ab.type === "reload_sniper") {
     // While aiming, this button doubles as a cancel. Backing out costs
     // a small 5s CD on the shoot slot so you can't aim-peek for free.
+    // Use Math.max so we never SHORTEN a longer post-fire CD.
     if (G.aiming) {
       G.aiming = false;
-      G.cooldowns[0] = now + 5000;
+      G.cooldowns[0] = Math.max(G.cooldowns[0] || 0, now + 5000);
       return;
     }
     if ((G.ammo | 0) >= 1) return;
@@ -1805,6 +1817,7 @@ function tryFireAbility(slot, me) {
     G.cooldowns[slot] = now + ab.cd * 1000;
     G.reloadDuration = ab.reloadDuration;
     G.reloadUntil = now + ab.reloadDuration * 1000;
+    G.sniperPredictLockUntil = now + 400;
     if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
     if (G.testMode) {
       applyLocalAbility(me, ab);
@@ -1832,9 +1845,11 @@ function tryFireAbility(slot, me) {
     // skip this to avoid double-applying.
     const f = facing;
     const norm = Math.hypot(f.x, f.y) || 1;
+    const fxn = f.x / norm, fyn = f.y / norm;
     const fromX = me.x, fromY = me.y;
-    me.x = Math.max(30, Math.min(MAP_W - 30, me.x + (f.x / norm) * ab.distance));
-    me.y = Math.max(30, Math.min(MAP_H - 30, me.y + (f.y / norm) * ab.distance));
+    const dest = teleportEnd(me.x, me.y, fxn, fyn, ab.distance);
+    me.x = Math.max(30, Math.min(MAP_W - 30, dest.x));
+    me.y = Math.max(30, Math.min(MAP_H - 30, dest.y));
     G.teleportGhosts = G.teleportGhosts || [];
     G.teleportGhosts.push({ x: fromX, y: fromY, until: now + 400, charId: charIdFor(me), fx: facing.x });
   }
@@ -1893,6 +1908,31 @@ function stepWithCollision(p, dx, dy) {
 function pointInRect(x, y, r) {
   return x >= r.x - r.w / 2 && x <= r.x + r.w / 2 &&
          y >= r.y - r.h / 2 && y <= r.y + r.h / 2;
+}
+function circleRectOverlap(cx, cy, r, rect) {
+  const left = rect.x - rect.w / 2, right = rect.x + rect.w / 2;
+  const top = rect.y - rect.h / 2, bottom = rect.y + rect.h / 2;
+  const px = cx < left ? left : (cx > right ? right : cx);
+  const py = cy < top ? top : (cy > bottom ? bottom : cy);
+  const dx = cx - px, dy = cy - py;
+  return (dx * dx + dy * dy) < r * r;
+}
+function positionBlocked(x, y, r) {
+  for (const w of WALLS) if (circleRectOverlap(x, y, r, w)) return true;
+  for (const o of OBSTACLES) if (circleRectOverlap(x, y, r, o)) return true;
+  return false;
+}
+// Sub-step a teleport line so it stops before the first wall/obstacle hit.
+function teleportEnd(fromX, fromY, dxn, dyn, distance) {
+  const STEPS = 16;
+  let tx = fromX, ty = fromY;
+  for (let i = 1; i <= STEPS; i++) {
+    const nx = fromX + dxn * distance * (i / STEPS);
+    const ny = fromY + dyn * distance * (i / STEPS);
+    if (positionBlocked(nx, ny, PLAYER_R)) break;
+    tx = nx; ty = ny;
+  }
+  return { x: tx, y: ty };
 }
 function circleVsRect(cx, cy, r, w) {
   const left = w.x - w.w / 2, right = w.x + w.w / 2;

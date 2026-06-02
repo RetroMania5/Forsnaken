@@ -90,6 +90,20 @@ function pointInRect(x, y, r) {
   return x >= r.x - r.w / 2 && x <= r.x + r.w / 2 &&
          y >= r.y - r.h / 2 && y <= r.y + r.h / 2;
 }
+// True if a circle of radius r centered at (cx, cy) overlaps the rect.
+function circleRectOverlap(cx, cy, r, rect) {
+  const left = rect.x - rect.w / 2, right = rect.x + rect.w / 2;
+  const top = rect.y - rect.h / 2, bottom = rect.y + rect.h / 2;
+  const px = cx < left ? left : (cx > right ? right : cx);
+  const py = cy < top ? top : (cy > bottom ? bottom : cy);
+  const dx = cx - px, dy = cy - py;
+  return (dx * dx + dy * dy) < r * r;
+}
+function positionBlocked(x, y, r) {
+  for (const w of WALLS) if (circleRectOverlap(x, y, r, w)) return true;
+  for (const o of OBSTACLES) if (circleRectOverlap(x, y, r, o)) return true;
+  return false;
+}
 
 // ---- Characters ----
 const SURVIVOR_CHARS = [
@@ -517,9 +531,21 @@ function applyAbility(p, ab, slot, msg) {
     case "teleport": {
       const f = p.facing;
       const norm = Math.hypot(f.x, f.y) || 1;
+      const fxn = f.x / norm, fyn = f.y / norm;
       const fromX = p.x, fromY = p.y;
-      p.x = clamp(p.x + (f.x / norm) * ab.distance, 30, MAP.w - 30);
-      p.y = clamp(p.y + (f.y / norm) * ab.distance, 30, MAP.h - 30);
+      // Sub-step the teleport so it stops at the first wall/obstacle hit
+      // instead of landing inside one.
+      const STEPS = 16;
+      const PLAYER_R = 18;
+      let tx = p.x, ty = p.y;
+      for (let i = 1; i <= STEPS; i++) {
+        const nx = p.x + fxn * ab.distance * (i / STEPS);
+        const ny = p.y + fyn * ab.distance * (i / STEPS);
+        if (positionBlocked(nx, ny, PLAYER_R)) break;
+        tx = nx; ty = ny;
+      }
+      p.x = clamp(tx, 30, MAP.w - 30);
+      p.y = clamp(ty, 30, MAP.h - 30);
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fromX, fromY, x: p.x, y: p.y });
       break;
     }
