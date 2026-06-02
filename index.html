@@ -354,12 +354,41 @@
     transition: opacity 0.6s, transform 0.6s;
   }
   .coin-toast.hidden { opacity: 0; transform: translate(-50%, -10px); }
+
+  /* Portal bar (Lunar) */
+  #portal-bar {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 25; padding: 8px 12px;
+    background: rgba(20,10,40,0.78);
+    border: 1px solid rgba(180,140,255,0.45);
+    border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    color: #e0d0ff; font-size: 12px; pointer-events: auto;
+  }
+  #portal-bar .bar-title { font-weight: 700; letter-spacing: 0.1em; color: #c8a8ff; }
+  .portal-list { display: flex; gap: 8px; }
+  .portal-btn {
+    pointer-events: auto; cursor: pointer;
+    width: 70px; padding: 6px 8px; border-radius: 8px;
+    background: rgba(100,70,200,0.35);
+    border: 2px solid rgba(180,140,255,0.7);
+    color: #fff; font-weight: 700; font-size: 12px;
+  }
+  .portal-btn:hover { background: rgba(140,100,240,0.55); }
+  .portal-btn.green  { background: rgba(80,200,100,0.55);  border-color: rgba(120,255,140,0.8); cursor: default; }
+  .portal-btn.yellow { background: rgba(220,180,60,0.6);   border-color: rgba(255,220,100,0.9); cursor: default; }
+  .portal-btn.red    { background: rgba(220,60,80,0.7);    border-color: rgba(255,120,140,1.0); cursor: default; }
+  #portal-bar.hidden { display: none; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="music-status" class="music-status hidden"></div>
 <div id="coin-toast" class="coin-toast hidden"></div>
+<div id="portal-bar" class="hidden">
+  <div class="bar-title">PORTALS</div>
+  <div class="portal-list"></div>
+</div>
 
 <div id="hud" class="hidden">
   <div class="hud-top">
@@ -477,6 +506,13 @@
       <div class="gd-ab"><b>Z — Claw Strike</b>: 13 dmg melee at long reach. CD 1.3s.</div>
       <div class="gd-ab"><b>X — Shadow Step</b>: teleport ~220 px in your facing direction. CD 6s.</div>
       <div class="gd-ab"><b>C — Stalk</b>: your next Claw Strike deals 2× damage (26). Buff lasts 4s. CD 15s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#9070ff"></span><b>Lunar</b><span class="gd-muted">balanced speed, portal-based mobility</span></div>
+      <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
+      <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
+      <div class="gd-ab"><b>C — Teleport</b>: opens a bar of your portals at the top of the screen. Click one → 3s rooted channel, then warp to it. CD 20s (only spent on commit). Blocked while Scan is active.</div>
+      <div class="gd-ab"><b>V — Scan</b>: pulls up the same bar for 5s, with each portal color-coded by the nearest survivor: <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Teleport is locked during Scan. CD 10s.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -617,6 +653,7 @@ const CHAR_VISUALS = {
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
+  lunar:    { skin: "#d0d8e0", shirt: "#3a2070", pants: "#1a0a30", hair: "#c0c0d0", hat: "hood",    weapon: null    },
 };
 let sprites = {}; // charId -> { idle, walkA, walkB, action }  (offscreen canvases)
 
@@ -638,6 +675,10 @@ const G = {
   slowFields: [],
   fieldBreaks: [],
   bulletBreaks: [],
+  portals: [],
+  portalMenu: "closed",    // "closed" | "teleport" | "scan"
+  portalScanUntil: 0,
+  portalBreaks: [],        // VFX when oldest portal is evicted
   scanArrowUntil: 0,
   designatedKillerId: null,
   survivorChars: [],   // from welcome
@@ -726,7 +767,7 @@ function sprinting() {
 }
 
 // Edge-trigger keyboard
-let prevKeyE = false, prevKeyZ = false, prevKeyX = false, prevKeyC = false;
+let prevKeyE = false, prevKeyZ = false, prevKeyX = false, prevKeyC = false, prevKeyV = false;
 function pollKeyShots() {
   const me = G.players.get(G.myId);
   const isKiller = me && me.role === "killer";
@@ -748,6 +789,10 @@ function pollKeyShots() {
   const c = !!keys["c"];
   if (c && !prevKeyC) G.abilityQueued[isKiller ? 1 : 2] = true;
   prevKeyC = c;
+  // v: killer ability 3 (e.g. Lunar's scan). Unused for survivors.
+  const v = !!keys["v"];
+  if (v && !prevKeyV && isKiller) G.abilityQueued[2] = true;
+  prevKeyV = v;
 }
 
 // ---------- Touch ----------
@@ -1094,6 +1139,11 @@ function onMessage(msg) {
       G.ammo = 1;
       G.reloadUntil = 0;
       G.sniperPredictLockUntil = 0;
+      G.portals = [];
+      G.portalMenu = "closed";
+      G.portalScanUntil = 0;
+      G.portalBreaks = [];
+      $("portal-bar").classList.add("hidden");
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
         remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
@@ -1164,6 +1214,9 @@ function onMessage(msg) {
       G.projectiles = msg.projectiles || [];
       G.smokes = msg.smokes || [];
       G.slowFields = msg.slowFields || [];
+      G.portals = msg.portals || [];
+      // Re-render portal bar in case portals changed mid-menu.
+      if (G.portalMenu !== "closed") renderPortalBar();
       break;
     case "damage": {
       const v = G.players.get(msg.id);
@@ -1206,6 +1259,9 @@ function onMessage(msg) {
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
       for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
+      G.portalMenu = "closed";
+      G.portalScanUntil = 0;
+      $("portal-bar").classList.add("hidden");
       awardRoundPayout(msg.winner);
       showBanner(msg.winner);
       break;
@@ -1223,6 +1279,9 @@ function onMessage(msg) {
       for (const f of (msg.fields || [])) {
         G.fieldBreaks.push({ x: f.x, y: f.y, radius: f.radius, until: performance.now() + 450 });
       }
+      break;
+    case "portal_break":
+      G.portalBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
       break;
     case "ability_channel": {
       const v = G.players.get(msg.id);
@@ -1449,7 +1508,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = {};
+const CHAR_PRICES = { lunar: 150 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "sentinel", "slasher"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
@@ -1705,6 +1764,21 @@ function applyLocalAbility(me, ab, aim) {
       me.sneaking = true;
       setTimeout(() => { me.sneaking = false; }, ab.duration * 1000);
       break;
+    case "build_portal": {
+      const placePortal = () => {
+        if (!me.alive) return;
+        const max = ab.maxPortals || Infinity;
+        if ((G.portals || []).length >= max) {
+          const oldest = G.portals.shift();
+          if (oldest) G.portalBreaks.push({ x: oldest.x, y: oldest.y, until: performance.now() + 500 });
+        }
+        G.portals = G.portals || [];
+        G.portals.push({ id: ++G.localEntityId, x: me.x, y: me.y });
+      };
+      if (ab.channelDuration) setTimeout(placePortal, ab.channelDuration * 1000);
+      else placePortal();
+      break;
+    }
   }
 }
 
@@ -1815,6 +1889,69 @@ function buildCharGrids() {
 function updateCoinDisplay() {
   const el = $("lobby-coins");
   if (el) el.textContent = `🪙 ${Account.coins}`;
+}
+
+// ---------- Portal bar (Lunar) ----------
+function portalScanColor(p) {
+  let bestD = Infinity;
+  for (const v of G.players.values()) {
+    if (v.role !== "survivor" || !v.alive) continue;
+    const d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d < bestD) bestD = d;
+  }
+  if (bestD < 220) return "red";
+  if (bestD < 450) return "yellow";
+  return "green";
+}
+function renderPortalBar() {
+  const bar = $("portal-bar");
+  if (G.portalMenu === "closed" || !G.portals || G.portals.length === 0) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  const list = bar.querySelector(".portal-list");
+  list.innerHTML = "";
+  G.portals.forEach((portal, idx) => {
+    const btn = document.createElement("button");
+    btn.className = "portal-btn";
+    btn.textContent = `Portal ${idx + 1}`;
+    if (G.portalMenu === "scan") {
+      btn.classList.add(portalScanColor(portal));
+      btn.disabled = true;
+    } else if (G.portalMenu === "teleport") {
+      btn.addEventListener("click", () => clickPortal(portal.id));
+    }
+    list.appendChild(btn);
+  });
+}
+function clickPortal(portalId) {
+  if (G.portalMenu !== "teleport") return;
+  const me = G.players.get(G.myId);
+  if (!me) return;
+  // Find the teleport_portal slot for this character.
+  const list = abilitiesFor(me);
+  let slot = -1;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] && list[i].type === "teleport_portal") { slot = i; break; }
+  }
+  if (slot < 0) return;
+  const ab = list[slot];
+  const now = performance.now();
+  if (now < G.cooldowns[slot]) return;
+  G.cooldowns[slot] = now + ab.cd * 1000;
+  me.channelUntil = now + (ab.channelDuration || 0) * 1000;
+  me.channelType = ab.type;
+  G.portalMenu = "closed";
+  renderPortalBar();
+  // Predict the teleport locally at channel-end so our outgoing pos
+  // messages don't undo the server's authoritative teleport.
+  setTimeout(() => {
+    if (!me.alive) return;
+    const pt = (G.portals || []).find(p => p.id === portalId);
+    if (pt) { me.x = pt.x; me.y = pt.y; }
+  }, (ab.channelDuration || 0) * 1000);
+  if (!G.testMode) sendMsg({ type: "ability", slot, portalId });
 }
 function awardRoundPayout(winner) {
   if (!Account.password) return;        // Test mode / no account
@@ -2111,6 +2248,14 @@ function gameTick(now) {
   }
 
   document.body.classList.toggle("aiming", !!G.aiming);
+  // Auto-close the scan view after the duration expires.
+  if (G.portalScanUntil && performance.now() >= G.portalScanUntil) {
+    G.portalScanUntil = 0;
+    if (G.portalMenu === "scan") { G.portalMenu = "closed"; renderPortalBar(); }
+  } else if (G.portalMenu === "scan") {
+    // While scanning, re-render so colors update with player movement.
+    renderPortalBar();
+  }
   render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
@@ -2212,6 +2357,40 @@ function tryFireAbility(slot, me) {
     } else {
       sendMsg({ type: "ability", slot, aim });
     }
+    return;
+  }
+  // Lunar Build Portal: server handles the channel; we just lock movement
+  // locally and let the existing channeling animation play.
+  if (ab.type === "build_portal") {
+    if (now < G.cooldowns[slot]) return;
+    G.cooldowns[slot] = now + ab.cd * 1000;
+    me.channelUntil = now + (ab.channelDuration || 0) * 1000;
+    me.channelType = ab.type;
+    G.portalMenu = "closed";
+    if (G.testMode) applyLocalAbility(me, ab);
+    else sendMsg({ type: "ability", slot });
+    return;
+  }
+  // Lunar Teleport: first press opens the portal menu (no CD spent). The
+  // user must click a portal in the bar to commit — clickPortal() sends
+  // the ability with portalId, starts the CD and the 3s channel.
+  if (ab.type === "teleport_portal") {
+    if (now < G.cooldowns[slot]) return;
+    if (G.portalMenu === "scan") return;          // locked while scanning
+    if (G.portalMenu === "teleport") { G.portalMenu = "closed"; renderPortalBar(); return; }
+    if (!G.portals || G.portals.length === 0) return;
+    G.portalMenu = "teleport";
+    renderPortalBar();
+    return;
+  }
+  // Lunar Scan: opens the bar in color-coded mode for ab.duration seconds.
+  if (ab.type === "scan_portals") {
+    if (now < G.cooldowns[slot]) return;
+    G.cooldowns[slot] = now + ab.cd * 1000;
+    G.portalMenu = "scan";
+    G.portalScanUntil = now + (ab.duration || 5) * 1000;
+    renderPortalBar();
+    if (!G.testMode) sendMsg({ type: "ability", slot });
     return;
   }
   if (ab.type === "reload_sniper") {
@@ -2446,6 +2625,8 @@ function render() {
   drawProjectiles();
   // Teleport ghosts (fade-out trail)
   drawTeleportGhosts();
+  // Portals (Lunar) — visible to everyone
+  drawPortals();
   // Slow fields (under smokes)
   drawSlowFields();
   // Smokes (after everything else so they obscure)
@@ -2587,6 +2768,47 @@ function drawSmokes() {
     ctx.setLineDash([8, 6]);
     ctx.beginPath(); ctx.arc(sm.x, sm.y, sm.radius, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+function drawPortals() {
+  const now = performance.now();
+  for (const p of (G.portals || [])) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(now * 0.003);
+    // Outer swirl
+    const grad = ctx.createRadialGradient(0, 0, 4, 0, 0, 28);
+    grad.addColorStop(0, "rgba(220,180,255,0.95)");
+    grad.addColorStop(0.5, "rgba(140,90,220,0.55)");
+    grad.addColorStop(1, "rgba(60,30,120,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(0, 0, 28, 0, Math.PI * 2); ctx.fill();
+    // Ring
+    ctx.strokeStyle = "rgba(200,160,255,0.9)";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI * 2); ctx.stroke();
+    // Spokes
+    ctx.strokeStyle = "rgba(180,140,255,0.7)";
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 8, Math.sin(a) * 8);
+      ctx.lineTo(Math.cos(a) * 20, Math.sin(a) * 20);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Portal-break sparkles
+  G.portalBreaks = G.portalBreaks.filter(b => now < b.until);
+  for (const b of G.portalBreaks) {
+    const t = (b.until - now) / 500;
+    const r = 22 + (1 - t) * 18;
+    ctx.save();
+    ctx.strokeStyle = `rgba(200,160,255,${t})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -3059,8 +3281,8 @@ function updateAbilitySlots(me) {
   const list = abilitiesFor(me);
   const now = performance.now();
   const isKiller = me.role === "killer";
-  // Key labels per role: killers see z=attack, x/c=abilities; survivors see z/x/c=abilities.
-  const slotKeys = isKiller ? ["X", "C", ""] : ["Z", "X", "C"];
+  // Key labels per role: killers see z=attack, x/c/v=abilities; survivors see z/x/c=abilities.
+  const slotKeys = isKiller ? ["X", "C", "V"] : ["Z", "X", "C"];
 
   // Main attack slot (killer only)
   const slotMain = $("slot-main");

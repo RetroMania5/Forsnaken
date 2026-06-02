@@ -116,6 +116,7 @@ const SURVIVOR_CHARS = [
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
   { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, slower, lower dmg" },
+  { id: "lunar",   name: "Lunar",   color: "#9070ff", speedMult: 1.00, attackRadius: 80,  attackDamage: 15, attackName: "Punch",       attackCooldown: 1.0, blurb: "portals & teleport" },
 ];
 
 // ---- HP ----
@@ -163,6 +164,20 @@ const ABILITIES = {
     { id: "step",  name: "Shadow Step", cd: 6,  type: "teleport",    distance: 220 },
     { id: "stalk", name: "Stalk",       cd: 15, type: "buff_attack", multiplier: 2, duration: 4.0 },
   ],
+  lunar: [
+    // Build Portal: 4s rooted channel, drops a portal at the killer's
+    // position when the channel completes. Cap at maxPortals — placing a
+    // 4th evicts the oldest.
+    { id: "build_portal", name: "Build Portal", cd: 15, type: "build_portal", channelDuration: 4.0, maxPortals: 3 },
+    // Teleport Portal: opens a portal menu on the client. When the killer
+    // picks a portal, the client sends this ability with portalId; server
+    // validates, channels for channelDuration, then teleports the killer.
+    { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 3.0 },
+    // Scan Portals: pure client visual — 5s window where each portal's
+    // proximity to the nearest survivor is color-coded. Locks Teleport on
+    // the client while active.
+    { id: "scan_portals", name: "Scan", cd: 10, type: "scan_portals", duration: 5.0 },
+  ],
 };
 
 // ---- Round ----
@@ -188,6 +203,7 @@ const state = {
   projectiles: [],
   smokes: [],
   slowFields: [],
+  portals: [],
   nextEntityId: 1,
 };
 
@@ -641,6 +657,50 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.sneakUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "build_portal": {
+      // 4s rooted channel, then drop a portal at the killer's position.
+      const ownerId = p.id;
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive || owner.role !== "killer") return;
+        const max = ab.maxPortals || Infinity;
+        if (state.portals.length >= max) {
+          const oldest = state.portals.shift();
+          broadcast({ type: "portal_break", id: oldest.id, x: oldest.x, y: oldest.y });
+        }
+        const portal = { id: state.nextEntityId++, x: owner.x, y: owner.y, ownerId };
+        state.portals.push(portal);
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, x: portal.x, y: portal.y, portalId: portal.id });
+      }, channelMs);
+      break;
+    }
+    case "teleport_portal": {
+      // Client supplied msg.portalId. Validate, channel, then teleport.
+      const portalId = (msg && (msg.portalId | 0)) || 0;
+      const portal = state.portals.find(pt => pt.id === portalId);
+      if (!portal) return;
+      const ownerId = p.id;
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        const pt = state.portals.find(p => p.id === portalId);
+        if (!pt) return;     // portal got replaced during channel
+        const fromX = owner.x, fromY = owner.y;
+        owner.x = pt.x; owner.y = pt.y;
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, fromX, fromY, x: owner.x, y: owner.y });
+      }, channelMs);
+      break;
+    }
+    case "scan_portals":
+      // Pure client visual; broadcast just for the action animation.
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
     case "reload_sniper":
       p.reloadUntil = now + ab.reloadDuration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
@@ -684,6 +744,7 @@ function startRound() {
   state.projectiles = [];
   state.smokes = [];
   state.slowFields = [];
+  state.portals = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -898,6 +959,7 @@ function tick() {
         slowFields: state.slowFields.map(f => ({
           id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
         })),
+        portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -907,6 +969,7 @@ function tick() {
     state.projectiles = [];
     state.smokes = [];
     state.slowFields = [];
+    state.portals = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
