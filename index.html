@@ -1924,7 +1924,7 @@ function render() {
   // While aiming the sniper, push the camera out along the aim direction
   // so the player can "look down" their shot.
   if (me && G.aiming) {
-    const CAM_OFFSET = 340;
+    const CAM_OFFSET = 520;
     camX += G.aimDir.x * CAM_OFFSET;
     camY += G.aimDir.y * CAM_OFFSET;
   }
@@ -2161,7 +2161,7 @@ function drawAimReticle() {
   const me = G.players.get(G.myId);
   if (!me || !me.alive) return;
   const now = performance.now();
-  const range = 600;
+  const range = 900;
   const ex = me.x + G.aimDir.x * range;
   const ey = me.y + G.aimDir.y * range;
 

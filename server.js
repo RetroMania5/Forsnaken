@@ -96,7 +96,7 @@ const ABILITIES = {
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
     // travels in the supplied aim direction, breaks on the first wall or
     // obstacle, and stuns the killer for stunDuration seconds on hit.
-    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 900, range: 1600, stunDuration: 10 },
+    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 2400, stunDuration: 10 },
     // Reload: 5s channel before ammo refills. Only usable at 0 ammo.
     { id: "reload", name: "Reload", cd: 20, type: "reload_sniper", reloadDuration: 5.0 },
   ],
