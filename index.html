@@ -327,6 +327,8 @@
 
   .hidden { display: none !important; }
   body.aiming { cursor: none; }
+  .save-row { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
+  .save-row button { padding: 6px 10px; font-size: 12px; }
   /* Locked character card */
   .char-btn.locked {
     opacity: 0.55; position: relative;
@@ -431,6 +433,11 @@
     <button id="join-btn">Enter Lobby</button>
     <div id="menu-status" class="status"></div>
     <div class="hint">Your coins and unlocks are saved automatically in this browser.</div>
+    <div class="save-row">
+      <button id="save-download" class="secondary">⬇ Download save</button>
+      <button id="save-load" class="secondary">⬆ Load save</button>
+      <input id="save-file" type="file" accept=".txt,.json,application/json,text/plain" style="display:none">
+    </div>
   </div>
   <button id="test-btn">▶ Test a character</button>
   <button id="guide-btn">📖 Guide</button>
@@ -1342,6 +1349,13 @@ $("name-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
 });
 $("name-input").value = randomName();
+$("save-download").addEventListener("click", downloadSave);
+$("save-load").addEventListener("click", () => $("save-file").click());
+$("save-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (file) loadSaveFromFile(file);
+  e.target.value = "";   // reset so picking the same file again still fires
+});
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
@@ -1528,6 +1542,55 @@ function saveAccount() {
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
+
+// Export the current save to a downloadable .txt file (JSON inside).
+function downloadSave() {
+  const data = JSON.stringify({
+    version: 1,
+    coins: Account.coins,
+    unlocks: Account.unlocks,
+    exportedAt: new Date().toISOString(),
+  }, null, 2);
+  const blob = new Blob([data], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `forsaken-save-${new Date().toISOString().slice(0,10)}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Import a save file, replacing the current Account state.
+function loadSaveFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let data;
+    try { data = JSON.parse(e.target.result); }
+    catch { alert("That file isn't a valid save (couldn't parse it as JSON)."); return; }
+    if (typeof data.coins !== "number" || !Array.isArray(data.unlocks)) {
+      alert("That save is missing required fields (coins / unlocks).");
+      return;
+    }
+    const ok = confirm(
+      `Replace your current save?\n\n` +
+      `   Current:  ${Account.coins} coins, ${Account.unlocks.length} chars unlocked\n` +
+      `   Incoming: ${data.coins} coins, ${data.unlocks.length} chars unlocked\n\n` +
+      `This cannot be undone.`
+    );
+    if (!ok) return;
+    Account.coins = Math.max(0, Math.floor(data.coins));
+    const valid = data.unlocks.filter(id => typeof id === "string");
+    Account.unlocks = [...new Set([...DEFAULT_UNLOCKS, ...valid])];
+    saveAccount();
+    updateCoinDisplay();
+    if (typeof buildCharGrids === "function" && G.survivorChars.length) buildCharGrids();
+    alert(`Loaded: ${Account.coins} coins, ${Account.unlocks.length} unlocked.`);
+  };
+  reader.onerror = () => alert("Could not read that file.");
+  reader.readAsText(file);
+}
 function isUnlocked(charId) { return Account.unlocks.includes(charId); }
 function priceOf(charId) {
   if (DEFAULT_UNLOCKS.includes(charId)) return 0;
