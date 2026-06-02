@@ -365,6 +365,26 @@
   .audio-row label { flex: 1; font-size: 13px; }
   .audio-row input[type=range] { flex: 1; }
   .audio-row #music-vol-val { color: var(--muted); font-size: 11px; margin-left: 4px; }
+  /* Spectator bar (shown when local player is dead) */
+  #spectator-bar {
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 30; padding: 8px 14px;
+    background: rgba(0,0,0,0.78);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 10px;
+    display: flex; align-items: center; gap: 10px;
+    color: #fff; font-weight: 700; font-size: 13px;
+    pointer-events: auto;
+  }
+  #spectator-bar.hidden { display: none; }
+  #spectator-bar button {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.28);
+    color: #fff; padding: 4px 10px; border-radius: 6px;
+    font-size: 14px; cursor: pointer; font-weight: 700;
+  }
+  #spectator-bar button:hover { background: rgba(255,255,255,0.22); }
+  #spectator-bar .spec-name { color: #9adcff; min-width: 80px; text-align: center; }
   /* Locked character card */
   .char-btn.locked {
     opacity: 0.55; position: relative;
@@ -443,6 +463,11 @@
 <div id="portal-bar" class="hidden">
   <div class="bar-title">PORTALS</div>
   <div class="portal-list"></div>
+</div>
+<div id="spectator-bar" class="hidden">
+  <button id="spec-prev" type="button" title="Previous">◀</button>
+  <span>Spectating <span id="spec-name" class="spec-name">—</span></span>
+  <button id="spec-next" type="button" title="Next">▶</button>
 </div>
 
 <div id="hud" class="hidden">
@@ -760,6 +785,7 @@ const G = {
   portals: [],
   portalMenu: "closed",    // "closed" | "teleport"
   portalBreaks: [],        // VFX when oldest portal is evicted
+  spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   designatedKillerId: null,
   randomKillerEnabled: false,
@@ -1240,6 +1266,8 @@ function onMessage(msg) {
       G.portals = [];
       G.portalMenu = "closed";
       G.portalBreaks = [];
+      G.spectateId = null;
+      $("spectator-bar").classList.add("hidden");
       $("portal-bar").classList.add("hidden");
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
@@ -1349,7 +1377,7 @@ function onMessage(msg) {
       const a = G.players.get(msg.by);
       if (a && a._anim) a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
       if (typeof msg.timer === "number") G.timer = msg.timer;
-      if (msg.id === G.myId) G.aiming = false;
+      if (msg.id === G.myId) { G.aiming = false; pickInitialSpectate(); updateSpectatorBar(); }
       {
         const downed = G.players.get(msg.id);
         if (downed) { downed.channelUntil = 0; downed.channelType = null; }
@@ -1362,6 +1390,8 @@ function onMessage(msg) {
       for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
       G.portalMenu = "closed";
       $("portal-bar").classList.add("hidden");
+      G.spectateId = null;
+      $("spectator-bar").classList.add("hidden");
       awardRoundPayout(msg.winner);
       showBanner(msg.winner);
       break;
@@ -1534,6 +1564,9 @@ $("music-vol").addEventListener("input", (e) => {
   $("music-vol-val").textContent = pct + "%";
   saveSettings();
 });
+
+$("spec-prev").addEventListener("click", () => { cycleSpectate(-1); updateSpectatorBar(); });
+$("spec-next").addEventListener("click", () => { cycleSpectate(+1); updateSpectatorBar(); });
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("random-killer-toggle").addEventListener("click", () => {
@@ -2248,6 +2281,57 @@ function clickPortal(portalId) {
   }, (ab.channelDuration || 0) * 1000);
   if (!G.testMode) sendMsg({ type: "ability", slot, portalId });
 }
+// ---------- Spectator (when local player is dead) ----------
+function spectatableList() {
+  const list = [];
+  for (const p of G.players.values()) {
+    if (p.id === G.myId) continue;
+    if (!p.alive) continue;
+    list.push(p);
+  }
+  list.sort((a, b) => a.id - b.id);
+  return list;
+}
+function pickInitialSpectate() {
+  const list = spectatableList();
+  if (list.length === 0) { G.spectateId = null; return; }
+  // Prefer another living survivor; fall back to the killer.
+  const surv = list.find(p => p.role === "survivor");
+  G.spectateId = (surv || list[0]).id;
+}
+function cycleSpectate(dir) {
+  const list = spectatableList();
+  if (list.length === 0) { G.spectateId = null; return; }
+  const idx = list.findIndex(p => p.id === G.spectateId);
+  let next = idx + dir;
+  if (idx < 0) next = 0;
+  else if (next < 0) next = list.length - 1;
+  else if (next >= list.length) next = 0;
+  G.spectateId = list[next].id;
+}
+function getSpectateTarget() {
+  if (G.spectateId == null) return null;
+  const t = G.players.get(G.spectateId);
+  if (t && t.alive) return t;
+  // Current target died/left; pick a fresh one.
+  pickInitialSpectate();
+  return G.spectateId != null ? G.players.get(G.spectateId) : null;
+}
+function updateSpectatorBar() {
+  const bar = $("spectator-bar");
+  const me = G.players.get(G.myId);
+  const shouldShow = G.phase === "playing" && me && !me.alive;
+  if (!shouldShow) {
+    bar.classList.add("hidden");
+    return;
+  }
+  if (G.spectateId == null) pickInitialSpectate();
+  const target = getSpectateTarget();
+  if (!target) { bar.classList.add("hidden"); return; }
+  bar.classList.remove("hidden");
+  $("spec-name").textContent = target.name || "—";
+}
+
 function awardRoundPayout(winner) {
   if (G.testMode) return;               // No payout in the sandbox.
   const me = G.players.get(G.myId);
@@ -2566,6 +2650,7 @@ function gameTick(now) {
   // While the teleport bar is open, refresh colors only — DON'T rebuild
   // the DOM, or clicks get eaten between mousedown and mouseup.
   if (G.portalMenu === "teleport") updatePortalColors();
+  updateSpectatorBar();
   render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
@@ -2872,8 +2957,10 @@ function render() {
   if (G.phase !== "playing" && G.phase !== "over") return;
 
   const me = G.players.get(G.myId);
-  const camX = me ? me.x : MAP_W / 2;
-  const camY = me ? me.y : MAP_H / 2;
+  // When the local player is dead, follow whoever they're spectating.
+  const target = (me && me.alive) ? me : getSpectateTarget();
+  const camX = target ? target.x : MAP_W / 2;
+  const camY = target ? target.y : MAP_H / 2;
   const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
 
   ctx.save();
