@@ -824,13 +824,8 @@ window.addEventListener("mousemove", (e) => {
 function screenToWorld(sx, sy) {
   const w = innerWidth, h = innerHeight;
   const me = G.players.get(G.myId);
-  let camX = me ? me.x : MAP_W / 2;
-  let camY = me ? me.y : MAP_H / 2;
-  if (me && G.aiming) {
-    const CAM_OFFSET = 520;
-    camX += G.aimDir.x * CAM_OFFSET;
-    camY += G.aimDir.y * CAM_OFFSET;
-  }
+  const camX = me ? me.x : MAP_W / 2;
+  const camY = me ? me.y : MAP_H / 2;
   const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
   return { x: (sx - w / 2) / zoom + camX, y: (sy - h / 2) / zoom + camY };
 }
@@ -2654,15 +2649,8 @@ function render() {
   if (G.phase !== "playing" && G.phase !== "over") return;
 
   const me = G.players.get(G.myId);
-  let camX = me ? me.x : MAP_W / 2;
-  let camY = me ? me.y : MAP_H / 2;
-  // While aiming the sniper, push the camera out along the aim direction
-  // so the player can "look down" their shot.
-  if (me && G.aiming) {
-    const CAM_OFFSET = 520;
-    camX += G.aimDir.x * CAM_OFFSET;
-    camY += G.aimDir.y * CAM_OFFSET;
-  }
+  const camX = me ? me.x : MAP_W / 2;
+  const camY = me ? me.y : MAP_H / 2;
   const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
 
   ctx.save();
