@@ -392,10 +392,19 @@
     border: 2px solid rgba(180,140,255,0.7);
     color: #fff; font-weight: 700; font-size: 12px;
   }
-  .portal-btn:hover { background: rgba(140,100,240,0.55); }
-  .portal-btn.green  { background: rgba(80,200,100,0.55);  border-color: rgba(120,255,140,0.8); cursor: default; }
-  .portal-btn.yellow { background: rgba(220,180,60,0.6);   border-color: rgba(255,220,100,0.9); cursor: default; }
-  .portal-btn.red    { background: rgba(220,60,80,0.7);    border-color: rgba(255,120,140,1.0); cursor: default; }
+  .portal-btn:hover { filter: brightness(1.18); }
+  .portal-btn.green  { background: rgba(80,200,100,0.55);  border-color: rgba(120,255,140,0.85); }
+  .portal-btn.yellow { background: rgba(220,180,60,0.6);   border-color: rgba(255,220,100,0.95); }
+  .portal-btn.red    { background: rgba(220,60,80,0.7);    border-color: rgba(255,120,140,1.0); }
+  .portal-back {
+    pointer-events: auto; cursor: pointer;
+    padding: 6px 12px; border-radius: 8px;
+    background: rgba(80,80,100,0.55);
+    border: 2px solid rgba(180,180,200,0.7);
+    color: #fff; font-weight: 700; font-size: 12px;
+    margin-left: 6px;
+  }
+  .portal-back:hover { background: rgba(120,120,140,0.7); }
 </style>
 </head>
 <body>
@@ -531,8 +540,7 @@
       <div class="gd-head"><span class="dot" style="background:#9070ff"></span><b>Lunar</b><span class="gd-muted">balanced speed, portal-based mobility</span></div>
       <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
-      <div class="gd-ab"><b>C — Teleport</b>: opens a bar of your portals at the top of the screen. Click one → 2s rooted channel, then warp to it. CD 20s (only spent on commit). Blocked while Scan is active.</div>
-      <div class="gd-ab"><b>V — Scan</b>: pulls up the same bar for 5s, with each portal color-coded by the nearest survivor: <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Teleport is locked during Scan. CD 10s.</div>
+      <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 2s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -697,8 +705,7 @@ const G = {
   fieldBreaks: [],
   bulletBreaks: [],
   portals: [],
-  portalMenu: "closed",    // "closed" | "teleport" | "scan"
-  portalScanUntil: 0,
+  portalMenu: "closed",    // "closed" | "teleport"
   portalBreaks: [],        // VFX when oldest portal is evicted
   scanArrowUntil: 0,
   designatedKillerId: null,
@@ -1182,7 +1189,6 @@ function onMessage(msg) {
       G.sniperPredictLockUntil = 0;
       G.portals = [];
       G.portalMenu = "closed";
-      G.portalScanUntil = 0;
       G.portalBreaks = [];
       $("portal-bar").classList.add("hidden");
       G.projectiles = []; G.smokes = [];
@@ -1301,7 +1307,6 @@ function onMessage(msg) {
       G.aiming = false;
       for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
       G.portalMenu = "closed";
-      G.portalScanUntil = 0;
       $("portal-bar").classList.add("hidden");
       awardRoundPayout(msg.winner);
       showBanner(msg.winner);
@@ -2006,16 +2011,17 @@ function renderPortalBar() {
   list.innerHTML = "";
   G.portals.forEach((portal, idx) => {
     const btn = document.createElement("button");
-    btn.className = "portal-btn";
+    btn.className = "portal-btn " + portalScanColor(portal);
     btn.textContent = `Portal ${idx + 1}`;
-    if (G.portalMenu === "scan") {
-      btn.classList.add(portalScanColor(portal));
-      btn.disabled = true;
-    } else if (G.portalMenu === "teleport") {
-      btn.addEventListener("click", () => clickPortal(portal.id));
-    }
+    btn.addEventListener("click", () => clickPortal(portal.id));
     list.appendChild(btn);
   });
+  // Back button — closes the menu without spending the teleport CD.
+  const back = document.createElement("button");
+  back.className = "portal-back";
+  back.textContent = "Back";
+  back.addEventListener("click", () => { G.portalMenu = "closed"; renderPortalBar(); });
+  list.appendChild(back);
 }
 function clickPortal(portalId) {
   if (G.portalMenu !== "teleport") return;
@@ -2361,14 +2367,9 @@ function gameTick(now) {
   }
 
   document.body.classList.toggle("aiming", !!G.aiming);
-  // Auto-close the scan view after the duration expires.
-  if (G.portalScanUntil && performance.now() >= G.portalScanUntil) {
-    G.portalScanUntil = 0;
-    if (G.portalMenu === "scan") { G.portalMenu = "closed"; renderPortalBar(); }
-  } else if (G.portalMenu === "scan") {
-    // While scanning, re-render so colors update with player movement.
-    renderPortalBar();
-  }
+  // While the teleport bar is open, refresh so portal colors update as
+  // survivors move around.
+  if (G.portalMenu === "teleport") renderPortalBar();
   render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
@@ -2486,25 +2487,16 @@ function tryFireAbility(slot, me) {
     return;
   }
   // Lunar Teleport: first press opens the portal menu (no CD spent). The
-  // user must click a portal in the bar to commit — clickPortal() sends
-  // the ability with portalId, starts the CD and the 3s channel.
+  // bar shows each portal color-coded by the nearest survivor's distance
+  // (green / yellow / red). User clicks a portal to commit — clickPortal()
+  // sends the ability with portalId, starts the CD and the channel. The
+  // Back button on the bar closes the menu without spending the CD.
   if (ab.type === "teleport_portal") {
     if (now < G.cooldowns[slot]) return;
-    if (G.portalMenu === "scan") return;          // locked while scanning
     if (G.portalMenu === "teleport") { G.portalMenu = "closed"; renderPortalBar(); return; }
     if (!G.portals || G.portals.length === 0) return;
     G.portalMenu = "teleport";
     renderPortalBar();
-    return;
-  }
-  // Lunar Scan: opens the bar in color-coded mode for ab.duration seconds.
-  if (ab.type === "scan_portals") {
-    if (now < G.cooldowns[slot]) return;
-    G.cooldowns[slot] = now + ab.cd * 1000;
-    G.portalMenu = "scan";
-    G.portalScanUntil = now + (ab.duration || 5) * 1000;
-    renderPortalBar();
-    if (!G.testMode) sendMsg({ type: "ability", slot });
     return;
   }
   if (ab.type === "reload_sniper") {

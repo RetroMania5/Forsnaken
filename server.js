@@ -169,14 +169,13 @@ const ABILITIES = {
     // position when the channel completes. Cap at maxPortals — placing a
     // 4th evicts the oldest.
     { id: "build_portal", name: "Build Portal", cd: 15, type: "build_portal", channelDuration: 4.0, maxPortals: 3 },
-    // Teleport Portal: opens a portal menu on the client. When the killer
-    // picks a portal, the client sends this ability with portalId; server
-    // validates, channels for channelDuration, then teleports the killer.
+    // Teleport Portal: opens the portal menu with color-coded portals
+    // (green/yellow/red by nearest survivor distance — that's the scan
+    // info, now baked in). When the killer picks a portal the client
+    // sends this ability with portalId; server validates, channels for
+    // channelDuration, then teleports the killer. The bar's Back button
+    // simply closes the menu without spending the CD.
     { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 2.0 },
-    // Scan Portals: pure client visual — 5s window where each portal's
-    // proximity to the nearest survivor is color-coded. Locks Teleport on
-    // the client while active.
-    { id: "scan_portals", name: "Scan", cd: 10, type: "scan_portals", duration: 5.0 },
   ],
 };
 
@@ -716,10 +715,6 @@ function applyAbility(p, ab, slot, msg) {
       }, channelMs);
       break;
     }
-    case "scan_portals":
-      // Pure client visual; broadcast just for the action animation.
-      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
-      break;
     case "reload_sniper":
       p.reloadUntil = now + ab.reloadDuration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
