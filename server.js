@@ -12,12 +12,12 @@ const { WebSocketServer } = require("ws");
 const PORT = process.env.PORT || 8080;
 const TICK_MS = 50;
 
-const MAP = { w: 1800, h: 1200 };
+const MAP = { w: 2400, h: 1600 };
 const GEN_POSITIONS = [
-  { x: 280,         y: 200 },
-  { x: MAP.w - 280, y: 200 },
-  { x: 280,         y: MAP.h - 200 },
-  { x: MAP.w - 280, y: MAP.h - 200 },
+  { x: MAP.w * 0.18,        y: MAP.h * 0.17 },
+  { x: MAP.w * (1 - 0.18),  y: MAP.h * 0.17 },
+  { x: MAP.w * 0.18,        y: MAP.h * (1 - 0.17) },
+  { x: MAP.w * (1 - 0.18),  y: MAP.h * (1 - 0.17) },
 ];
 
 // ---- Characters ----
@@ -25,6 +25,7 @@ const SURVIVOR_CHARS = [
   { id: "runner",   name: "Runner",   color: "#ff80c0", speedMult: 1.10, repairMult: 1.00, blurb: "+10% speed" },
   { id: "engineer", name: "Engineer", color: "#ffd84a", speedMult: 1.00, repairMult: 1.30, blurb: "+30% repair" },
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
+  { id: "sentinel", name: "Sentinel", color: "#4ad0c0", speedMult: 1.00, repairMult: 0.95, blurb: "slows the killer" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -39,7 +40,11 @@ const SURVIVOR_HP_MAX = 100;
 const ABILITIES = {
   runner: [
     { id: "dash",  name: "Dash",       cd: 5,  type: "speed_self",  mult: 2.5,   duration: 0.8 },
-    { id: "smoke", name: "Smoke Bomb", cd: 12, type: "smoke",       radius: 110, duration: 3.0 },
+    { id: "smoke", name: "Smoke Bomb", cd: 12, type: "smoke",       radius: 260, duration: 3.5 },
+  ],
+  sentinel: [
+    { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 3.0 },
+    { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 5.0 },
   ],
   engineer: [
     { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
@@ -81,6 +86,7 @@ const state = {
   lastSkill: new Map(),
   projectiles: [],
   smokes: [],
+  slowFields: [],
   nextEntityId: 1,
 };
 
@@ -182,6 +188,7 @@ function freshEffects() {
     healUntil: 0, healRate: 0,
     stalkUntil: 0,
     revealedUntil: 0,
+    slowMult: 1, slowUntil: 0,
   };
 }
 
@@ -408,6 +415,31 @@ function applyAbility(p, ab, slot) {
       p.effects.stalkUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "stun_burst": {
+      // Instant AOE: slow any killer within radius.
+      const affected = [];
+      for (const k of state.players.values()) {
+        if (k.role !== "killer" || !k.alive) continue;
+        if (Math.hypot(k.x - p.x, k.y - p.y) <= ab.radius) {
+          k.effects.slowMult = Math.min(k.effects.slowMult || 1, ab.slowMult);
+          k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, now + ab.duration * 1000);
+          affected.push(k.id);
+        }
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius, affected });
+      break;
+    }
+    case "slow_field":
+      state.slowFields.push({
+        id: state.nextEntityId++,
+        x: p.x, y: p.y,
+        radius: ab.radius,
+        slowMult: ab.slowMult,
+        ttl: ab.duration,
+        ownerId: p.id,
+      });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius });
+      break;
   }
 }
 
@@ -446,6 +478,7 @@ function startRound() {
   state.lastSkill.clear();
   state.projectiles = [];
   state.smokes = [];
+  state.slowFields = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -525,6 +558,37 @@ function tick() {
       }
     }
 
+    // Slow-field sustained effect on killers standing in a field.
+    for (const k of state.players.values()) {
+      if (k.role !== "killer" || !k.alive) continue;
+      let bestSlow = 1;
+      for (const f of state.slowFields) {
+        if (Math.hypot(k.x - f.x, k.y - f.y) <= f.radius) {
+          if (f.slowMult < bestSlow) bestSlow = f.slowMult;
+        }
+      }
+      if (bestSlow < 1) {
+        k.effects.slowMult = Math.min(k.effects.slowMult, bestSlow);
+        k.effects.slowUntil = Math.max(k.effects.slowUntil, now + 250); // refresh while inside
+      }
+    }
+
+    // Smoke conceals survivors from the killer.
+    for (const p of state.players.values()) {
+      if (p.role !== "survivor") { p.hiddenInSmoke = false; continue; }
+      p.hiddenInSmoke = false;
+      for (const sm of state.smokes) {
+        if (Math.hypot(p.x - sm.x, p.y - sm.y) <= sm.radius) {
+          p.hiddenInSmoke = true;
+          break;
+        }
+      }
+    }
+
+    // Decay slow fields
+    for (const f of state.slowFields) f.ttl -= dt;
+    state.slowFields = state.slowFields.filter(f => f.ttl > 0);
+
     // Projectiles
     const survivors = [...state.players.values()].filter(p => p.role === "survivor" && p.alive);
     const projHits = [];
@@ -563,6 +627,8 @@ function tick() {
           se: now < p.effects.speedUntil ? 1 : 0,
           st: now < p.effects.stalkUntil ? 1 : 0,
           re: now < p.effects.revealedUntil ? 1 : 0,
+          hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
+          sm: (p.role === "killer" && now < p.effects.slowUntil) ? +p.effects.slowMult.toFixed(2) : 1,
         })),
         progress: state.generators.map(g => +g.progress.toFixed(3)),
         projectiles: state.projectiles.map(pr => ({
@@ -572,6 +638,9 @@ function tick() {
         smokes: state.smokes.map(sm => ({
           id: sm.id, x: sm.x, y: sm.y, radius: sm.radius, ttl: +sm.ttl.toFixed(2),
         })),
+        slowFields: state.slowFields.map(f => ({
+          id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
+        })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -580,6 +649,7 @@ function tick() {
     state.roundTimer = ROUND_DURATION;
     state.projectiles = [];
     state.smokes = [];
+    state.slowFields = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
