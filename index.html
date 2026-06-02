@@ -361,7 +361,8 @@
 
     <div class="gd-h">VITALS</div>
     <div class="gd-line"><b>HP</b>: 100 for survivors. Down at 0. Killers can't be damaged.</div>
-    <div class="gd-line"><b>Stamina</b>: 100. Sprint drains 12/s, regens 18/s when not sprinting. <b>Abilities cost no stamina</b> — only their cooldown gates them.</div>
+    <div class="gd-line"><b>Stamina</b>: 100 (survivors) / 150 (killers). Sprint drains 12/s, regens 18/s when not sprinting. <b>Abilities cost no stamina</b> — only their cooldown gates them.</div>
+    <div class="gd-line"><b>Speed</b>: killers are slightly faster than the fastest survivor — even Stalker just barely edges out Runner.</div>
 
     <div class="gd-h">SKILL CHECKS</div>
     <div class="gd-line">Stand near a generator and tap when the spinning pointer is in the wedge:</div>
@@ -538,7 +539,8 @@ const G = {
   testRole: "survivor",
   testChar: "scout",
 };
-const STAM_MAX = 100, STAM_DRAIN = 12, STAM_REGEN = 18;
+const STAM_MAX = 100, STAM_MAX_KILLER = 150, STAM_DRAIN = 12, STAM_REGEN = 18;
+function maxStamFor(p) { return (p && p.role === "killer") ? STAM_MAX_KILLER : STAM_MAX; }
 const remoteLerp = new Map();
 
 // ---------- Input ----------
@@ -867,7 +869,6 @@ function onMessage(msg) {
       G.phase = "playing";
       G.cooldowns = [0, 0];
       G.mainAttackCd = 0;
-      G.stamina = STAM_MAX;
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
         remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
@@ -877,6 +878,7 @@ function onMessage(msg) {
         const meSp = msg.players.find(p => p.id === G.myId);
         if (meSp) { me.x = meSp.x; me.y = meSp.y; }
       }
+      G.stamina = maxStamFor(me);
       showOnly(null);
       hudEl.classList.remove("hidden");
       if (document.body.classList.contains("touch")) touchEl.classList.remove("hidden");
@@ -1090,7 +1092,7 @@ function startTestMode() {
   G.timer = G.roundDuration;
   G.cooldowns = [0, 0];
   G.mainAttackCd = 0;
-  G.stamina = STAM_MAX;
+  G.stamina = maxStamFor(me);
   G.projectiles = []; G.smokes = []; G.teleportGhosts = [];
   // 5 practice generators
   G.gens = [
@@ -1349,11 +1351,12 @@ function gameTick(now) {
       const v = inputVector();
       const moving = (v.x !== 0 || v.y !== 0);
       const wantSprint = sprinting() && moving;
+      const myMaxStam = maxStamFor(me);
       // Stamina drain / regen (client-side gate on sprint)
       if (wantSprint && G.stamina > 0) {
         G.stamina = Math.max(0, G.stamina - STAM_DRAIN * dt);
       } else if (!wantSprint) {
-        G.stamina = Math.min(STAM_MAX, G.stamina + STAM_REGEN * dt);
+        G.stamina = Math.min(myMaxStam, G.stamina + STAM_REGEN * dt);
       }
       const canSprint = wantSprint && G.stamina > 0;
 
@@ -1393,7 +1396,7 @@ function gameTick(now) {
     } else {
       G.skillQueued = false; G.attackQueued = false;
       G.abilityQueued = [false, false];
-      G.stamina = Math.min(STAM_MAX, G.stamina + STAM_REGEN * dt);
+      G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
     }
 
     // smooth remote players
@@ -1900,8 +1903,8 @@ function updateHUD() {
   } else {
     hpBar.classList.add("hidden");
   }
-  // Stamina
-  $("bar-stam").querySelector(".fill").style.width = (G.stamina / STAM_MAX * 100) + "%";
+  // Stamina (bar fills based on role-specific max)
+  $("bar-stam").querySelector(".fill").style.width = (G.stamina / maxStamFor(me) * 100) + "%";
 
   // Ability slots
   updateAbilitySlots(me);
