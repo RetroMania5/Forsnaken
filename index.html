@@ -1646,12 +1646,18 @@ function primeAudio() {
     if (p && p.catch) p.catch(() => {});
   } catch {}
 }
+// Killers whose tier files aren't .mp3. (Lunar's stems are .wav.)
+const KILLER_MUSIC_EXT = { lunar: "wav" };
+function killerMusicUrl(killerChar, i) {
+  const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
+  return `/music/${killerChar}_${i}.${ext}`;
+}
 function setupMusic(killerChar) {
   if (Music.loadedFor === killerChar) return;
   stopMusic();
   Music.base = mkAudio("/music/base_map.mp3");
   for (let i = 0; i < 4; i++) {
-    Music.tier[i] = mkAudio(`/music/${killerChar}_${i + 1}.mp3`);
+    Music.tier[i] = mkAudio(killerMusicUrl(killerChar, i + 1));
   }
   Music.loadedFor = killerChar;
 }
@@ -1861,9 +1867,9 @@ function setMusicStatus(text, kind) {
 async function preflightMusic() {
   const killers = (G.killerChars && G.killerChars.length)
     ? G.killerChars.map(c => c.id)
-    : ["slasher", "stalker"];
+    : ["slasher", "stalker", "lunar"];
   const urls = ["/music/base_map.mp3"];
-  for (const k of killers) for (let i = 1; i <= 4; i++) urls.push(`/music/${k}_${i}.mp3`);
+  for (const k of killers) for (let i = 1; i <= 4; i++) urls.push(killerMusicUrl(k, i));
   let ok = 0;
   const failed = [];
   setMusicStatus(`♪ Loading music 0/${urls.length}…`, "info");
