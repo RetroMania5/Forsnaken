@@ -196,6 +196,7 @@ const state = {
   players: new Map(),
   generators: freshGens(),
   designatedKillerId: null,
+  randomKillerEnabled: false,
   roundTimer: ROUND_DURATION,
   winner: null,
   resetAt: 0,
@@ -280,6 +281,7 @@ function handle(id, ws, msg) {
     case "join":      return onJoin(id, ws, msg);
     case "pick_char": return onPickChar(id, msg);
     case "designate": return onDesignate(id, msg);
+    case "toggle_random_killer": return onToggleRandomKiller(id, msg);
     case "start":     return onStart(id);
     case "pos":       return onPos(id, msg);
     case "attack":    return onAttack(id);
@@ -354,6 +356,7 @@ function onDesignate(id, msg) {
   const host = state.players.get(id);
   if (!host || !host.isHost) return;
   if (state.phase !== "lobby") return;
+  if (state.randomKillerEnabled) return; // manual pick disabled while random is on
   if (msg.id === null || msg.id === 0) {
     state.designatedKillerId = null;
     broadcastLobby();
@@ -361,6 +364,15 @@ function onDesignate(id, msg) {
   }
   if (!state.players.has(msg.id)) return;
   state.designatedKillerId = msg.id;
+  broadcastLobby();
+}
+
+function onToggleRandomKiller(id, msg) {
+  const host = state.players.get(id);
+  if (!host || !host.isHost) return;
+  if (state.phase !== "lobby") return;
+  state.randomKillerEnabled = !!msg.enabled;
+  if (state.randomKillerEnabled) state.designatedKillerId = null;
   broadcastLobby();
 }
 
@@ -384,9 +396,15 @@ function onStart(id) {
   if (state.phase !== "lobby") return;
   const p = state.players.get(id);
   if (!p || !p.isHost) return;
-  if (state.designatedKillerId === null) return;
-  if (!state.players.has(state.designatedKillerId)) return;
   if (state.players.size < 2) return;
+  if (state.randomKillerEnabled) {
+    // Roll a random player from the lobby as the killer.
+    const ids = [...state.players.keys()];
+    state.designatedKillerId = ids[Math.floor(Math.random() * ids.length)];
+  } else {
+    if (state.designatedKillerId === null) return;
+    if (!state.players.has(state.designatedKillerId)) return;
+  }
   startRound();
 }
 
@@ -990,6 +1008,7 @@ function broadcastLobby() {
     phase: state.phase,
     players: serializePlayers(),
     designatedKillerId: state.designatedKillerId,
+    randomKillerEnabled: state.randomKillerEnabled,
   });
 }
 

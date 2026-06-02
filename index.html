@@ -80,6 +80,13 @@
   .player-row.designated { background: rgba(233,69,96,0.18); }
   .player-row.designable { cursor: pointer; }
   .player-row.designable:hover { background: rgba(255,255,255,0.08); }
+  #random-killer-toggle {
+    display: block; margin: 0 auto 10px auto;
+    width: auto; padding: 6px 14px; font-size: 13px;
+  }
+  #random-killer-toggle.on {
+    background: rgba(233,69,96,0.25); border-color: var(--accent); color: #fff;
+  }
   .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
   .tag {
     font-size: 11px; padding: 2px 6px; border-radius: 4px;
@@ -551,6 +558,7 @@
 <div id="lobby" class="overlay hidden">
   <div class="panel">
     <h1 class="title" style="font-size: 28px;">LOBBY <span id="lobby-coins">🪙 0</span></h1>
+    <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
     <div id="player-list"></div>
     <div class="section">YOUR SURVIVOR</div>
     <div class="char-grid" id="surv-grid"></div>
@@ -686,6 +694,7 @@ const G = {
   portalBreaks: [],        // VFX when oldest portal is evicted
   scanArrowUntil: 0,
   designatedKillerId: null,
+  randomKillerEnabled: false,
   survivorChars: [],   // from welcome
   killerChars: [],     // from welcome
   abilities: {},       // from welcome: charId -> [ab1, ab2]
@@ -1123,6 +1132,7 @@ function onMessage(msg) {
     case "lobby":
       G.phase = msg.phase || "lobby";
       G.designatedKillerId = msg.designatedKillerId;
+      G.randomKillerEnabled = !!msg.randomKillerEnabled;
       mergeRoster(msg.players);
       // Round is over or hasn't started — stop the mix.
       if (G.phase === "lobby") stopMusic();
@@ -1358,6 +1368,9 @@ $("save-file").addEventListener("change", (e) => {
 });
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
+$("random-killer-toggle").addEventListener("click", () => {
+  sendMsg({ type: "toggle_random_killer", enabled: !G.randomKillerEnabled });
+});
 $("leave-btn").addEventListener("click", leaveRoom);
 $("guide-btn").addEventListener("click", openGuide);
 $("guide-close").addEventListener("click", closeGuide);
@@ -2033,12 +2046,22 @@ function renderLobby() {
   const iAmHost = (() => {
     const p = G.players.get(G.myId); return p && p.isHost;
   })();
+  // Host-only random-killer toggle
+  const tog = $("random-killer-toggle");
+  if (iAmHost && G.phase === "lobby") {
+    tog.classList.remove("hidden");
+    tog.classList.toggle("on", G.randomKillerEnabled);
+    tog.textContent = `🎲 Random killer: ${G.randomKillerEnabled ? "ON" : "OFF"}`;
+  } else {
+    tog.classList.add("hidden");
+  }
   for (const p of G.players.values()) {
     if (p.id === G.myId) me = p;
     const row = document.createElement("div");
-    const isDesignated = p.id === G.designatedKillerId;
+    const isDesignated = !G.randomKillerEnabled && p.id === G.designatedKillerId;
+    const canDesignate = iAmHost && G.phase === "lobby" && !G.randomKillerEnabled;
     row.className = "player-row" + (isDesignated ? " designated" : "")
-      + (iAmHost && G.phase === "lobby" ? " designable" : "");
+      + (canDesignate ? " designable" : "");
     row.innerHTML = `
       <div class="dot" style="background:${p.color}"></div>
       <div style="flex:1">${escapeHTML(p.name)}</div>
@@ -2046,7 +2069,7 @@ function renderLobby() {
       ${p.id === G.myId ? '<span class="tag you">YOU</span>' : ""}
       ${isDesignated ? '<span class="tag killer">KILLER</span>' : ""}
     `;
-    if (iAmHost && G.phase === "lobby") {
+    if (canDesignate) {
       row.addEventListener("click", () => {
         const newId = (G.designatedKillerId === p.id) ? null : p.id;
         sendMsg({ type: "designate", id: newId });
@@ -2063,14 +2086,23 @@ function renderLobby() {
   }
   startBtn.classList.remove("hidden");
   if (me && me.isHost) {
-    const haveKiller = G.designatedKillerId !== null && G.players.has(G.designatedKillerId);
-    startBtn.disabled = count < 2 || !haveKiller;
-    if (!haveKiller && count >= 2) status.textContent = "Tap a player to make them the killer.";
-    else if (!haveKiller) status.textContent = `Players: ${count} — need at least 2.`;
-    else status.textContent = `Ready: killer set, ${count} players.`;
+    if (G.randomKillerEnabled) {
+      startBtn.disabled = count < 2;
+      status.textContent = count < 2
+        ? `Players: ${count} — need at least 2.`
+        : `Random killer ON — a killer will be rolled on Start. (${count} in lobby)`;
+    } else {
+      const haveKiller = G.designatedKillerId !== null && G.players.has(G.designatedKillerId);
+      startBtn.disabled = count < 2 || !haveKiller;
+      if (!haveKiller && count >= 2) status.textContent = "Tap a player to make them the killer.";
+      else if (!haveKiller) status.textContent = `Players: ${count} — need at least 2.`;
+      else status.textContent = `Ready: killer set, ${count} players.`;
+    }
   } else {
     startBtn.classList.add("hidden");
-    if (G.designatedKillerId && G.players.has(G.designatedKillerId)) {
+    if (G.randomKillerEnabled) {
+      status.textContent = `Random killer ON — host will roll one on Start. (${count} in lobby)`;
+    } else if (G.designatedKillerId && G.players.has(G.designatedKillerId)) {
       const k = G.players.get(G.designatedKillerId);
       status.textContent = `Killer: ${k.name}.  Waiting for host to start…`;
     } else {
