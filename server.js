@@ -379,6 +379,8 @@ function removePlayer(id) {
   const p = state.players.get(id);
   if (!p) return;
   const wasHost = p.isHost;
+  // If the killer drops mid-round, survivors auto-win.
+  const killerLeftMidRound = state.phase === "playing" && p.role === "killer";
   state.players.delete(id);
   state.lastSkill.delete(id);
   state.projectiles = state.projectiles.filter(pr => pr.ownerId !== id);
@@ -387,7 +389,11 @@ function removePlayer(id) {
     const next = [...state.players.values()].sort((a, b) => a.joinedAt - b.joinedAt)[0];
     next.isHost = true;
   }
-  if (state.phase === "playing") checkRoundEnd();
+  if (killerLeftMidRound) {
+    endRound("survivors");
+  } else if (state.phase === "playing") {
+    checkRoundEnd();
+  }
   broadcastLobby();
 }
 
