@@ -2186,8 +2186,9 @@ function gameTick(now) {
       const channeling = me.channelUntil && now < me.channelUntil;
       // While aiming the sniper, input steers the reticle instead of the player.
       if (G.aiming) {
-        // Desktop: aim from screen → world cursor. Mobile: joystick.
-        if (!document.body.classList.contains("touch") && mouse.present) {
+        // If we have a mouse position, use it — the reticle goes wherever the
+        // cursor is. Otherwise fall back to joystick aim (mobile / no mouse).
+        if (mouse.present) {
           const wm = screenToWorld(mouse.x, mouse.y);
           const dx = wm.x - me.x, dy = wm.y - me.y;
           const m = Math.hypot(dx, dy);
@@ -2409,11 +2410,11 @@ function tryFireAbility(slot, me) {
   if (ab.type === "shoot_sniper") {
     if ((G.ammo | 0) <= 0) return;
     if (!G.aiming) {
-      // First press: enter aim mode. Seed direction from the mouse on
-      // desktop (so the reticle starts under the cursor); otherwise from
+      // First press: enter aim mode. Seed direction from the mouse if we
+      // have one (so the reticle starts under the cursor); otherwise from
       // current facing.
       G.aiming = true;
-      if (!document.body.classList.contains("touch") && mouse.present) {
+      if (mouse.present) {
         const wm = screenToWorld(mouse.x, mouse.y);
         const dx = wm.x - me.x, dy = wm.y - me.y;
         const m = Math.hypot(dx, dy);
@@ -2939,11 +2940,11 @@ function drawAimReticle() {
   if (!me || !me.alive) return;
   const now = performance.now();
 
-  // On desktop, anchor the reticle to the world cursor; on mobile, place it
-  // along the aim direction at a fixed range so the joystick has something
-  // to push toward.
+  // If a mouse is in play, anchor the reticle directly to the world cursor
+  // (it goes wherever the mouse is). Otherwise place it along the aim
+  // direction at a fixed range for joystick aim.
   let ex, ey;
-  if (!document.body.classList.contains("touch") && mouse.present) {
+  if (mouse.present) {
     const wm = screenToWorld(mouse.x, mouse.y);
     ex = wm.x; ey = wm.y;
   } else {
