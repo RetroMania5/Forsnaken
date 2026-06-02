@@ -1517,7 +1517,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150 };
+const CHAR_PRICES = { lunar: 150, sniper: 75 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "sentinel", "slasher"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
