@@ -139,7 +139,9 @@ const ABILITIES = {
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
     // travels in the supplied aim direction, breaks on the first wall or
     // obstacle, and stuns the killer for stunDuration seconds on hit.
-    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 2400, stunDuration: 10, hitRadius: 30 },
+    // range is effectively unlimited — the bullet only stops on a wall,
+    // obstacle, or the outer map boundary (handled in the tick loop).
+    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 99999, stunDuration: 10, hitRadius: 30 },
     // Reload: 5s channel before ammo refills. Only usable at 0 ammo.
     { id: "reload", name: "Reload", cd: 20, type: "reload_sniper", reloadDuration: 5.0 },
     // Sneak: turns the Sniper mostly invisible to everyone for a few seconds.
