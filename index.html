@@ -3202,10 +3202,10 @@ function drawPlayer(p) {
   } else if (flip) {
     ctx.scale(-1, 1);
   }
-  // Sniper Sneak: render mostly invisible. Self sees a clearer ghost; other
-  // viewers (including the killer) barely see anything.
+  // Sniper Sneak: 95% invisible while active (alpha 0.05). Self gets a
+  // slightly clearer ghost so the player can still track themselves.
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
-    ctx.globalAlpha *= (p.id === G.myId) ? 0.35 : 0.18;
+    ctx.globalAlpha *= (p.id === G.myId) ? 0.15 : 0.05;
   }
   // Hit flash: tint sprite red briefly
   if (p.hitFlashUntil && now < p.hitFlashUntil) {
@@ -3221,7 +3221,7 @@ function drawPlayer(p) {
 
   // Sneak also fades the HP bar + name so the sniper doesn't get given away.
   const sneakAlpha = (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0))))
-    ? ((p.id === G.myId) ? 0.4 : 0.18)
+    ? ((p.id === G.myId) ? 0.2 : 0.05)
     : 1;
   ctx.save();
   ctx.globalAlpha = sneakAlpha;
