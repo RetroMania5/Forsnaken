@@ -336,6 +336,35 @@
   body.aiming { cursor: none; }
   .save-row { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
   .save-row button { padding: 6px 10px; font-size: 12px; }
+  #settings .panel { max-width: 460px; }
+  #settings-btn-menu {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    width: auto; padding: 8px 14px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text); font-size: 13px; border-radius: 8px;
+  }
+  #settings-btn-menu:hover { background: rgba(255,255,255,0.15); }
+  .binding-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .binding-row .label { flex: 1; font-size: 13px; }
+  .binding-row .label .hint { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .binding-row .key-btn {
+    width: 90px; padding: 5px 8px; font-family: monospace;
+    font-weight: 700; font-size: 13px; letter-spacing: 0.04em;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 6px; color: var(--text); cursor: pointer;
+  }
+  .binding-row .key-btn:hover { background: rgba(255,255,255,0.14); }
+  .binding-row.listening .key-btn {
+    background: rgba(233,69,96,0.28); border-color: var(--accent); color: #fff;
+  }
+  .audio-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .audio-row label { flex: 1; font-size: 13px; }
+  .audio-row input[type=range] { flex: 1; }
+  .audio-row #music-vol-val { color: var(--muted); font-size: 11px; margin-left: 4px; }
   /* Locked character card */
   .char-btn.locked {
     opacity: 0.55; position: relative;
@@ -465,6 +494,25 @@
   </div>
   <button id="test-btn">▶ Test a character</button>
   <button id="guide-btn">📖 Guide</button>
+  <button id="settings-btn-menu">⚙ Settings</button>
+</div>
+
+<div id="settings" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" style="font-size: 26px;">SETTINGS</h1>
+    <div class="section">KEY BINDINGS</div>
+    <div class="gd-line" style="margin-bottom:6px;">Click a key to rebind, then press a new key. <b>Esc</b> cancels.</div>
+    <div id="bindings-list"></div>
+    <div class="section">AUDIO</div>
+    <div class="audio-row">
+      <label for="music-vol">Music volume <span id="music-vol-val">55%</span></label>
+      <input type="range" id="music-vol" min="0" max="100" value="55">
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <button id="settings-reset" class="secondary">Reset to defaults</button>
+      <button id="settings-close">Close</button>
+    </div>
+  </div>
 </div>
 
 <div id="guide" class="overlay hidden">
@@ -584,6 +632,7 @@
     <div class="row">
       <button id="start-btn" disabled>Start Round</button>
       <button id="lobby-guide-btn" class="secondary">Guide</button>
+      <button id="lobby-settings-btn" class="secondary">Settings</button>
       <button id="leave-lobby-btn" class="secondary">Leave</button>
     </div>
     <div class="save-row">
@@ -796,36 +845,37 @@ function sprinting() {
     // Mobile: push the joystick far to sprint, light touch = walk.
     return Math.hypot(joystick.x, joystick.y) > 0.85;
   }
-  return !!keys["shift"];
+  return !!keys[Settings.bindings.sprint];
 }
 
 // Edge-trigger keyboard
-let prevKeyE = false, prevKeyZ = false, prevKeyX = false, prevKeyC = false, prevKeyV = false;
+const prevSlot = { slot1: false, slot2: false, slot3: false, slot4: false, interact: false };
 function pollKeyShots() {
   const me = G.players.get(G.myId);
   const isKiller = me && me.role === "killer";
-  const e = !!keys["e"];
-  if (e && !prevKeyE && G.context === "interact") G.skillQueued = true;
-  prevKeyE = e;
-  // z: killer attack OR survivor's ability 1
-  const z = !!keys["z"];
-  if (z && !prevKeyZ) {
+  const B = Settings.bindings;
+  const interactDown = !!keys[B.interact];
+  if (interactDown && !prevSlot.interact && G.context === "interact") G.skillQueued = true;
+  prevSlot.interact = interactDown;
+  // slot1: killer attack OR survivor's ability 1
+  const s1 = !!keys[B.slot1];
+  if (s1 && !prevSlot.slot1) {
     if (isKiller) G.attackQueued = true;
     else G.abilityQueued[0] = true;
   }
-  prevKeyZ = z;
-  // x: killer ability 1 OR survivor's ability 2
-  const x = !!keys["x"];
-  if (x && !prevKeyX) G.abilityQueued[isKiller ? 0 : 1] = true;
-  prevKeyX = x;
-  // c: killer ability 2 OR survivor's ability 3
-  const c = !!keys["c"];
-  if (c && !prevKeyC) G.abilityQueued[isKiller ? 1 : 2] = true;
-  prevKeyC = c;
-  // v: killer ability 3 (e.g. Lunar's scan). Unused for survivors.
-  const v = !!keys["v"];
-  if (v && !prevKeyV && isKiller) G.abilityQueued[2] = true;
-  prevKeyV = v;
+  prevSlot.slot1 = s1;
+  // slot2: killer ability 1 OR survivor's ability 2
+  const s2 = !!keys[B.slot2];
+  if (s2 && !prevSlot.slot2) G.abilityQueued[isKiller ? 0 : 1] = true;
+  prevSlot.slot2 = s2;
+  // slot3: killer ability 2 OR survivor's ability 3
+  const s3 = !!keys[B.slot3];
+  if (s3 && !prevSlot.slot3) G.abilityQueued[isKiller ? 1 : 2] = true;
+  prevSlot.slot3 = s3;
+  // slot4: killer ability 3 (unused for survivors)
+  const s4 = !!keys[B.slot4];
+  if (s4 && !prevSlot.slot4 && isKiller) G.abilityQueued[2] = true;
+  prevSlot.slot4 = s4;
 }
 
 // ---------- Touch ----------
@@ -1404,6 +1454,86 @@ $("save-file").addEventListener("change", (e) => {
   if (file) loadSaveFromFile(file);
   e.target.value = "";   // reset so picking the same file again still fires
 });
+
+// ---------- Settings panel ----------
+let bindingListenFor = null;
+function keyDisplay(k) {
+  if (!k) return "—";
+  if (k === " ") return "SPACE";
+  if (k === "arrowup")    return "↑";
+  if (k === "arrowdown")  return "↓";
+  if (k === "arrowleft")  return "←";
+  if (k === "arrowright") return "→";
+  return k.toUpperCase();
+}
+function renderBindings() {
+  const list = $("bindings-list");
+  list.innerHTML = "";
+  for (const a of BINDABLE_ACTIONS) {
+    const row = document.createElement("div");
+    row.className = "binding-row" + (bindingListenFor === a.id ? " listening" : "");
+    const label = document.createElement("div");
+    label.className = "label";
+    label.innerHTML = `<b>${a.label}</b><span class="hint">${a.hint}</span>`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "key-btn";
+    btn.textContent = bindingListenFor === a.id ? "press a key…" : keyDisplay(Settings.bindings[a.id]);
+    btn.addEventListener("click", () => {
+      bindingListenFor = (bindingListenFor === a.id) ? null : a.id;
+      renderBindings();
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+function openSettings() {
+  $("settings").classList.remove("hidden");
+  bindingListenFor = null;
+  renderBindings();
+  const pct = Math.round(Settings.musicVolume * 100);
+  $("music-vol").value = pct;
+  $("music-vol-val").textContent = pct + "%";
+}
+function closeSettings() {
+  $("settings").classList.add("hidden");
+  bindingListenFor = null;
+}
+// Capturing keydown so we intercept before the gameplay keys listener
+// when the user is binding a new key.
+document.addEventListener("keydown", (e) => {
+  if (!bindingListenFor) return;
+  if ($("settings").classList.contains("hidden")) { bindingListenFor = null; return; }
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === "Escape") { bindingListenFor = null; renderBindings(); return; }
+  let k = e.key.toLowerCase();
+  // Ignore raw modifier presses except for "shift" used as Sprint.
+  if (k === "control" || k === "alt" || k === "meta") return;
+  Settings.bindings[bindingListenFor] = k;
+  bindingListenFor = null;
+  saveSettings();
+  renderBindings();
+}, true);
+
+$("settings-btn-menu").addEventListener("click", openSettings);
+$("lobby-settings-btn").addEventListener("click", openSettings);
+$("settings-close").addEventListener("click", closeSettings);
+$("settings-reset").addEventListener("click", () => {
+  Settings.bindings = { ...DEFAULT_BINDINGS };
+  Settings.musicVolume = 0.55;
+  Music.master = Settings.musicVolume;
+  saveSettings();
+  openSettings();
+});
+$("music-vol").addEventListener("input", (e) => {
+  const pct = +e.target.value;
+  Settings.musicVolume = pct / 100;
+  Music.master = Settings.musicVolume;
+  $("music-vol-val").textContent = pct + "%";
+  saveSettings();
+});
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("random-killer-toggle").addEventListener("click", () => {
@@ -1666,6 +1796,50 @@ function showCoinToast(text) {
   el._hideT = setTimeout(() => el.classList.add("hidden"), 3500);
 }
 
+// ---------- Settings (keybinds + music volume, persisted) ----------
+const DEFAULT_BINDINGS = {
+  slot1: "z",
+  slot2: "x",
+  slot3: "c",
+  slot4: "v",
+  interact: "e",
+  sprint: "shift",
+};
+const BINDABLE_ACTIONS = [
+  { id: "slot1", label: "Slot 1",   hint: "killer attack / survivor ability 1" },
+  { id: "slot2", label: "Slot 2",   hint: "ability" },
+  { id: "slot3", label: "Slot 3",   hint: "ability" },
+  { id: "slot4", label: "Slot 4",   hint: "killer's 3rd ability" },
+  { id: "interact", label: "Interact", hint: "skill check on generators" },
+  { id: "sprint",   label: "Sprint",   hint: "hold to run" },
+];
+const Settings = {
+  bindings: { ...DEFAULT_BINDINGS },
+  musicVolume: 0.55,
+};
+const SETTINGS_KEY = "fk:settings";
+function loadSettings() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"); } catch {}
+  if (saved && typeof saved === "object") {
+    if (saved.bindings && typeof saved.bindings === "object") {
+      for (const a of BINDABLE_ACTIONS) {
+        if (typeof saved.bindings[a.id] === "string") Settings.bindings[a.id] = saved.bindings[a.id];
+      }
+    }
+    if (typeof saved.musicVolume === "number") {
+      Settings.musicVolume = Math.max(0, Math.min(1, saved.musicVolume));
+    }
+  }
+}
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    bindings: Settings.bindings,
+    musicVolume: Settings.musicVolume,
+  }));
+}
+loadSettings();
+
 // ---------- Music ----------
 // Five looped tracks crossfade by distance to the nearest opposite-role
 // player: base_map (far) → killer_1..3 (closer) → killer_4 (chase).
@@ -1675,7 +1849,7 @@ const Music = {
   tier: [null, null, null, null],   // _1, _2, _3, _4
   loadedFor: null,                  // killerChar we loaded for
   started: false,
-  master: 0.55,
+  master: Settings.musicVolume,
   primed: false,
 };
 function mkAudio(url) {
@@ -3409,8 +3583,12 @@ function updateAbilitySlots(me) {
   const list = abilitiesFor(me);
   const now = performance.now();
   const isKiller = me.role === "killer";
-  // Key labels per role: killers see z=attack, x/c/v=abilities; survivors see z/x/c=abilities.
-  const slotKeys = isKiller ? ["X", "C", "V"] : ["Z", "X", "C"];
+  // Slot keys are driven by the user's keybind settings.
+  const B = Settings.bindings;
+  const ku = (k) => keyDisplay(k);
+  const slotKeys = isKiller
+    ? [ku(B.slot2), ku(B.slot3), ku(B.slot4)]
+    : [ku(B.slot1), ku(B.slot2), ku(B.slot3)];
 
   // Main attack slot (killer only)
   const slotMain = $("slot-main");
@@ -3418,7 +3596,7 @@ function updateAbilitySlots(me) {
     const kch = G.killerChars.find(c => c.id === me.killerChar);
     if (kch) {
       slotMain.classList.remove("hidden");
-      slotMain.querySelector(".key").textContent = "Z";
+      slotMain.querySelector(".key").textContent = ku(B.slot1);
       slotMain.querySelector(".name").textContent = kch.attackName || "Attack";
       const cdLeft = Math.max(0, (G.mainAttackCd || 0) - now) / 1000;
       const cdEl = slotMain.querySelector(".cd");
