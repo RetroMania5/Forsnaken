@@ -1445,7 +1445,12 @@ function exitTestMode() {
 // ---------- Account (localStorage, keyed by password) ----------
 // Coins and character unlocks live entirely in this browser. The "password"
 // is just an account key — same password on the same browser = same account.
-const CHAR_PRICES = { sniper: 100, stalker: 100 };
+// Any character NOT listed in DEFAULT_UNLOCKS costs money to use. CHAR_PRICES
+// is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
+// This means future characters added to the server are automatically locked
+// behind purchase without needing a code change here.
+const CHAR_PRICES = {};
+const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "sentinel", "slasher"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
@@ -1482,7 +1487,10 @@ function saveAccount() {
   }));
 }
 function isUnlocked(charId) { return Account.unlocks.includes(charId); }
-function priceOf(charId) { return CHAR_PRICES[charId] || 0; }
+function priceOf(charId) {
+  if (DEFAULT_UNLOCKS.includes(charId)) return 0;
+  return CHAR_PRICES[charId] != null ? CHAR_PRICES[charId] : DEFAULT_PRICE;
+}
 function tryBuy(charId) {
   if (isUnlocked(charId)) return true;
   const price = priceOf(charId);
