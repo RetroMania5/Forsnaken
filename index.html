@@ -1265,9 +1265,13 @@ function onMessage(msg) {
       G.projectiles = msg.projectiles || [];
       G.smokes = msg.smokes || [];
       G.slowFields = msg.slowFields || [];
-      G.portals = msg.portals || [];
-      // Re-render portal bar in case portals changed mid-menu.
-      if (G.portalMenu !== "closed") renderPortalBar();
+      {
+        const oldIds = (G.portals || []).map(p => p.id).join(",");
+        G.portals = msg.portals || [];
+        const newIds = G.portals.map(p => p.id).join(",");
+        // Full rebuild only when the portal list actually changed.
+        if (oldIds !== newIds && G.portalMenu !== "closed") renderPortalBar();
+      }
       break;
     case "damage": {
       const v = G.players.get(msg.id);
@@ -2018,6 +2022,7 @@ function renderPortalBar() {
   G.portals.forEach((portal, idx) => {
     const btn = document.createElement("button");
     btn.className = "portal-btn " + portalScanColor(portal);
+    btn.dataset.portalId = portal.id;
     btn.textContent = `Portal ${idx + 1}`;
     btn.addEventListener("click", () => clickPortal(portal.id));
     list.appendChild(btn);
@@ -2028,6 +2033,21 @@ function renderPortalBar() {
   back.textContent = "Back";
   back.addEventListener("click", () => { G.portalMenu = "closed"; renderPortalBar(); });
   list.appendChild(back);
+}
+// Cheap per-frame refresh: only swap color classes on existing portal
+// buttons so we don't recreate the DOM (which would eat clicks).
+function updatePortalColors() {
+  const bar = $("portal-bar");
+  if (G.portalMenu === "closed") return;
+  const btns = bar.querySelectorAll(".portal-btn");
+  for (const btn of btns) {
+    const id = +btn.dataset.portalId;
+    const portal = (G.portals || []).find(p => p.id === id);
+    if (!portal) continue;
+    const c = portalScanColor(portal);
+    btn.classList.remove("green", "yellow", "red");
+    btn.classList.add(c);
+  }
 }
 function clickPortal(portalId) {
   if (G.portalMenu !== "teleport") return;
@@ -2373,9 +2393,9 @@ function gameTick(now) {
   }
 
   document.body.classList.toggle("aiming", !!G.aiming);
-  // While the teleport bar is open, refresh so portal colors update as
-  // survivors move around.
-  if (G.portalMenu === "teleport") renderPortalBar();
+  // While the teleport bar is open, refresh colors only — DON'T rebuild
+  // the DOM, or clicks get eaten between mousedown and mouseup.
+  if (G.portalMenu === "teleport") updatePortalColors();
   render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
