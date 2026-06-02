@@ -501,6 +501,19 @@ const WALLS = [
   { x: MAP_W / 2, y: MAP_H * 0.75, w: MAP_W * 0.55, h: WALL_T },
   { x: MAP_W / 3,     y: MAP_H / 2, w: WALL_T, h: MAP_H * 0.33 },
   { x: 2 * MAP_W / 3, y: MAP_H / 2, w: WALL_T, h: MAP_H * 0.33 },
+  // Maze interior — symmetric about both axes. Must match server.js.
+  { x: 550,  y: 250,  w: WALL_T, h: 280 },
+  { x: 1850, y: 250,  w: WALL_T, h: 280 },
+  { x: 550,  y: 1350, w: WALL_T, h: 280 },
+  { x: 1850, y: 1350, w: WALL_T, h: 280 },
+  { x: 950,  y: 230,  w: WALL_T, h: 320 },
+  { x: 1450, y: 230,  w: WALL_T, h: 320 },
+  { x: 950,  y: 1370, w: WALL_T, h: 320 },
+  { x: 1450, y: 1370, w: WALL_T, h: 320 },
+  { x: 700,  y: 600,  w: 280,    h: WALL_T },
+  { x: 1700, y: 600,  w: 280,    h: WALL_T },
+  { x: 700,  y: 1000, w: 280,    h: WALL_T },
+  { x: 1700, y: 1000, w: 280,    h: WALL_T },
 ];
 
 // Static obstacles: rendered with type-specific styling, collide via the

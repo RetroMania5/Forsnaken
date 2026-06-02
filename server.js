@@ -14,12 +14,26 @@ const TICK_MS = 50;
 
 const MAP = { w: 2400, h: 1600 };
 const WALL_T = 30;
-const GEN_POSITIONS = [
-  { x: MAP.w * 0.18,        y: MAP.h * 0.17 },
-  { x: MAP.w * (1 - 0.18),  y: MAP.h * 0.17 },
-  { x: MAP.w * 0.18,        y: MAP.h * (1 - 0.17) },
-  { x: MAP.w * (1 - 0.18),  y: MAP.h * (1 - 0.17) },
+// Gens are picked from this pool each round — only GENS_PER_ROUND spawn.
+const GEN_SPAWN_POOL = [
+  { x: MAP.w * 0.12, y: MAP.h * 0.15 },
+  { x: MAP.w * 0.88, y: MAP.h * 0.15 },
+  { x: MAP.w * 0.12, y: MAP.h * 0.85 },
+  { x: MAP.w * 0.88, y: MAP.h * 0.85 },
+  { x: MAP.w * 0.50, y: MAP.h * 0.13 },
+  { x: MAP.w * 0.50, y: MAP.h * 0.87 },
+  { x: MAP.w * 0.10, y: MAP.h * 0.50 },
+  { x: MAP.w * 0.90, y: MAP.h * 0.50 },
+  { x: MAP.w * 0.28, y: MAP.h * 0.32 },
+  { x: MAP.w * 0.72, y: MAP.h * 0.32 },
+  { x: MAP.w * 0.28, y: MAP.h * 0.71 },
+  { x: MAP.w * 0.72, y: MAP.h * 0.71 },
+  { x: MAP.w * 0.40, y: MAP.h * 0.42 },
+  { x: MAP.w * 0.60, y: MAP.h * 0.42 },
+  { x: MAP.w * 0.40, y: MAP.h * 0.58 },
+  { x: MAP.w * 0.60, y: MAP.h * 0.58 },
 ];
+const GENS_PER_ROUND = 5;
 
 // Walls and obstacles — duplicated from client so the server can resolve
 // sniper-projectile collisions authoritatively. Must stay in sync with
@@ -33,6 +47,19 @@ const WALLS = [
   { x: MAP.w / 2, y: MAP.h * 0.75, w: MAP.w * 0.55, h: WALL_T },
   { x: MAP.w / 3,     y: MAP.h / 2, w: WALL_T, h: MAP.h * 0.33 },
   { x: 2 * MAP.w / 3, y: MAP.h / 2, w: WALL_T, h: MAP.h * 0.33 },
+  // Maze interior — symmetric about both axes.
+  { x: 550,  y: 250,  w: WALL_T, h: 280 },
+  { x: 1850, y: 250,  w: WALL_T, h: 280 },
+  { x: 550,  y: 1350, w: WALL_T, h: 280 },
+  { x: 1850, y: 1350, w: WALL_T, h: 280 },
+  { x: 950,  y: 230,  w: WALL_T, h: 320 },
+  { x: 1450, y: 230,  w: WALL_T, h: 320 },
+  { x: 950,  y: 1370, w: WALL_T, h: 320 },
+  { x: 1450, y: 1370, w: WALL_T, h: 320 },
+  { x: 700,  y: 600,  w: 280,    h: WALL_T },
+  { x: 1700, y: 600,  w: 280,    h: WALL_T },
+  { x: 700,  y: 1000, w: 280,    h: WALL_T },
+  { x: 1700, y: 1000, w: 280,    h: WALL_T },
 ];
 const OBSTACLES = [
   { x: 300,  y: 360,  w: 50, h: 50 },
@@ -145,7 +172,16 @@ const state = {
 };
 
 function freshGens() {
-  return GEN_POSITIONS.map(p => ({ x: p.x, y: p.y, progress: 0, done: false }));
+  // Fisher–Yates shuffle the pool, then take the first GENS_PER_ROUND entries.
+  const idx = GEN_SPAWN_POOL.map((_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  return idx.slice(0, GENS_PER_ROUND).map(k => {
+    const p = GEN_SPAWN_POOL[k];
+    return { x: p.x, y: p.y, progress: 0, done: false };
+  });
 }
 
 // ---------- HTTP ----------
