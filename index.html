@@ -1447,10 +1447,11 @@ function exitTestMode() {
 // is just an account key — same password on the same browser = same account.
 const CHAR_PRICES = { sniper: 100, stalker: 100 };
 const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "sentinel", "slasher"];
-// End-of-round payout: keyed by [role][outcome].
+// End-of-round payout: keyed by [role][outcome]. Coins are persisted to
+// localStorage via saveAccount() inside awardRoundPayout below.
 const PAYOUT = {
-  survivor: { win: 60, loss: 15 },
-  killer:   { win: 75, loss: 25 },
+  survivor: { win: 30, loss: 0 },
+  killer:   { win: 50, loss: 0 },
 };
 const Account = {
   password: null,
