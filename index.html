@@ -482,6 +482,39 @@ const WALLS = [
   { x: 2 * MAP_W / 3, y: MAP_H / 2, w: WALL_T, h: MAP_H * 0.33 },
 ];
 
+// Static obstacles: rendered with type-specific styling, collide via the
+// same circleVsRect logic as walls. Positioned to add cover near generators
+// and routing around the central corridors.
+const OBSTACLES = [
+  // Top-left room
+  { x: 300,  y: 360,  w: 50, h: 50, type: "crate" },
+  { x: 560,  y: 300,  w: 50, h: 50, type: "crate" },
+  { x: 200,  y: 180,  w: 36, h: 36, type: "barrel" },
+  { x: 700,  y: 200,  w: 32, h: 70, type: "locker" },
+  // Top-right room
+  { x: MAP_W - 300, y: 360, w: 50, h: 50, type: "crate" },
+  { x: MAP_W - 560, y: 300, w: 50, h: 50, type: "crate" },
+  { x: MAP_W - 200, y: 180, w: 36, h: 36, type: "barrel" },
+  { x: MAP_W - 700, y: 200, w: 32, h: 70, type: "locker" },
+  // Bottom-left room
+  { x: 300,  y: MAP_H - 360, w: 50, h: 50, type: "crate" },
+  { x: 560,  y: MAP_H - 300, w: 50, h: 50, type: "crate" },
+  { x: 200,  y: MAP_H - 180, w: 36, h: 36, type: "barrel" },
+  { x: 700,  y: MAP_H - 200, w: 32, h: 70, type: "locker" },
+  // Bottom-right room
+  { x: MAP_W - 300, y: MAP_H - 360, w: 50, h: 50, type: "crate" },
+  { x: MAP_W - 560, y: MAP_H - 300, w: 50, h: 50, type: "crate" },
+  { x: MAP_W - 200, y: MAP_H - 180, w: 36, h: 36, type: "barrel" },
+  { x: MAP_W - 700, y: MAP_H - 200, w: 32, h: 70, type: "locker" },
+  // Central corridor (between the four rooms)
+  { x: MAP_W / 2,   y: MAP_H * 0.38, w: 50, h: 50, type: "pillar" },
+  { x: MAP_W / 2,   y: MAP_H * 0.62, w: 50, h: 50, type: "pillar" },
+  { x: MAP_W * 0.42, y: MAP_H / 2,   w: 50, h: 50, type: "crate"  },
+  { x: MAP_W * 0.58, y: MAP_H / 2,   w: 50, h: 50, type: "crate"  },
+  { x: MAP_W * 0.3,  y: MAP_H / 2,   w: 36, h: 36, type: "barrel" },
+  { x: MAP_W * 0.7,  y: MAP_H / 2,   w: 36, h: 36, type: "barrel" },
+];
+
 // Skill-check geometry (radians).
 const DIAL_RADIUS = 70;
 const DIAL_GREEN = 35 * Math.PI / 180;
@@ -1642,8 +1675,10 @@ function charSpeedMult(p) {
 function stepWithCollision(p, dx, dy) {
   p.x += dx;
   for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.x += push.x; }
+  for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.x += push.x; }
   p.y += dy;
   for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.y += push.y; }
+  for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.y += push.y; }
   p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
   p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
 }
@@ -1705,6 +1740,9 @@ function render() {
   ctx.fillStyle = "#3a3a4d";
   for (const w of WALLS) ctx.fillRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
 
+  // obstacles
+  drawObstacles();
+
   // generators
   for (let i = 0; i < G.gens.length; i++) {
     const g = G.gens[i];
@@ -1742,6 +1780,68 @@ function render() {
 
   // Skill check dial (screen-space)
   drawSkillDial(w, h);
+}
+
+function drawObstacles() {
+  for (const o of OBSTACLES) {
+    const x0 = o.x - o.w / 2, y0 = o.y - o.h / 2;
+    if (o.type === "crate") {
+      ctx.fillStyle = "#7a5524";
+      ctx.fillRect(x0, y0, o.w, o.h);
+      // wood plank cross
+      ctx.fillStyle = "#5a3a18";
+      ctx.fillRect(x0, o.y - 1, o.w, 2);
+      ctx.fillRect(o.x - 1, y0, 2, o.h);
+      ctx.strokeStyle = "#2a1808";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    } else if (o.type === "pillar") {
+      // round stone pillar
+      ctx.fillStyle = "#65656b";
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, o.w / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#2a2a30";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // highlight crescent
+      ctx.fillStyle = "#8a8a92";
+      ctx.beginPath();
+      ctx.arc(o.x - 3, o.y - 3, o.w / 2 - 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (o.type === "locker") {
+      ctx.fillStyle = "#3a4045";
+      ctx.fillRect(x0, y0, o.w, o.h);
+      // door split
+      ctx.fillStyle = "#1a2025";
+      ctx.fillRect(o.x - 1, y0 + 3, 2, o.h - 6);
+      // vents
+      ctx.fillStyle = "#5a6065";
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(x0 + 4, y0 + 6 + i * 5, o.w - 8, 1);
+      }
+      // handles
+      ctx.fillStyle = "#aaaa90";
+      ctx.fillRect(x0 + 4, y0 + o.h - 14, 4, 2);
+      ctx.fillRect(x0 + o.w - 8, y0 + o.h - 14, 4, 2);
+      ctx.strokeStyle = "#0a1015";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    } else if (o.type === "barrel") {
+      ctx.fillStyle = "#5a4530";
+      ctx.fillRect(x0, y0, o.w, o.h);
+      // metal bands
+      ctx.fillStyle = "#2a2018";
+      ctx.fillRect(x0, y0 + 4, o.w, 2);
+      ctx.fillRect(x0, y0 + o.h - 6, o.w, 2);
+      // cap
+      ctx.fillStyle = "#7a6048";
+      ctx.fillRect(x0 + 3, y0 + 1, o.w - 6, 3);
+      ctx.strokeStyle = "#1a1208";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    }
+  }
 }
 
 function drawProjectiles() {
