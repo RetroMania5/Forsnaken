@@ -337,13 +337,15 @@
   .save-row { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
   .save-row button { padding: 6px 10px; font-size: 12px; }
   #settings .panel { max-width: 460px; }
-  #settings-btn-menu {
-    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  #settings-btn-menu, #map-image-btn {
+    position: absolute; bottom: 12px;
     width: auto; padding: 8px 14px;
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
     color: var(--text); font-size: 13px; border-radius: 8px;
   }
-  #settings-btn-menu:hover { background: rgba(255,255,255,0.15); }
+  #settings-btn-menu { left: 50%; transform: translateX(-50%); }
+  #map-image-btn { bottom: 52px; left: 50%; transform: translateX(-50%); }
+  #settings-btn-menu:hover, #map-image-btn:hover { background: rgba(255,255,255,0.15); }
   .binding-row {
     display: flex; align-items: center; gap: 10px;
     padding: 6px 0;
@@ -520,6 +522,7 @@
   <button id="test-btn">▶ Test a character</button>
   <button id="guide-btn">📖 Guide</button>
   <button id="settings-btn-menu">⚙ Settings</button>
+  <button id="map-image-btn">🗺 Map image</button>
 </div>
 
 <div id="settings" class="overlay hidden">
@@ -1567,6 +1570,95 @@ $("music-vol").addEventListener("input", (e) => {
 
 $("spec-prev").addEventListener("click", () => { cycleSpectate(-1); updateSpectatorBar(); });
 $("spec-next").addEventListener("click", () => { cycleSpectate(+1); updateSpectatorBar(); });
+
+// ---------- Map image export (for designing new layouts) ----------
+// Mirrors the server's GEN_SPAWN_POOL so the exported PNG shows every
+// possible gen position. Must stay in sync with server.js if you change it.
+const GEN_SPAWN_POOL_REF = [
+  [0.12, 0.15], [0.88, 0.15], [0.12, 0.85], [0.88, 0.85],
+  [0.50, 0.13], [0.50, 0.87], [0.10, 0.50], [0.90, 0.50],
+  [0.28, 0.32], [0.72, 0.32], [0.28, 0.71], [0.72, 0.71],
+  [0.40, 0.42], [0.60, 0.42], [0.40, 0.58], [0.60, 0.58],
+];
+function downloadMapImage() {
+  const c = document.createElement("canvas");
+  c.width = MAP_W; c.height = MAP_H;
+  const x = c.getContext("2d");
+  x.imageSmoothingEnabled = false;
+  // Floor
+  x.fillStyle = "#15151f"; x.fillRect(0, 0, MAP_W, MAP_H);
+  // Coarse + fine grid
+  x.strokeStyle = "rgba(255,255,255,0.05)"; x.lineWidth = 1;
+  for (let gx = 0; gx <= MAP_W; gx += 80) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, MAP_H); x.stroke(); }
+  for (let gy = 0; gy <= MAP_H; gy += 80) { x.beginPath(); x.moveTo(0, gy); x.lineTo(MAP_W, gy); x.stroke(); }
+  x.strokeStyle = "rgba(255,255,255,0.18)"; x.lineWidth = 2;
+  for (let gx = 0; gx <= MAP_W; gx += 400) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, MAP_H); x.stroke(); }
+  for (let gy = 0; gy <= MAP_H; gy += 400) { x.beginPath(); x.moveTo(0, gy); x.lineTo(MAP_W, gy); x.stroke(); }
+  // Walls
+  x.fillStyle = "#3a3a4d";
+  for (const w of WALLS) x.fillRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
+  x.strokeStyle = "rgba(255,255,255,0.25)"; x.lineWidth = 1;
+  for (const w of WALLS) x.strokeRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
+  // Obstacles (color by type roughly)
+  for (const o of OBSTACLES) {
+    const color = ({ crate: "#7a5524", pillar: "#65656b", locker: "#3a4045", barrel: "#5a4530" })[o.type] || "#7a5524";
+    x.fillStyle = color;
+    x.fillRect(o.x - o.w/2, o.y - o.h/2, o.w, o.h);
+    x.strokeStyle = "rgba(0,0,0,0.6)"; x.lineWidth = 2;
+    x.strokeRect(o.x - o.w/2, o.y - o.h/2, o.w, o.h);
+  }
+  // Generator spawn pool positions
+  x.font = "bold 16px monospace"; x.textAlign = "center"; x.textBaseline = "middle";
+  GEN_SPAWN_POOL_REF.forEach(([px, py], i) => {
+    const cx = px * MAP_W, cy = py * MAP_H;
+    x.fillStyle = "rgba(120,200,120,0.35)";
+    x.beginPath(); x.arc(cx, cy, 36, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = "rgba(180,255,180,0.9)"; x.lineWidth = 2;
+    x.beginPath(); x.arc(cx, cy, 36, 0, Math.PI * 2); x.stroke();
+    x.fillStyle = "#fff"; x.fillText(`G${i + 1}`, cx, cy);
+  });
+  // Spawn points
+  x.fillStyle = "rgba(233,69,96,0.55)";
+  x.beginPath(); x.arc(MAP_W / 2, 220, 22, 0, Math.PI * 2); x.fill();
+  x.fillStyle = "#fff"; x.fillText("K", MAP_W / 2, 220);
+  for (let i = 0; i < 4; i++) {
+    const sx = MAP_W / 2 + (i - 1.5) * 80;
+    x.fillStyle = "rgba(154,220,255,0.55)";
+    x.beginPath(); x.arc(sx, MAP_H - 220, 18, 0, Math.PI * 2); x.fill();
+    x.fillStyle = "#fff"; x.font = "bold 12px monospace";
+    x.fillText(`S${i+1}`, sx, MAP_H - 220);
+    x.font = "bold 16px monospace";
+  }
+  // Coord ticks every 200 px
+  x.fillStyle = "rgba(255,255,255,0.55)";
+  x.font = "12px monospace"; x.textAlign = "left"; x.textBaseline = "top";
+  for (let gx = 0; gx <= MAP_W; gx += 200) x.fillText(String(gx), gx + 3, 3);
+  for (let gy = 0; gy <= MAP_H; gy += 200) x.fillText(String(gy), 3, gy + 3);
+  // Legend
+  x.textAlign = "left"; x.textBaseline = "top";
+  x.font = "bold 14px monospace";
+  x.fillStyle = "rgba(0,0,0,0.65)"; x.fillRect(MAP_W - 280, MAP_H - 130, 270, 120);
+  x.fillStyle = "#fff";
+  x.fillText(`Map ${MAP_W} × ${MAP_H}`,        MAP_W - 270, MAP_H - 120);
+  x.fillText("Gray block = wall",              MAP_W - 270, MAP_H - 100);
+  x.fillText("Brown / etc = obstacle",         MAP_W - 270, MAP_H - 82);
+  x.fillText("Green ring = gen spawn pool",    MAP_W - 270, MAP_H - 64);
+  x.fillText("Red K = killer spawn",           MAP_W - 270, MAP_H - 46);
+  x.fillText("Blue S# = survivor spawn",       MAP_W - 270, MAP_H - 28);
+
+  c.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `forsaken-map-${MAP_W}x${MAP_H}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+}
+$("map-image-btn").addEventListener("click", downloadMapImage);
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("random-killer-toggle").addEventListener("click", () => {
