@@ -326,6 +326,7 @@
   .pill .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 
   .hidden { display: none !important; }
+  body.aiming { cursor: none; }
 </style>
 </head>
 <body>
@@ -346,6 +347,7 @@
     <div class="slot main hidden" id="slot-main"><div class="key">Q</div><div class="name">—</div><div class="cd hidden">0</div></div>
     <div class="slot" id="slot-0"><div class="key">1</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
     <div class="slot" id="slot-1"><div class="key">2</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
+    <div class="slot hidden" id="slot-2"><div class="key">3</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
   </div>
   <div class="hud-prompt hidden" id="hud-prompt"></div>
   <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div></div>
@@ -356,6 +358,7 @@
 <div id="touch-controls" class="hidden">
   <div id="joystick"><div class="base"></div><div class="knob" id="knob"></div></div>
   <div id="mobile-abilities">
+    <button class="mob-ab hidden" id="mob-ab-2"><span id="mob-ab-2-name">—</span><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></button>
     <button class="mob-ab" id="mob-ab-1"><span id="mob-ab-1-name">—</span><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></button>
     <button class="mob-ab" id="mob-ab-0"><span id="mob-ab-0-name">—</span><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></button>
   </div>
@@ -427,8 +430,9 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
-      <div class="gd-ab"><b>1 — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts to where you're looking — steer with WASD / joystick). <b>Tap again to fire</b> a bullet in the aim direction. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Costs 1 ammo. CD 25s on fire.</div>
-      <div class="gd-ab"><b>2 — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. <b>While aiming, this button backs out</b> instead — your shot is unspent, but Shoot goes on a short <b>5s cooldown</b>.</div>
+      <div class="gd-ab"><b>1 — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts). On desktop, the reticle follows your <b>mouse</b>; on mobile the joystick steers. <b>Tap again to fire</b> a bullet at the reticle. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Generous hit radius. Costs 1 ammo. CD 25s on fire.</div>
+      <div class="gd-ab"><b>2 — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. <b>While aiming, this button backs out</b> — your shot is unspent, but Shoot goes on a short <b>5s cooldown</b>.</div>
+      <div class="gd-ab"><b>3 — Sneak</b>: vanish for 6s — you're mostly invisible to everyone (the killer barely sees you). Great for repositioning after a missed shot. CD 20s.</div>
     </div>
 
     <div class="gd-h">KILLERS</div>
@@ -618,8 +622,8 @@ const G = {
   context: "none",     // "attack" | "interact" | "none"
   attackQueued: false,
   skillQueued: false,
-  abilityQueued: [false, false],
-  cooldowns: [0, 0],   // local CD timestamps (perf.now() ms)
+  abilityQueued: [false, false, false],
+  cooldowns: [0, 0, 0],   // local CD timestamps (perf.now() ms)
   mainAttackCd: 0,     // local main attack CD timestamp
   stamina: 100,
   // Sniper-specific local state.
@@ -692,7 +696,7 @@ function sprinting() {
 }
 
 // Edge-trigger keyboard
-let prevKeyQ = false, prevKeyE = false, prevKey1 = false, prevKey2 = false;
+let prevKeyQ = false, prevKeyE = false, prevKey1 = false, prevKey2 = false, prevKey3 = false;
 function pollKeyShots() {
   const q = !!keys["q"];
   if (q && !prevKeyQ) G.attackQueued = true;
@@ -706,6 +710,9 @@ function pollKeyShots() {
   const k2 = !!keys["2"];
   if (k2 && !prevKey2) G.abilityQueued[1] = true;
   prevKey2 = k2;
+  const k3 = !!keys["3"];
+  if (k3 && !prevKey3) G.abilityQueued[2] = true;
+  prevKey3 = k3;
 }
 
 // ---------- Touch ----------
@@ -713,6 +720,26 @@ function isTouchDevice() {
   return ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 }
 if (isTouchDevice()) document.body.classList.add("touch");
+
+// Track the mouse for desktop sniper aim.
+const mouse = { x: 0, y: 0, present: false };
+window.addEventListener("mousemove", (e) => {
+  mouse.x = e.clientX; mouse.y = e.clientY; mouse.present = true;
+});
+// Convert a screen coord to world space using the current camera params.
+function screenToWorld(sx, sy) {
+  const w = innerWidth, h = innerHeight;
+  const me = G.players.get(G.myId);
+  let camX = me ? me.x : MAP_W / 2;
+  let camY = me ? me.y : MAP_H / 2;
+  if (me && G.aiming) {
+    const CAM_OFFSET = 520;
+    camX += G.aimDir.x * CAM_OFFSET;
+    camY += G.aimDir.y * CAM_OFFSET;
+  }
+  const zoom = Math.min(1.4, Math.max(0.7, Math.min(w, h) / 700));
+  return { x: (sx - w / 2) / zoom + camX, y: (sy - h / 2) / zoom + camY };
+}
 
 const knobEl = $("knob");
 const joystickEl = $("joystick");
@@ -785,6 +812,7 @@ function bindAbilityBtn(el, slot) {
 }
 bindAbilityBtn($("mob-ab-0"), 0);
 bindAbilityBtn($("mob-ab-1"), 1);
+bindAbilityBtn($("mob-ab-2"), 2);
 
 // ---------- Canvas sizing ----------
 function resize() {
@@ -1025,7 +1053,7 @@ function onMessage(msg) {
       G.timer = msg.timer;
       G.winner = null;
       G.phase = "playing";
-      G.cooldowns = [0, 0];
+      G.cooldowns = [0, 0, 0];
       G.mainAttackCd = 0;
       G.aiming = false;
       G.ammo = 1;
@@ -1067,6 +1095,7 @@ function onMessage(msg) {
           p.speedBuff = !!s.se;
           p.stalkActive = !!s.st;
           p.revealed = !!s.re;
+          p.sneaking = !!s.sn;
           p.hiddenInSmoke = !!s.hd;
           p.slowMult = typeof s.sm === "number" ? s.sm : 1;
           p.ammo = typeof s.am === "number" ? s.am : (p.ammo == null ? 1 : p.ammo);
@@ -1320,7 +1349,7 @@ function startTestMode() {
   G.testMode = true;
   G.phase = "playing";
   G.timer = G.roundDuration;
-  G.cooldowns = [0, 0];
+  G.cooldowns = [0, 0, 0];
   G.mainAttackCd = 0;
   G.stamina = maxStamFor(me);
   G.projectiles = []; G.smokes = []; G.slowFields = []; G.teleportGhosts = [];
@@ -1551,6 +1580,11 @@ function applyLocalAbility(me, ab, aim) {
       // Local prediction already set G.reloadUntil; complete the refill on time.
       setTimeout(() => { G.ammo = 1; }, ab.reloadDuration * 1000);
       break;
+    case "sneak":
+      // Self goes invisible to the dummy too. No server check in test mode.
+      me.sneaking = true;
+      setTimeout(() => { me.sneaking = false; }, ab.duration * 1000);
+      break;
   }
 }
 
@@ -1779,8 +1813,19 @@ function gameTick(now) {
       const channeling = me.channelUntil && now < me.channelUntil;
       // While aiming the sniper, input steers the reticle instead of the player.
       if (G.aiming) {
-        const a = aimVector();
-        if (a) { G.aimDir = a; facing = { x: a.x, y: a.y }; }
+        // Desktop: aim from screen → world cursor. Mobile: joystick.
+        if (!document.body.classList.contains("touch") && mouse.present) {
+          const wm = screenToWorld(mouse.x, mouse.y);
+          const dx = wm.x - me.x, dy = wm.y - me.y;
+          const m = Math.hypot(dx, dy);
+          if (m > 1) {
+            G.aimDir = { x: dx / m, y: dy / m };
+            facing = G.aimDir;
+          }
+        } else {
+          const a = aimVector();
+          if (a) { G.aimDir = a; facing = { x: a.x, y: a.y }; }
+        }
         G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
       } else if (channeling) {
         // Sentinel summoning: rooted in place, regen stamina.
@@ -1823,7 +1868,7 @@ function gameTick(now) {
         if (me.role === "killer") tryAttack(me);
       }
       // Abilities
-      for (let slot = 0; slot < 2; slot++) {
+      for (let slot = 0; slot < 3; slot++) {
         if (!G.abilityQueued[slot]) continue;
         G.abilityQueued[slot] = false;
         tryFireAbility(slot, me);
@@ -1835,7 +1880,7 @@ function gameTick(now) {
       }
     } else {
       G.skillQueued = false; G.attackQueued = false;
-      G.abilityQueued = [false, false];
+      G.abilityQueued = [false, false, false];
       G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
     }
 
@@ -1913,6 +1958,7 @@ function gameTick(now) {
     }
   }
 
+  document.body.classList.toggle("aiming", !!G.aiming);
   render(); updateHUD(); updateMusic();
   requestAnimationFrame(gameTick);
 }
@@ -1982,11 +2028,20 @@ function tryFireAbility(slot, me) {
   if (ab.type === "shoot_sniper") {
     if ((G.ammo | 0) <= 0) return;
     if (!G.aiming) {
-      // First press: enter aim mode. Seed direction from current facing.
+      // First press: enter aim mode. Seed direction from the mouse on
+      // desktop (so the reticle starts under the cursor); otherwise from
+      // current facing.
       G.aiming = true;
-      const f = facing;
-      const n = Math.hypot(f.x, f.y) || 1;
-      G.aimDir = { x: f.x / n, y: f.y / n };
+      if (!document.body.classList.contains("touch") && mouse.present) {
+        const wm = screenToWorld(mouse.x, mouse.y);
+        const dx = wm.x - me.x, dy = wm.y - me.y;
+        const m = Math.hypot(dx, dy);
+        G.aimDir = m > 1 ? { x: dx / m, y: dy / m } : { x: facing.x, y: facing.y };
+      } else {
+        const f = facing;
+        const n = Math.hypot(f.x, f.y) || 1;
+        G.aimDir = { x: f.x / n, y: f.y / n };
+      }
       return;
     }
     if (now < G.cooldowns[slot]) return;
@@ -2043,6 +2098,8 @@ function tryFireAbility(slot, me) {
     me._localStalkUntil = now + ab.duration * 1000;
   } else if (ab.type === "reveal") {
     G.scanArrowUntil = now + ab.duration * 1000;
+  } else if (ab.type === "sneak") {
+    me._localSneakUntil = now + ab.duration * 1000;
   } else if (ab.type === "slow_field" && ab.channelDuration) {
     // Local prediction: show summoning channel immediately on the caster.
     me.channelUntil = now + ab.channelDuration * 1000;
@@ -2423,9 +2480,19 @@ function drawAimReticle() {
   const me = G.players.get(G.myId);
   if (!me || !me.alive) return;
   const now = performance.now();
-  const range = 900;
-  const ex = me.x + G.aimDir.x * range;
-  const ey = me.y + G.aimDir.y * range;
+
+  // On desktop, anchor the reticle to the world cursor; on mobile, place it
+  // along the aim direction at a fixed range so the joystick has something
+  // to push toward.
+  let ex, ey;
+  if (!document.body.classList.contains("touch") && mouse.present) {
+    const wm = screenToWorld(mouse.x, mouse.y);
+    ex = wm.x; ey = wm.y;
+  } else {
+    const range = 900;
+    ex = me.x + G.aimDir.x * range;
+    ey = me.y + G.aimDir.y * range;
+  }
 
   // Trace from player to reticle
   ctx.save();
@@ -2438,21 +2505,21 @@ function drawAimReticle() {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Reticle crosshair
+  // Reticle crosshair — slightly larger to match the bigger shot hit radius.
   const pulse = 1 + Math.sin(now * 0.012) * 0.08;
   ctx.translate(ex, ey);
   ctx.scale(pulse, pulse);
   ctx.strokeStyle = "rgba(255,80,80,0.95)";
   ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(-22, 0); ctx.lineTo(-8, 0);
-  ctx.moveTo(8, 0);   ctx.lineTo(22, 0);
-  ctx.moveTo(0, -22); ctx.lineTo(0, -8);
-  ctx.moveTo(0, 8);   ctx.lineTo(0, 22);
+  ctx.moveTo(-30, 0); ctx.lineTo(-10, 0);
+  ctx.moveTo(10, 0);  ctx.lineTo(30, 0);
+  ctx.moveTo(0, -30); ctx.lineTo(0, -10);
+  ctx.moveTo(0, 10);  ctx.lineTo(0, 30);
   ctx.stroke();
   ctx.fillStyle = "rgba(255,80,80,0.95)";
-  ctx.fillRect(-1, -1, 2, 2);
+  ctx.fillRect(-2, -2, 4, 4);
   ctx.restore();
 }
 
@@ -2649,6 +2716,11 @@ function drawPlayer(p) {
   } else if (flip) {
     ctx.scale(-1, 1);
   }
+  // Sniper Sneak: render mostly invisible. Self sees a clearer ghost; other
+  // viewers (including the killer) barely see anything.
+  if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
+    ctx.globalAlpha *= (p.id === G.myId) ? 0.35 : 0.18;
+  }
   // Hit flash: tint sprite red briefly
   if (p.hitFlashUntil && now < p.hitFlashUntil) {
     ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
@@ -2660,6 +2732,13 @@ function drawPlayer(p) {
     ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
   }
   ctx.restore();
+
+  // Sneak also fades the HP bar + name so the sniper doesn't get given away.
+  const sneakAlpha = (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0))))
+    ? ((p.id === G.myId) ? 0.4 : 0.18)
+    : 1;
+  ctx.save();
+  ctx.globalAlpha = sneakAlpha;
 
   // HP bar for survivors (always show, not just damaged)
   if (p.role === "survivor" && p.alive) {
@@ -2680,6 +2759,7 @@ function drawPlayer(p) {
   const nameY = p.y - 36;
   ctx.strokeText(p.name || "", p.x, nameY);
   ctx.fillText(p.name || "", p.x, nameY);
+  ctx.restore();
 }
 
 function drawSkillDial(W, H) {
@@ -2843,16 +2923,20 @@ function updateAbilitySlots(me) {
     slotMain.classList.add("hidden");
   }
 
-  // Ability slots 0 and 1
-  for (let i = 0; i < 2; i++) {
+  // Ability slots 0, 1, 2 (slot 2 only used by chars with 3 abilities, e.g. Sniper)
+  for (let i = 0; i < 3; i++) {
     const ab = list[i];
     const slot = $(`slot-${i}`);
     const mob = $(`mob-ab-${i}`);
     if (!ab) {
-      slot.querySelector(".name").textContent = "—";
-      slot.querySelector(".cd").classList.add("hidden");
-      mob.querySelector("span").textContent = "—";
-      mob.querySelector(".cd").classList.add("hidden");
+      // Slot 2 is character-specific; hide it entirely when not in use.
+      if (i === 2) { slot.classList.add("hidden"); mob.classList.add("hidden"); }
+      else {
+        slot.querySelector(".name").textContent = "—";
+        slot.querySelector(".cd").classList.add("hidden");
+        mob.querySelector("span").textContent = "—";
+        mob.querySelector(".cd").classList.add("hidden");
+      }
       slot.classList.remove("disabled", "aim-active");
       mob.classList.remove("disabled", "aim-active");
       slot.querySelector(".ammo-dots").classList.add("hidden");
@@ -2861,6 +2945,8 @@ function updateAbilitySlots(me) {
       mob.querySelector(".reload-fill").style.height = "0";
       continue;
     }
+    // Show slot 2 when this character has a 3rd ability.
+    if (i === 2) { slot.classList.remove("hidden"); mob.classList.remove("hidden"); }
     // Sniper Shoot in "tap to fire" state: relabel to FIRE while aiming.
     let label = ab.name;
     if (ab.type === "shoot_sniper" && G.aiming) label = "Fire";

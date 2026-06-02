@@ -139,9 +139,11 @@ const ABILITIES = {
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
     // travels in the supplied aim direction, breaks on the first wall or
     // obstacle, and stuns the killer for stunDuration seconds on hit.
-    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 2400, stunDuration: 10 },
+    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 2400, stunDuration: 10, hitRadius: 30 },
     // Reload: 5s channel before ammo refills. Only usable at 0 ammo.
     { id: "reload", name: "Reload", cd: 20, type: "reload_sniper", reloadDuration: 5.0 },
+    // Sneak: turns the Sniper mostly invisible to everyone for a few seconds.
+    { id: "sneak",  name: "Sneak",  cd: 20, type: "sneak", duration: 6.0 },
   ],
   engineer: [
     { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
@@ -281,7 +283,7 @@ function onJoin(id, ws, msg) {
     facing: { x: 1, y: 0 },
     alive: true,
     hp: SURVIVOR_HP_MAX,
-    cooldowns: [0, 0],        // ms epoch when ability slot becomes ready
+    cooldowns: [0, 0, 0],     // ms epoch when ability slot becomes ready
     mainAttackCdUntil: 0,
     ammo: 1,                  // sniper-specific; harmless on other chars
     reloadUntil: 0,
@@ -309,6 +311,7 @@ function freshEffects() {
     stalkUntil: 0,
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
+    sneakUntil: 0,
   };
 }
 
@@ -441,7 +444,7 @@ function onAbility(id, msg) {
   const p = state.players.get(id);
   if (!p || !p.alive) return;
   const slot = msg.slot | 0;
-  if (slot !== 0 && slot !== 1) return;
+  if (slot < 0 || slot > 2) return;
   const charId = p.role === "killer" ? p.killerChar : p.survivorChar;
   const list = ABILITIES[charId];
   if (!list || !list[slot]) return;
@@ -627,10 +630,15 @@ function applyAbility(p, ab, slot, msg) {
         dist: 0,
         kind: "sniper",
         stunDuration: ab.stunDuration,
+        hitRadius: ab.hitRadius || 22,
       });
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fx: fxn, fy: fyn });
       break;
     }
+    case "sneak":
+      p.effects.sneakUntil = now + ab.duration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
     case "reload_sniper":
       p.reloadUntil = now + ab.reloadDuration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
@@ -687,7 +695,7 @@ function startRound() {
   killer.alive = true;
   killer.hp = SURVIVOR_HP_MAX; // unused for killer
   killer.facing = { x: 1, y: 0 };
-  killer.cooldowns = [0, 0];
+  killer.cooldowns = [0, 0, 0];
   killer.mainAttackCdUntil = 0;
   killer.ammo = 1; killer.reloadUntil = 0;
   killer.effects = freshEffects();
@@ -702,7 +710,7 @@ function startRound() {
     p.alive = true;
     p.hp = SURVIVOR_HP_MAX;
     p.facing = { x: 1, y: 0 };
-    p.cooldowns = [0, 0];
+    p.cooldowns = [0, 0, 0];
     p.mainAttackCdUntil = 0;
     p.ammo = 1; p.reloadUntil = 0;
     p.effects = freshEffects();
@@ -819,8 +827,9 @@ function tick() {
             }
           }
           // Stun the killer on hit (no damage).
+          const HIT = pr.hitRadius || 22;
           for (const k of killers) {
-            if (Math.hypot(k.x - pr.x, k.y - pr.y) < 22) {
+            if (Math.hypot(k.x - pr.x, k.y - pr.y) < HIT) {
               k.effects.slowMult = 0.05;
               k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, Date.now() + pr.stunDuration * 1000);
               broadcast({ type: "stun", id: k.id, by: pr.ownerId, duration: pr.stunDuration });
@@ -869,6 +878,7 @@ function tick() {
           se: now < p.effects.speedUntil ? 1 : 0,
           st: now < p.effects.stalkUntil ? 1 : 0,
           re: now < p.effects.revealedUntil ? 1 : 0,
+          sn: now < (p.effects.sneakUntil || 0) ? 1 : 0,
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
           sm: (p.role === "killer" && now < p.effects.slowUntil) ? +p.effects.slowMult.toFixed(2) : 1,
           am: p.ammo || 0,
@@ -899,7 +909,7 @@ function tick() {
       p.role = "unassigned";
       p.alive = true;
       p.hp = SURVIVOR_HP_MAX;
-      p.cooldowns = [0, 0];
+      p.cooldowns = [0, 0, 0];
       p.effects = freshEffects();
       const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
       if (sc) p.color = sc.color;
