@@ -178,6 +178,11 @@
   #action-btn.attack { background: rgba(233,69,96,0.65); border-color: rgba(255,255,255,0.5); }
   #action-btn.interact { background: rgba(102,224,138,0.45); border-color: rgba(255,255,255,0.55); }
   #action-btn:active { transform: scale(0.95); }
+  #action-btn .cd {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800;
+  }
   #leave-btn {
     position: absolute; top: calc(12px + env(safe-area-inset-top));
     right: calc(12px + env(safe-area-inset-right));
@@ -310,6 +315,7 @@
     <div class="bar stam"  id="bar-stam"><div class="fill" style="width:100%"></div><div class="label">STAMINA</div></div>
   </div>
   <div class="ability-row" id="ability-row">
+    <div class="slot main hidden" id="slot-main"><div class="key">Q</div><div class="name">—</div><div class="cd hidden">0</div></div>
     <div class="slot" id="slot-0"><div class="key">1</div><div class="name">—</div><div class="cd hidden">0</div></div>
     <div class="slot" id="slot-1"><div class="key">2</div><div class="name">—</div><div class="cd hidden">0</div></div>
   </div>
@@ -325,7 +331,7 @@
     <button class="mob-ab" id="mob-ab-1"><span id="mob-ab-1-name">—</span><div class="cd hidden">0</div></button>
     <button class="mob-ab" id="mob-ab-0"><span id="mob-ab-0-name">—</span><div class="cd hidden">0</div></button>
   </div>
-  <button id="action-btn">—</button>
+  <button id="action-btn"><span id="action-label">—</span><div class="cd hidden" id="action-cd">0</div></button>
 </div>
 
 <div id="menu" class="overlay">
@@ -388,16 +394,16 @@
 
     <div class="gd-h">KILLERS</div>
     <div class="gd-card">
-      <div class="gd-head"><span class="dot" style="background:#e94560"></span><b>Slasher</b><span class="gd-muted">25 dmg, 70 px reach</span></div>
-      <div class="gd-ab"><b>Q — Slash</b>: 25 dmg melee, 70px reach.</div>
-      <div class="gd-ab"><b>1 — Throw Knife</b>: 20 dmg projectile in your facing direction, ~700px range. CD 5s.</div>
+      <div class="gd-head"><span class="dot" style="background:#e94560"></span><b>Slasher</b><span class="gd-muted">70 px reach</span></div>
+      <div class="gd-ab"><b>Q — Knife Slash</b>: 17 dmg melee, 70 px reach. CD 1.0s.</div>
+      <div class="gd-ab"><b>1 — Throw Knife</b>: 12 dmg projectile in your facing direction, ~700 px range. CD 5s.</div>
       <div class="gd-ab"><b>2 — Frenzy</b>: +30% speed for 4s. CD 14s.</div>
     </div>
     <div class="gd-card">
-      <div class="gd-head"><span class="dot" style="background:#7a2030"></span><b>Stalker</b><span class="gd-muted">25 dmg, 110 px reach, 8% slower</span></div>
-      <div class="gd-ab"><b>Q — Slash</b>: 25 dmg melee at long reach.</div>
+      <div class="gd-head"><span class="dot" style="background:#7a2030"></span><b>Stalker</b><span class="gd-muted">110 px reach, 8% slower</span></div>
+      <div class="gd-ab"><b>Q — Claw Strike</b>: 13 dmg melee at long reach. CD 1.3s.</div>
       <div class="gd-ab"><b>1 — Shadow Step</b>: teleport ~220 px in your facing direction. CD 6s.</div>
-      <div class="gd-ab"><b>2 — Stalk</b>: your next basic attack deals double damage (50). Buff lasts 4s. CD 15s.</div>
+      <div class="gd-ab"><b>2 — Stalk</b>: your next Claw Strike deals 2× damage (26). Buff lasts 4s. CD 15s.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -521,6 +527,7 @@ const G = {
   skillQueued: false,
   abilityQueued: [false, false],
   cooldowns: [0, 0],   // local CD timestamps (perf.now() ms)
+  mainAttackCd: 0,     // local main attack CD timestamp
   stamina: 100,
   // Skill check local state
   dialAngle: 0,
@@ -859,6 +866,7 @@ function onMessage(msg) {
       G.winner = null;
       G.phase = "playing";
       G.cooldowns = [0, 0];
+      G.mainAttackCd = 0;
       G.stamina = STAM_MAX;
       G.projectiles = []; G.smokes = [];
       for (const sp of msg.players) {
@@ -1056,15 +1064,42 @@ function startTestMode() {
   me._anim = { frame: "idle", accum: 0, actionUntil: 0, lastX: me.x, lastY: me.y };
   G.players.clear();
   G.players.set(-1, me);
+
+  // Practice dummy: stationary survivor target with HP bar above head.
+  // Auto-respawns 3s after being downed.
+  const dummy = {
+    id: -2,
+    name: "DUMMY",
+    color: "#6cb6ff",
+    role: "survivor",
+    survivorChar: "scout",
+    killerChar: "slasher",
+    x: MAP_W / 2 + 180, y: MAP_H / 2,
+    fx: -1, fy: 0,
+    alive: true,
+    hp: G.survivorHpMax,
+    _isDummy: true,
+  };
+  dummy._anim = { frame: "idle", accum: 0, actionUntil: 0, lastX: dummy.x, lastY: dummy.y };
+  G.players.set(-2, dummy);
+
   remoteLerp.clear();
   G.myId = -1;
   G.testMode = true;
-  G.phase = "playing";   // reuse the playing render path
+  G.phase = "playing";
   G.timer = G.roundDuration;
   G.cooldowns = [0, 0];
+  G.mainAttackCd = 0;
   G.stamina = STAM_MAX;
   G.projectiles = []; G.smokes = []; G.teleportGhosts = [];
-  G.gens = [];           // no gens in test mode
+  // 5 practice generators
+  G.gens = [
+    { x: 300,        y: 180,        progress: 0, done: false },
+    { x: MAP_W - 300, y: 180,       progress: 0, done: false },
+    { x: 300,        y: MAP_H - 180, progress: 0, done: false },
+    { x: MAP_W - 300, y: MAP_H - 180, progress: 0, done: false },
+    { x: MAP_W / 2,  y: 150,        progress: 0, done: false },
+  ];
   G.localEntityId = 1000;
   showOnly(null);
   hudEl.classList.remove("hidden");
@@ -1122,6 +1157,21 @@ function applyLocalAbility(me, ab) {
       me._healUntil = now + ab.duration * 1000;
       me._healRate = ab.amount / ab.duration;
       break;
+    case "gen_boost": {
+      let bestIdx = -1, bestD = ab.range || 90;
+      for (let i = 0; i < G.gens.length; i++) {
+        if (G.gens[i].done) continue;
+        const d = Math.hypot(G.gens[i].x - me.x, G.gens[i].y - me.y);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      if (bestIdx >= 0) {
+        G.gens[bestIdx].progress = Math.min(1, G.gens[bestIdx].progress + (ab.amount || 0.30));
+        if (G.gens[bestIdx].progress >= 1) {
+          G.gens[bestIdx].progress = 1; G.gens[bestIdx].done = true;
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -1266,7 +1316,17 @@ function attemptSkill() {
   if (idx === -1 || G.gens[idx].done) return;
   G.lastSkillAt = now;
   const result = classifyAngle(G.dialAngle);
-  sendMsg({ type: "skill", gen: idx, result });
+  if (G.testMode) {
+    const sc = G.survivorChars.find(c => c.id === me.survivorChar);
+    const repairMult = sc ? sc.repairMult : 1;
+    let delta = result === "green" ? 0.22 : result === "yellow" ? 0.10 : -0.12;
+    if (delta > 0) delta *= repairMult;
+    const g = G.gens[idx];
+    g.progress = Math.max(0, Math.min(1, g.progress + delta));
+    if (g.progress >= 1) { g.progress = 1; g.done = true; }
+  } else {
+    sendMsg({ type: "skill", gen: idx, result });
+  }
   const colors = { green: "#66e08a", yellow: "#ffd84a", red: "#e94560" };
   G.flash = { color: colors[result], until: now + 350 };
   if (result !== "red" && me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
@@ -1314,13 +1374,10 @@ function gameTick(now) {
       } else if (G.skillQueued) {
         G.skillQueued = false;
       }
-      // Attack
+      // Attack (killer main attack — now treated like an ability with name + CD)
       if (G.attackQueued) {
         G.attackQueued = false;
-        if (me.role === "killer") {
-          sendMsg({ type: "attack" });
-          if (me._anim) me._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
-        }
+        if (me.role === "killer") tryAttack(me);
       }
       // Abilities
       for (let slot = 0; slot < 2; slot++) {
@@ -1356,18 +1413,40 @@ function gameTick(now) {
     // Test-mode local sim (no server doing this for us).
     if (G.testMode) {
       const meT = G.players.get(G.myId);
-      // Projectiles
+      const tnow = performance.now();
+      // Projectiles: move + collide with non-self survivors (dummy)
       for (const pr of G.projectiles) {
         pr.x += pr.vx * dt; pr.y += pr.vy * dt;
         pr.dist = (pr.dist || 0) + Math.hypot(pr.vx, pr.vy) * dt;
       }
-      G.projectiles = G.projectiles.filter(pr => (pr.dist || 0) < (pr.range || 600) && pr.x > 0 && pr.x < MAP_W && pr.y > 0 && pr.y < MAP_H);
+      G.projectiles = G.projectiles.filter(pr => {
+        if ((pr.dist || 0) >= (pr.range || 600)) return false;
+        if (pr.x < 0 || pr.x > MAP_W || pr.y < 0 || pr.y > MAP_H) return false;
+        for (const p of G.players.values()) {
+          if (p.id === G.myId) continue;
+          if (p.role !== "survivor" || !p.alive) continue;
+          if (Math.hypot(p.x - pr.x, p.y - pr.y) < 22) {
+            p.hp = Math.max(0, (p.hp || 0) - (pr.damage || 0));
+            p.hitFlashUntil = tnow + 250;
+            if (p.hp <= 0) { p.alive = false; p._downAt = tnow; }
+            return false;
+          }
+        }
+        return true;
+      });
       // Smokes
       for (const sm of G.smokes) sm.ttl -= dt;
       G.smokes = G.smokes.filter(sm => sm.ttl > 0);
-      // Heal
-      if (meT && performance.now() < (meT._healUntil || 0)) {
+      // Self heal
+      if (meT && tnow < (meT._healUntil || 0)) {
         meT.hp = Math.min(G.survivorHpMax, (meT.hp || 0) + (meT._healRate || 0) * dt);
+      }
+      // Dummy auto-respawn
+      const dummy = G.players.get(-2);
+      if (dummy && !dummy.alive && dummy._downAt && tnow - dummy._downAt > 3000) {
+        dummy.alive = true;
+        dummy.hp = G.survivorHpMax;
+        dummy._downAt = 0;
       }
     }
   }
@@ -1385,6 +1464,45 @@ function charIdFor(p) {
 function abilitiesFor(p) {
   const id = charIdFor(p);
   return G.abilities[id] || [];
+}
+
+function tryAttack(me) {
+  const kch = G.killerChars.find(c => c.id === me.killerChar);
+  if (!kch) return;
+  const now = performance.now();
+  if (now < (G.mainAttackCd || 0)) return;
+  G.mainAttackCd = now + (kch.attackCooldown || 1.0) * 1000;
+  if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+  if (G.testMode) {
+    localKillerAttack(me, kch);
+  } else {
+    sendMsg({ type: "attack" });
+  }
+}
+
+function localKillerAttack(me, kch) {
+  let best = null, bestD = kch.attackRadius;
+  for (const p of G.players.values()) {
+    if (p.id === me.id) continue;
+    if (p.role !== "survivor" || !p.alive) continue;
+    const d = Math.hypot(p.x - me.x, p.y - me.y);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  if (!best) return;
+  let dmg = kch.attackDamage;
+  const now = performance.now();
+  // Stalk: prediction or server flag
+  if (me.stalkActive || now < (me._localStalkUntil || 0)) {
+    dmg *= 2;
+    me._localStalkUntil = 0;
+    me.stalkActive = false;
+  }
+  best.hp = Math.max(0, (best.hp || 0) - dmg);
+  best.hitFlashUntil = now + 250;
+  if (best.hp <= 0) {
+    best.alive = false;
+    best._downAt = now;
+  }
 }
 
 function tryFireAbility(slot, me) {
@@ -1808,14 +1926,43 @@ function updateHUD() {
   else promptEl.classList.add("hidden");
 
   actionEl.classList.remove("attack", "interact");
-  if (ctx2 === "attack") { actionEl.textContent = "ATK"; actionEl.classList.add("attack"); }
-  else if (ctx2 === "interact") { actionEl.textContent = "FIX"; actionEl.classList.add("interact"); }
-  else actionEl.textContent = "—";
+  const lab = $("action-label");
+  if (ctx2 === "attack") { lab.textContent = "ATK"; actionEl.classList.add("attack"); }
+  else if (ctx2 === "interact") { lab.textContent = "FIX"; actionEl.classList.add("interact"); }
+  else lab.textContent = "—";
+
+  // Main attack cooldown overlay on action button (killer only)
+  const cdLabel = $("action-cd");
+  const atkCdLeft = Math.max(0, (G.mainAttackCd || 0) - performance.now()) / 1000;
+  if (me.role === "killer" && atkCdLeft > 0) {
+    cdLabel.classList.remove("hidden");
+    cdLabel.textContent = atkCdLeft.toFixed(1);
+  } else {
+    cdLabel.classList.add("hidden");
+  }
 }
 
 function updateAbilitySlots(me) {
   const list = abilitiesFor(me);
   const now = performance.now();
+
+  // Main attack slot (killer only)
+  const slotMain = $("slot-main");
+  if (me.role === "killer") {
+    const kch = G.killerChars.find(c => c.id === me.killerChar);
+    if (kch) {
+      slotMain.classList.remove("hidden");
+      slotMain.querySelector(".name").textContent = kch.attackName || "Attack";
+      const cdLeft = Math.max(0, (G.mainAttackCd || 0) - now) / 1000;
+      const cdEl = slotMain.querySelector(".cd");
+      if (cdLeft > 0) { cdEl.classList.remove("hidden"); cdEl.textContent = cdLeft.toFixed(1); }
+      else cdEl.classList.add("hidden");
+    }
+  } else {
+    slotMain.classList.add("hidden");
+  }
+
+  // Ability slots 0 and 1
   for (let i = 0; i < 2; i++) {
     const ab = list[i];
     const slot = $(`slot-${i}`);

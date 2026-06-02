@@ -27,8 +27,8 @@ const SURVIVOR_CHARS = [
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
 ];
 const KILLER_CHARS = [
-  { id: "slasher",  name: "Slasher",  color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 25, blurb: "balanced reach" },
-  { id: "stalker",  name: "Stalker",  color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 25, blurb: "long reach, slower" },
+  { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
+  { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, slower, lower dmg" },
 ];
 
 // ---- HP ----
@@ -50,7 +50,7 @@ const ABILITIES = {
     { id: "scan",  name: "Scan",  cd: 12, type: "reveal",     duration: 2.0 },
   ],
   slasher: [
-    { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 20, speed: 700, range: 700 },
+    { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
     { id: "frenzy", name: "Frenzy",      cd: 14, type: "speed_self", mult: 1.30, duration: 4.0 },
   ],
   stalker: [
@@ -258,6 +258,9 @@ function onAttack(id) {
   const a = state.players.get(id);
   if (!a || a.role !== "killer" || !a.alive) return;
   const kch = killerCharOf(a);
+  const now = Date.now();
+  if (now < (a.mainAttackCdUntil || 0)) return;
+  a.mainAttackCdUntil = now + (kch.attackCooldown || 1.0) * 1000;
   let best = null, bestD = kch.attackRadius;
   for (const [pid, p] of state.players) {
     if (pid === id) continue;
@@ -267,7 +270,7 @@ function onAttack(id) {
   }
   if (best) {
     let dmg = kch.attackDamage;
-    if (Date.now() < a.effects.stalkUntil) {
+    if (now < a.effects.stalkUntil) {
       dmg *= 2;
       a.effects.stalkUntil = 0; // consume
     }
@@ -457,6 +460,7 @@ function startRound() {
   killer.hp = SURVIVOR_HP_MAX; // unused for killer
   killer.facing = { x: 1, y: 0 };
   killer.cooldowns = [0, 0];
+  killer.mainAttackCdUntil = 0;
   killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
@@ -470,6 +474,7 @@ function startRound() {
     p.hp = SURVIVOR_HP_MAX;
     p.facing = { x: 1, y: 0 };
     p.cooldowns = [0, 0];
+    p.mainAttackCdUntil = 0;
     p.effects = freshEffects();
   });
 
