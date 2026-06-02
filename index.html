@@ -586,6 +586,10 @@
       <button id="lobby-guide-btn" class="secondary">Guide</button>
       <button id="leave-lobby-btn" class="secondary">Leave</button>
     </div>
+    <div class="save-row">
+      <button id="save-download-lobby" class="secondary">⬇ Download save</button>
+      <button id="save-load-lobby" class="secondary">⬆ Load save</button>
+    </div>
   </div>
 </div>
 
@@ -1393,6 +1397,8 @@ $("name-input").addEventListener("keydown", (e) => {
 $("name-input").value = randomName();
 $("save-download").addEventListener("click", downloadSave);
 $("save-load").addEventListener("click", () => $("save-file").click());
+$("save-download-lobby").addEventListener("click", downloadSave);
+$("save-load-lobby").addEventListener("click", () => $("save-file").click());
 $("save-file").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (file) loadSaveFromFile(file);
