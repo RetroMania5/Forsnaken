@@ -411,7 +411,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#4ad0c0"></span><b>Sentinel</b><span class="gd-muted">slows the killer (-5% repair)</span></div>
       <div class="gd-ab"><b>1 — Stun Burst</b>: instant aoe, killers within 180px are slowed to 50% speed for <b>10s</b>. CD 12s.</div>
-      <div class="gd-ab"><b>2 — Slow Field</b>: drop a frost field where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts until the killer destroys it with a basic attack</b> (or the round ends). CD 18s.</div>
+      <div class="gd-ab"><b>2 — Slow Field</b>: <b>0.7s summoning channel</b> (you're rooted), then a frost field drops where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts until the killer destroys it</b> (or the round ends). <b>Max 3 active at a time</b> — placing a 4th pops the oldest. CD 18s.</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
@@ -1120,11 +1120,16 @@ function onMessage(msg) {
       if (a && a._anim) a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
       if (typeof msg.timer === "number") G.timer = msg.timer;
       if (msg.id === G.myId) G.aiming = false;
+      {
+        const downed = G.players.get(msg.id);
+        if (downed) { downed.channelUntil = 0; downed.channelType = null; }
+      }
       break;
     }
     case "over":
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
+      for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
       showBanner(msg.winner);
       break;
     case "stun": {
@@ -1142,6 +1147,14 @@ function onMessage(msg) {
         G.fieldBreaks.push({ x: f.x, y: f.y, radius: f.radius, until: performance.now() + 450 });
       }
       break;
+    case "ability_channel": {
+      const v = G.players.get(msg.id);
+      if (v) {
+        v.channelUntil = performance.now() + (msg.duration || 0) * 1000;
+        v.channelType = msg.abilityType;
+      }
+      break;
+    }
   }
 }
 
@@ -1492,12 +1505,23 @@ function applyLocalAbility(me, ab, aim) {
       // No killers in test mode — visual marker only via the action animation.
       // (When a killer exists, server applies the slow.)
       break;
-    case "slow_field":
-      G.slowFields.push({
-        id: ++G.localEntityId, x: me.x, y: me.y,
-        radius: ab.radius, slowMult: ab.slowMult, ttl: ab.duration,
-      });
+    case "slow_field": {
+      const placeField = () => {
+        if (!me.alive) return;
+        const max = ab.maxFields || Infinity;
+        if (G.slowFields.length >= max) {
+          const oldest = G.slowFields.shift();
+          if (oldest) G.fieldBreaks.push({ x: oldest.x, y: oldest.y, radius: oldest.radius, until: performance.now() + 450 });
+        }
+        G.slowFields.push({
+          id: ++G.localEntityId, x: me.x, y: me.y,
+          radius: ab.radius, slowMult: ab.slowMult, ttl: ab.duration,
+        });
+      };
+      if (ab.channelDuration) setTimeout(placeField, ab.channelDuration * 1000);
+      else placeField();
       break;
+    }
     case "shoot_sniper": {
       const a = aim || facing;
       const n = Math.hypot(a.x, a.y) || 1;
@@ -1690,10 +1714,14 @@ function gameTick(now) {
     const me = G.players.get(G.myId);
     if (me && me.alive) {
       const v = inputVector();
+      const channeling = me.channelUntil && now < me.channelUntil;
       // While aiming the sniper, input steers the reticle instead of the player.
       if (G.aiming) {
         const a = aimVector();
         if (a) { G.aimDir = a; facing = { x: a.x, y: a.y }; }
+        G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
+      } else if (channeling) {
+        // Sentinel summoning: rooted in place, regen stamina.
         G.stamina = Math.min(maxStamFor(me), G.stamina + STAM_REGEN * dt);
       } else {
       const moving = (v.x !== 0 || v.y !== 0);
@@ -1953,6 +1981,10 @@ function tryFireAbility(slot, me) {
     me._localStalkUntil = now + ab.duration * 1000;
   } else if (ab.type === "reveal") {
     G.scanArrowUntil = now + ab.duration * 1000;
+  } else if (ab.type === "slow_field" && ab.channelDuration) {
+    // Local prediction: show summoning channel immediately on the caster.
+    me.channelUntil = now + ab.channelDuration * 1000;
+    me.channelType = ab.type;
   } else if (ab.type === "teleport" && !G.testMode) {
     // Teleport locally on press. Without this, pos messages sent in
     // the round-trip window overwrite the server-side teleport.
@@ -2436,6 +2468,34 @@ function drawPlayer(p) {
 
   // Aura under sprite for buffs
   if (p.alive) {
+    // Sentinel slow-field summoning channel: pulsing ring + spinning runes.
+    if (p.channelUntil && now < p.channelUntil) {
+      ctx.save();
+      const remaining = p.channelUntil - now;
+      const dur = 700; // matches channelDuration on server
+      const progress = 1 - Math.max(0, Math.min(1, remaining / dur));
+      const r = 30 + progress * 22;
+      const grad = ctx.createRadialGradient(p.x, p.y + 6, 0, p.x, p.y + 6, r);
+      grad.addColorStop(0, "rgba(140,230,250,0.15)");
+      grad.addColorStop(0.6, "rgba(80,180,220,0.45)");
+      grad.addColorStop(1, "rgba(50,140,200,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 6, r, 0, Math.PI * 2); ctx.fill();
+      // Spinning runes
+      ctx.fillStyle = "rgba(200,245,255,0.95)";
+      for (let i = 0; i < 6; i++) {
+        const a = now * 0.012 + i * (Math.PI / 3);
+        const rr = 28 + Math.sin(now * 0.01 + i) * 3;
+        ctx.fillRect(p.x + Math.cos(a) * rr - 2, p.y + 6 + Math.sin(a) * rr - 2, 4, 4);
+      }
+      // Charge-up arc
+      ctx.strokeStyle = "rgba(150,230,255,0.95)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + 6, 32, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (p.speedBuff || (p.id === G.myId && now < (p._localSpeedUntil || 0))) {
       ctx.save();
       const r = 30 + Math.sin(now * 0.012) * 3;

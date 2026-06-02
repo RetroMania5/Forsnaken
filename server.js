@@ -131,7 +131,9 @@ const ABILITIES = {
   sentinel: [
     { id: "burst", name: "Stun Burst", cd: 12, type: "stun_burst",  radius: 180, slowMult: 0.50, duration: 10.0 },
     // Slow Field persists until the killer attacks it (or the round ends).
-    { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999 },
+    // Capped at maxFields per Sentinel — placing a new one pops the oldest.
+    // channelDuration is the summoning channel before the field drops.
+    { id: "field", name: "Slow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999, channelDuration: 0.7, maxFields: 3 },
   ],
   sniper: [
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
@@ -578,17 +580,36 @@ function applyAbility(p, ab, slot, msg) {
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius, affected });
       break;
     }
-    case "slow_field":
-      state.slowFields.push({
-        id: state.nextEntityId++,
-        x: p.x, y: p.y,
-        radius: ab.radius,
-        slowMult: ab.slowMult,
-        ttl: ab.duration,
-        ownerId: p.id,
-      });
-      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: ab.radius });
+    case "slow_field": {
+      // Sentinel "summons" the field over channelDuration before it drops.
+      // The location is captured at channel-end so the player can be repositioned.
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      const ownerId = p.id;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration || 0 });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        // Cap fields per Sentinel — pop the oldest if at the limit.
+        const max = ab.maxFields || Infinity;
+        const mine = state.slowFields.filter(f => f.ownerId === ownerId);
+        if (mine.length >= max) {
+          const oldest = mine[0];
+          state.slowFields = state.slowFields.filter(f => f.id !== oldest.id);
+          broadcast({ type: "field_break", fields: [{ id: oldest.id, x: oldest.x, y: oldest.y, radius: oldest.radius }], by: ownerId });
+        }
+        state.slowFields.push({
+          id: state.nextEntityId++,
+          x: owner.x, y: owner.y,
+          radius: ab.radius,
+          slowMult: ab.slowMult,
+          ttl: ab.duration,
+          ownerId,
+        });
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, x: owner.x, y: owner.y, radius: ab.radius });
+      }, channelMs);
       break;
+    }
     case "shoot_sniper": {
       // Consume 1 ammo. Spawn a projectile in the client-supplied aim direction.
       p.ammo = Math.max(0, (p.ammo || 0) - 1);
