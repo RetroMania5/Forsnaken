@@ -257,14 +257,30 @@
   }
   .mob-ab:active { transform: scale(0.94); }
 
-  /* Test button on menu */
-  #test-btn {
-    position: absolute; bottom: 12px; left: 12px;
+  /* Test / Guide buttons on menu */
+  #test-btn, #guide-btn {
+    position: absolute; bottom: 12px;
     width: auto; margin: 0; padding: 8px 14px;
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
     color: var(--text); font-size: 13px; border-radius: 8px;
   }
-  #test-btn:hover { background: rgba(255,255,255,0.15); }
+  #test-btn { left: 12px; }
+  #guide-btn { right: 12px; }
+  #test-btn:hover, #guide-btn:hover { background: rgba(255,255,255,0.15); }
+
+  /* Guide overlay */
+  #guide { z-index: 20; }
+  #guide .panel { max-width: 560px; max-height: 90vh; overflow-y: auto; }
+  .gd-h { margin: 16px 0 6px 0; font-size: 12px; color: var(--accent); letter-spacing: 0.12em; font-weight: 700; }
+  .gd-line { padding: 3px 0; font-size: 13px; line-height: 1.45; color: #d8d8e0; }
+  .gd-line b { color: var(--text); }
+  .gd-card { padding: 10px 12px; margin-bottom: 8px; background: rgba(255,255,255,0.04); border-radius: 8px; }
+  .gd-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .gd-head .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .gd-head b { font-size: 14px; }
+  .gd-muted { color: var(--muted); font-size: 12px; }
+  .gd-ab { font-size: 12px; line-height: 1.55; padding: 2px 0; color: #cdcdda; }
+  .gd-ab b { color: var(--text); }
 
   /* Test pick screen */
   .pill-row { display: flex; gap: 6px; margin-top: 4px; }
@@ -323,6 +339,75 @@
     <div class="hint">Everyone who opens this link joins the same room.<br>Share the URL with friends.</div>
   </div>
   <button id="test-btn">▶ Test a character</button>
+  <button id="guide-btn">📖 Guide</button>
+</div>
+
+<div id="guide" class="overlay hidden">
+  <div class="panel">
+    <h1 class="title" style="font-size: 28px;">GUIDE</h1>
+
+    <div class="gd-h">CONTROLS</div>
+    <div class="gd-line"><b>WASD</b> / joystick — move</div>
+    <div class="gd-line"><b>Shift</b> / push joystick far — sprint (drains stamina)</div>
+    <div class="gd-line"><b>E</b> / tap FIX — attempt a skill check on a nearby generator (survivor)</div>
+    <div class="gd-line"><b>Q</b> / tap ATK — basic attack (killer)</div>
+    <div class="gd-line"><b>1</b>, <b>2</b> / mobile ability buttons — fire your two abilities</div>
+
+    <div class="gd-h">VITALS</div>
+    <div class="gd-line"><b>HP</b>: 100 for survivors. Down at 0. Killers can't be damaged.</div>
+    <div class="gd-line"><b>Stamina</b>: 100. Sprint drains 12/s, regens 18/s when not sprinting. <b>Abilities cost no stamina</b> — only their cooldown gates them.</div>
+
+    <div class="gd-h">SKILL CHECKS</div>
+    <div class="gd-line">Stand near a generator and tap when the spinning pointer is in the wedge:</div>
+    <div class="gd-line">• <span style="color:#66e08a">Green</span>: +22% progress</div>
+    <div class="gd-line">• <span style="color:#ffd84a">Yellow</span>: +10% progress</div>
+    <div class="gd-line">• Miss (red): −12% progress + brief cooldown</div>
+    <div class="gd-line">Engineers get +30% to all positive progress.</div>
+
+    <div class="gd-h">ROUND TIMER</div>
+    <div class="gd-line">Starts at <b>3:00</b>, counts down. <b>Survivors win at 0:00</b>. <b>Killer wins</b> by downing every survivor first.</div>
+    <div class="gd-line">Generator completed: <b>−30s</b> (pulls the survivor win closer).</div>
+    <div class="gd-line">Survivor downed: <b>+25s</b> (gives killer more hunt time).</div>
+
+    <div class="gd-h">SURVIVORS</div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#ff80c0"></span><b>Runner</b><span class="gd-muted">+10% speed</span></div>
+      <div class="gd-ab"><b>1 — Dash</b>: burst 2.5× speed for 0.8s. CD 5s.</div>
+      <div class="gd-ab"><b>2 — Smoke Bomb</b>: drop a 110-radius cloud where you stand, lasts 3s. CD 12s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#ffd84a"></span><b>Engineer</b><span class="gd-muted">+30% repair</span></div>
+      <div class="gd-ab"><b>1 — Overcharge</b>: instantly +30% progress to the nearest unfinished generator within 90px. CD 15s.</div>
+      <div class="gd-ab"><b>2 — Mend</b>: heal +50 HP over 2s. CD 20s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#6cb6ff"></span><b>Scout</b><span class="gd-muted">+5% speed / +5% repair</span></div>
+      <div class="gd-ab"><b>1 — Rally</b>: you and survivors within 200px get +25% speed for 4s. CD 14s.</div>
+      <div class="gd-ab"><b>2 — Scan</b>: reveals the killer with a red dashed ring for 2s. CD 12s.</div>
+    </div>
+
+    <div class="gd-h">KILLERS</div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#e94560"></span><b>Slasher</b><span class="gd-muted">25 dmg, 70 px reach</span></div>
+      <div class="gd-ab"><b>Q — Slash</b>: 25 dmg melee, 70px reach.</div>
+      <div class="gd-ab"><b>1 — Throw Knife</b>: 20 dmg projectile in your facing direction, ~700px range. CD 5s.</div>
+      <div class="gd-ab"><b>2 — Frenzy</b>: +30% speed for 4s. CD 14s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#7a2030"></span><b>Stalker</b><span class="gd-muted">25 dmg, 110 px reach, 8% slower</span></div>
+      <div class="gd-ab"><b>Q — Slash</b>: 25 dmg melee at long reach.</div>
+      <div class="gd-ab"><b>1 — Shadow Step</b>: teleport ~220 px in your facing direction. CD 6s.</div>
+      <div class="gd-ab"><b>2 — Stalk</b>: your next basic attack deals double damage (50). Buff lasts 4s. CD 15s.</div>
+    </div>
+
+    <div class="gd-h">TIPS</div>
+    <div class="gd-line">• Sprint is for emergencies — light walking lets you sneak around corners without flooring your stamina.</div>
+    <div class="gd-line">• Mobile: push the joystick almost all the way to sprint; light touches walk.</div>
+    <div class="gd-line">• Tap a skill check in the green wedge instead of the yellow — finishes generators much faster.</div>
+    <div class="gd-line">• Use Test mode to feel each character's abilities before joining a round.</div>
+
+    <button id="guide-close" class="secondary" style="margin-top: 14px;">Close</button>
+  </div>
 </div>
 
 <div id="test-pick" class="overlay hidden">
@@ -354,6 +439,7 @@
     <div id="lobby-status" class="status"></div>
     <div class="row">
       <button id="start-btn" disabled>Start Round</button>
+      <button id="lobby-guide-btn" class="secondary">Guide</button>
       <button id="leave-lobby-btn" class="secondary">Leave</button>
     </div>
   </div>
@@ -879,11 +965,13 @@ function mergeRoster(list) {
 
 // ---------- Screens ----------
 function showOnly(el) {
-  for (const e of [menuEl, lobbyEl, $("test-pick"), hudEl, touchEl]) {
+  for (const e of [menuEl, lobbyEl, $("test-pick"), $("guide"), hudEl, touchEl]) {
     if (e) e.classList.add("hidden");
   }
   if (el) el.classList.remove("hidden");
 }
+function openGuide() { $("guide").classList.remove("hidden"); }
+function closeGuide() { $("guide").classList.add("hidden"); }
 
 $("join-btn").addEventListener("click", () => {
   const n = $("name-input").value.trim() || randomName();
@@ -896,6 +984,9 @@ $("name-input").value = randomName();
 $("start-btn").addEventListener("click", () => sendMsg({ type: "start" }));
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
+$("guide-btn").addEventListener("click", openGuide);
+$("guide-close").addEventListener("click", closeGuide);
+$("lobby-guide-btn").addEventListener("click", openGuide);
 
 function leaveRoom() {
   if (G.testMode) { exitTestMode(); return; }
