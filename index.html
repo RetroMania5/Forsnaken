@@ -327,11 +327,39 @@
 
   .hidden { display: none !important; }
   body.aiming { cursor: none; }
+  /* Locked character card */
+  .char-btn.locked {
+    opacity: 0.55; position: relative;
+  }
+  .char-btn.locked::after {
+    content: "🔒 " attr(data-price);
+    position: absolute; right: 8px; top: 8px;
+    background: rgba(0,0,0,0.6); color: #ffd060;
+    padding: 2px 6px; border-radius: 6px;
+    font-size: 11px; font-weight: 700;
+  }
+  /* Coin indicator in lobby */
+  #lobby-coins {
+    display: inline-block; margin-left: 8px;
+    padding: 2px 8px; border-radius: 10px;
+    background: rgba(255,208,96,0.18); color: #ffd060;
+    font-weight: 700; font-size: 12px;
+  }
+  /* Coin payout toast */
+  .coin-toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.78); color: #ffd060;
+    padding: 10px 18px; border-radius: 10px;
+    font-weight: 700; font-size: 16px; z-index: 50;
+    transition: opacity 0.6s, transform 0.6s;
+  }
+  .coin-toast.hidden { opacity: 0; transform: translate(-50%, -10px); }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="music-status" class="music-status hidden"></div>
+<div id="coin-toast" class="coin-toast hidden"></div>
 
 <div id="hud" class="hidden">
   <div class="hud-top">
@@ -371,9 +399,11 @@
     <div class="subtitle">1 KILLER vs SURVIVORS</div>
     <label>Your name</label>
     <input id="name-input" type="text" maxlength="16" placeholder="Pick a name">
+    <label>Account password</label>
+    <input id="pw-input" type="password" maxlength="32" placeholder="Your account password" autocomplete="current-password">
     <button id="join-btn">Enter Lobby</button>
     <div id="menu-status" class="status"></div>
-    <div class="hint">Everyone who opens this link joins the same room.<br>Share the URL with friends.</div>
+    <div class="hint">Same password = same account (coins + unlocks). Account lives in this browser only.</div>
   </div>
   <button id="test-btn">▶ Test a character</button>
   <button id="guide-btn">📖 Guide</button>
@@ -479,7 +509,7 @@
 
 <div id="lobby" class="overlay hidden">
   <div class="panel">
-    <h1 class="title" style="font-size: 28px;">LOBBY</h1>
+    <h1 class="title" style="font-size: 28px;">LOBBY <span id="lobby-coins">🪙 0</span></h1>
     <div id="player-list"></div>
     <div class="section">YOUR SURVIVOR</div>
     <div class="char-grid" id="surv-grid"></div>
@@ -1176,6 +1206,7 @@ function onMessage(msg) {
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
       for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
+      awardRoundPayout(msg.winner);
       showBanner(msg.winner);
       break;
     case "stun": {
@@ -1248,12 +1279,28 @@ function closeGuide() { $("guide").classList.add("hidden"); }
 $("join-btn").addEventListener("click", () => {
   primeAudio();
   const n = $("name-input").value.trim() || randomName();
+  const pw = $("pw-input").value;
+  if (!pw) {
+    $("menu-status").innerHTML = '<span class="error">Pick a password — that\'s your account.</span>';
+    $("pw-input").focus();
+    return;
+  }
+  loadAccount(pw);
   G.name = n; connect();
 });
 $("name-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("pw-input").focus();
+});
+$("pw-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
 });
 $("name-input").value = randomName();
+$("pw-input").addEventListener("input", () => {
+  const pw = $("pw-input").value;
+  if (!pw) { $("menu-status").textContent = ""; return; }
+  const exists = !!localStorage.getItem(accountKey(pw));
+  $("menu-status").textContent = exists ? "Welcome back." : "New account — starts at 0 coins.";
+});
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("leave-btn").addEventListener("click", leaveRoom);
@@ -1393,6 +1440,65 @@ function exitTestMode() {
   G.phase = "menu";
   stopMusic();
   showOnly(menuEl);
+}
+
+// ---------- Account (localStorage, keyed by password) ----------
+// Coins and character unlocks live entirely in this browser. The "password"
+// is just an account key — same password on the same browser = same account.
+const CHAR_PRICES = { sniper: 100, stalker: 100 };
+const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "sentinel", "slasher"];
+// End-of-round payout: keyed by [role][outcome].
+const PAYOUT = {
+  survivor: { win: 60, loss: 15 },
+  killer:   { win: 75, loss: 25 },
+};
+const Account = {
+  password: null,
+  coins: 0,
+  unlocks: [...DEFAULT_UNLOCKS],
+};
+function accountKey(pw) { return "fk:account:" + pw; }
+function loadAccount(pw) {
+  Account.password = pw;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(accountKey(pw)) || "null"); } catch {}
+  if (saved && typeof saved.coins === "number" && Array.isArray(saved.unlocks)) {
+    Account.coins = saved.coins;
+    // Ensure defaults are always unlocked (in case we add a new default char later).
+    const set = new Set([...DEFAULT_UNLOCKS, ...saved.unlocks]);
+    Account.unlocks = [...set];
+  } else {
+    Account.coins = 0;
+    Account.unlocks = [...DEFAULT_UNLOCKS];
+    saveAccount();
+  }
+}
+function saveAccount() {
+  if (!Account.password) return;
+  localStorage.setItem(accountKey(Account.password), JSON.stringify({
+    coins: Account.coins,
+    unlocks: Account.unlocks,
+  }));
+}
+function isUnlocked(charId) { return Account.unlocks.includes(charId); }
+function priceOf(charId) { return CHAR_PRICES[charId] || 0; }
+function tryBuy(charId) {
+  if (isUnlocked(charId)) return true;
+  const price = priceOf(charId);
+  if (price === 0) { Account.unlocks.push(charId); saveAccount(); return true; }
+  if (Account.coins < price) return false;
+  Account.coins -= price;
+  Account.unlocks.push(charId);
+  saveAccount();
+  return true;
+}
+function showCoinToast(text) {
+  const el = $("coin-toast");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("hidden");
+  clearTimeout(el._hideT);
+  el._hideT = setTimeout(() => el.classList.add("hidden"), 3500);
 }
 
 // ---------- Music ----------
@@ -1655,33 +1761,64 @@ async function preflightMusic() {
 }
 
 function buildCharGrids() {
-  const sg = $("surv-grid"); sg.innerHTML = "";
-  for (const c of G.survivorChars) {
+  const makeCard = (c, onPick) => {
     const b = document.createElement("button");
     b.className = "char-btn";
+    const locked = !isUnlocked(c.id);
+    if (locked) { b.classList.add("locked"); b.dataset.price = priceOf(c.id); }
     b.innerHTML = `<span class="swatch" style="background:${c.color}"></span>${escapeHTML(c.name)}<span class="blurb">${escapeHTML(c.blurb)}</span>`;
     b.addEventListener("click", () => {
-      G.myChars.survivor = c.id;
-      sendMsg({ type: "pick_char", survivorChar: c.id });
-      renderCharSelection();
+      if (!isUnlocked(c.id)) {
+        const price = priceOf(c.id);
+        const ok = window.confirm(`Buy ${c.name} for ${price} coins?\nYou have ${Account.coins}.`);
+        if (!ok) return;
+        if (!tryBuy(c.id)) {
+          alert(`Not enough coins — you have ${Account.coins}, ${c.name} costs ${price}.`);
+          return;
+        }
+        showCoinToast(`Unlocked ${c.name}!  (−${price})`);
+        buildCharGrids();
+        updateCoinDisplay();
+      }
+      onPick(c.id);
     });
     b.dataset.id = c.id;
-    sg.appendChild(b);
+    return b;
+  };
+  const sg = $("surv-grid"); sg.innerHTML = "";
+  for (const c of G.survivorChars) {
+    sg.appendChild(makeCard(c, (id) => {
+      G.myChars.survivor = id;
+      sendMsg({ type: "pick_char", survivorChar: id });
+      renderCharSelection();
+    }));
   }
   const kg = $("kill-grid"); kg.innerHTML = "";
   for (const c of G.killerChars) {
-    const b = document.createElement("button");
-    b.className = "char-btn";
-    b.innerHTML = `<span class="swatch" style="background:${c.color}"></span>${escapeHTML(c.name)}<span class="blurb">${escapeHTML(c.blurb)}</span>`;
-    b.addEventListener("click", () => {
-      G.myChars.killer = c.id;
-      sendMsg({ type: "pick_char", killerChar: c.id });
+    kg.appendChild(makeCard(c, (id) => {
+      G.myChars.killer = id;
+      sendMsg({ type: "pick_char", killerChar: id });
       renderCharSelection();
-    });
-    b.dataset.id = c.id;
-    kg.appendChild(b);
+    }));
   }
   renderCharSelection();
+}
+function updateCoinDisplay() {
+  const el = $("lobby-coins");
+  if (el) el.textContent = `🪙 ${Account.coins}`;
+}
+function awardRoundPayout(winner) {
+  if (!Account.password) return;        // Test mode / no account
+  const me = G.players.get(G.myId);
+  if (!me || (me.role !== "survivor" && me.role !== "killer")) return;
+  const won = (me.role === "survivor" && winner === "survivors")
+           || (me.role === "killer"   && winner === "killer");
+  const amount = PAYOUT[me.role][won ? "win" : "loss"] || 0;
+  if (amount <= 0) return;
+  Account.coins += amount;
+  saveAccount();
+  showCoinToast(`+${amount} coins  (you now have ${Account.coins})`);
+  updateCoinDisplay();
 }
 
 function renderCharSelection() {
@@ -1692,6 +1829,7 @@ function renderCharSelection() {
 }
 
 function renderLobby() {
+  updateCoinDisplay();
   const list = $("player-list"); list.innerHTML = "";
   let me = null;
   const iAmHost = (() => {
