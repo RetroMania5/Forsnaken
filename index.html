@@ -879,8 +879,9 @@ function mergeRoster(list) {
 
 // ---------- Screens ----------
 function showOnly(el) {
-  menuEl.classList.add("hidden"); lobbyEl.classList.add("hidden");
-  hudEl.classList.add("hidden"); touchEl.classList.add("hidden");
+  for (const e of [menuEl, lobbyEl, $("test-pick"), hudEl, touchEl]) {
+    if (e) e.classList.add("hidden");
+  }
   if (el) el.classList.remove("hidden");
 }
 
