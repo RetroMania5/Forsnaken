@@ -107,6 +107,17 @@
   .char-btn.selected { border-color: var(--accent); background: rgba(233,69,96,0.12); }
   .char-btn:hover:not(.selected) { background: rgba(255,255,255,0.1); }
   .status { font-size: 13px; color: var(--muted); text-align: center; margin: 14px 0 0 0; }
+  /* Music preflight status */
+  .music-status {
+    position: fixed; left: 10px; bottom: 10px;
+    padding: 6px 10px; border-radius: 6px;
+    background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.85);
+    font-size: 11px; z-index: 30; pointer-events: none;
+    transition: opacity 0.6s;
+  }
+  .music-status.hidden { opacity: 0; }
+  .music-status.ok     { color: #a0e0a0; }
+  .music-status.error  { color: #ffb3b3; background: rgba(80,10,10,0.78); }
   .error { color: var(--accent); }
   .hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 12px; line-height: 1.5; }
 
@@ -319,6 +330,7 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="music-status" class="music-status hidden"></div>
 
 <div id="hud" class="hidden">
   <div class="hud-top">
@@ -1551,7 +1563,57 @@ fetch("/chars").then(r => r.json()).then(data => {
   G.roundDuration = data.roundDuration || 180;
   G.timer = G.roundDuration;
   buildCharGrids();
-}).catch(() => {});
+  // Once we know which killers exist, verify and warm-cache every music
+  // file so the first round of the session has zero load-stutter.
+  preflightMusic();
+}).catch(() => {
+  // No /chars yet? Run preflight against known killer IDs anyway.
+  preflightMusic();
+});
+
+// ---------- Music preflight ----------
+function setMusicStatus(text, kind) {
+  const el = document.getElementById("music-status");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("hidden", "ok", "error");
+  if (kind === "ok")    el.classList.add("ok");
+  if (kind === "error") el.classList.add("error");
+  if (kind === "ok") {
+    clearTimeout(el._hideT);
+    el._hideT = setTimeout(() => el.classList.add("hidden"), 2500);
+  }
+}
+async function preflightMusic() {
+  const killers = (G.killerChars && G.killerChars.length)
+    ? G.killerChars.map(c => c.id)
+    : ["slasher", "stalker"];
+  const urls = ["/music/base_map.mp3"];
+  for (const k of killers) for (let i = 1; i <= 4; i++) urls.push(`/music/${k}_${i}.mp3`);
+  let ok = 0;
+  const failed = [];
+  setMusicStatus(`♪ Loading music 0/${urls.length}…`, "info");
+  await Promise.all(urls.map(async (url) => {
+    try {
+      const res = await fetch(url, { cache: "force-cache" });
+      if (!res.ok) { failed.push(url.split("/").pop()); return; }
+      // Drain the body so the file is fully populated into the HTTP cache.
+      await res.arrayBuffer();
+      ok++;
+    } catch {
+      failed.push(url.split("/").pop());
+    }
+    setMusicStatus(`♪ Loading music ${ok}/${urls.length}…`, "info");
+  }));
+  if (failed.length === 0) {
+    setMusicStatus("♪ Music ready", "ok");
+  } else if (ok > 0) {
+    const shown = failed.slice(0, 3).join(", ") + (failed.length > 3 ? "…" : "");
+    setMusicStatus(`⚠ Music: ${failed.length} file(s) failed (${shown})`, "error");
+  } else {
+    setMusicStatus("⚠ Music server unreachable", "error");
+  }
+}
 
 function buildCharGrids() {
   const sg = $("surv-grid"); sg.innerHTML = "";
