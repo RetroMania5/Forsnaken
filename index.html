@@ -415,8 +415,8 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
-      <div class="gd-ab"><b>1 — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts to where you're looking — steer with WASD / joystick). <b>Tap again to fire</b> a bullet in the aim direction. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Costs 1 ammo. CD 25s (starts on fire).</div>
-      <div class="gd-ab"><b>2 — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. While aiming, this button cancels aim.</div>
+      <div class="gd-ab"><b>1 — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts to where you're looking — steer with WASD / joystick). <b>Tap again to fire</b> a bullet in the aim direction. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Costs 1 ammo. CD 25s on fire.</div>
+      <div class="gd-ab"><b>2 — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. <b>While aiming, this button backs out</b> instead — your shot is unspent, but Shoot goes on a short <b>5s cooldown</b>.</div>
     </div>
 
     <div class="gd-h">KILLERS</div>
@@ -1779,8 +1779,13 @@ function tryFireAbility(slot, me) {
     return;
   }
   if (ab.type === "reload_sniper") {
-    // While aiming, this button doubles as a cancel — don't actually reload.
-    if (G.aiming) { G.aiming = false; return; }
+    // While aiming, this button doubles as a cancel. Backing out costs
+    // a small 5s CD on the shoot slot so you can't aim-peek for free.
+    if (G.aiming) {
+      G.aiming = false;
+      G.cooldowns[0] = now + 5000;
+      return;
+    }
     if ((G.ammo | 0) >= 1) return;
     if (now < (G.reloadUntil || 0)) return;
     if (now < G.cooldowns[slot]) return;
