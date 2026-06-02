@@ -74,7 +74,7 @@ const SURVIVOR_CHARS = [
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
-  { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.96, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, lower dmg" },
+  { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.96, attackRadius: 110, attackDamage: 15, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, lower dmg" },
 ];
 
 // ---- HP ----
