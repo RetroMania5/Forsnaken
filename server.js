@@ -217,7 +217,7 @@ const ABILITIES = {
     // Robot: 3s rooted build, then a robot trundles toward the killer at walk
     // speed. Touches them -> 12s stun. Self-destructs after 40s if it doesn't
     // catch them. Only one robot per Engineer at a time.
-    { id: "robot",  name: "Robot",  cd: 50, type: "spawn_robot", channelDuration: 3.0, speed: 230, hitRadius: 25, stunDuration: 12, ttl: 40 },
+    { id: "robot",  name: "Robot",  cd: 50, type: "spawn_robot", channelDuration: 3.0, speed: 100, hitRadius: 25, stunDuration: 12, ttl: 40 },
   ],
   scout: [
     { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
