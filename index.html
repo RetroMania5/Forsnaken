@@ -570,9 +570,10 @@
 
     <div class="gd-h">SKILL CHECKS</div>
     <div class="gd-line">Stand near a generator and tap when the spinning pointer is in the wedge:</div>
-    <div class="gd-line">• <span style="color:#66e08a">Green</span>: +22% progress</div>
-    <div class="gd-line">• <span style="color:#ffd84a">Yellow</span>: +10% progress</div>
-    <div class="gd-line">• Miss (red): −12% progress + brief cooldown</div>
+    <div class="gd-line">• <span style="color:#66e08a">Green</span>: +13% progress</div>
+    <div class="gd-line">• <span style="color:#ffd84a">Yellow</span>: +5% progress</div>
+    <div class="gd-line">• Miss (red): −10% progress + brief cooldown</div>
+    <div class="gd-line">The green / yellow zones <b>jump to a random spot</b> after every attempt, so you can't memorize a position.</div>
     <div class="gd-line">Engineers get +30% to all positive progress.</div>
 
     <div class="gd-h">ROUND TIMER</div>
@@ -847,6 +848,7 @@ const G = {
   reloadDuration: 5,   // last reload duration for progress bar
   // Skill check local state
   dialAngle: 0,
+  dialZoneOffset: Math.random() * 2 * Math.PI,    // where the green/yellow zones sit; randomized after each attempt
   lastSkillAt: 0,
   flash: { color: null, until: 0 },
   // Test mode (local sandbox)
@@ -2775,8 +2777,9 @@ function escapeHTML(s) {
 }
 
 // ---------- Skill check helpers ----------
-function classifyAngle(a) {
-  let n = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+function classifyAngle(a, offset = 0) {
+  const adj = a - offset;
+  let n = ((adj % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
   const dist = Math.min(n, 2 * Math.PI - n);
   if (dist <= DIAL_GREEN) return "green";
   if (dist <= DIAL_YELLOW) return "yellow";
@@ -2790,11 +2793,14 @@ function attemptSkill() {
   const idx = nearestGenIdx(me.x, me.y, INTERACT_R);
   if (idx === -1 || G.gens[idx].done) return;
   G.lastSkillAt = now;
-  const result = classifyAngle(G.dialAngle);
+  const result = classifyAngle(G.dialAngle, G.dialZoneOffset);
+  // Reroll where the green/yellow zones sit so the player has to find them
+  // again every attempt — green/yellow always move together.
+  G.dialZoneOffset = Math.random() * 2 * Math.PI;
   if (G.testMode) {
     const sc = G.survivorChars.find(c => c.id === me.survivorChar);
     const repairMult = sc ? sc.repairMult : 1;
-    let delta = result === "green" ? 0.22 : result === "yellow" ? 0.10 : -0.12;
+    let delta = result === "green" ? 0.13 : result === "yellow" ? 0.05 : -0.10;
     if (delta > 0) delta *= repairMult;
     const g = G.gens[idx];
     g.progress = Math.max(0, Math.min(1, g.progress + delta));
@@ -4287,22 +4293,23 @@ function drawSkillDial(W, H) {
   ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fill();
   ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 2; ctx.stroke();
 
-  // red base ring (just leave dark)
+  // Green/yellow zones rotate together to a random angle each attempt.
+  const ZONE = TOP + G.dialZoneOffset;
   // yellow wedges
   ctx.fillStyle = "rgba(255, 216, 74, 0.65)";
   ctx.beginPath();
   ctx.moveTo(cx, cy);
-  ctx.arc(cx, cy, R - 6, TOP - DIAL_YELLOW, TOP - DIAL_GREEN);
+  ctx.arc(cx, cy, R - 6, ZONE - DIAL_YELLOW, ZONE - DIAL_GREEN);
   ctx.closePath(); ctx.fill();
   ctx.beginPath();
   ctx.moveTo(cx, cy);
-  ctx.arc(cx, cy, R - 6, TOP + DIAL_GREEN, TOP + DIAL_YELLOW);
+  ctx.arc(cx, cy, R - 6, ZONE + DIAL_GREEN, ZONE + DIAL_YELLOW);
   ctx.closePath(); ctx.fill();
   // green wedge
   ctx.fillStyle = "rgba(102, 224, 138, 0.75)";
   ctx.beginPath();
   ctx.moveTo(cx, cy);
-  ctx.arc(cx, cy, R - 6, TOP - DIAL_GREEN, TOP + DIAL_GREEN);
+  ctx.arc(cx, cy, R - 6, ZONE - DIAL_GREEN, ZONE + DIAL_GREEN);
   ctx.closePath(); ctx.fill();
 
   // pointer

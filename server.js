@@ -211,7 +211,7 @@ const TIME_PER_DOWN = +25;
 const RESULT_HOLD_MS = 5000;
 
 // ---- Skill check ----
-const SKILL_PROGRESS = { green: 0.22, yellow: 0.10, red: -0.12 };
+const SKILL_PROGRESS = { green: 0.13, yellow: 0.05, red: -0.10 };
 const SKILL_NEAR_RADIUS = 90;
 const SKILL_COOLDOWN_MS = 400;
 
