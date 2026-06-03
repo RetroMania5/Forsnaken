@@ -762,44 +762,58 @@ const FACTORY_CONVEYORS = [
   { x: MAP_W / 2, y: MAP_H - 150, w: 2200, h: 80, vx: -110, vy: 0 },
 ];
 const MAPS = {
-  circus:  { walls: CIRCUS_WALLS,  conveyors: [] },
-  factory: { walls: FACTORY_WALLS, conveyors: FACTORY_CONVEYORS },
+  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  conveyors: [] },
+  factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, conveyors: FACTORY_CONVEYORS },
 };
 let WALLS = CIRCUS_WALLS;
 let CONVEYORS = [];
 
 // Static obstacles: rendered with type-specific styling, collide via the
-// same circleVsRect logic as walls. Positioned to add cover near generators
-// and routing around the central corridors.
-const OBSTACLES = [
-  // Top-left room
+// same circleVsRect logic as walls. Each map has its own set.
+const CIRCUS_OBSTACLES = [
   { x: 300,  y: 360,  w: 50, h: 50, type: "crate" },
   { x: 560,  y: 300,  w: 50, h: 50, type: "crate" },
   { x: 200,  y: 180,  w: 36, h: 36, type: "barrel" },
   { x: 700,  y: 200,  w: 32, h: 70, type: "locker" },
-  // Top-right room
   { x: MAP_W - 300, y: 360, w: 50, h: 50, type: "crate" },
   { x: MAP_W - 560, y: 300, w: 50, h: 50, type: "crate" },
   { x: MAP_W - 200, y: 180, w: 36, h: 36, type: "barrel" },
   { x: MAP_W - 700, y: 200, w: 32, h: 70, type: "locker" },
-  // Bottom-left room
   { x: 300,  y: MAP_H - 360, w: 50, h: 50, type: "crate" },
   { x: 560,  y: MAP_H - 300, w: 50, h: 50, type: "crate" },
   { x: 200,  y: MAP_H - 180, w: 36, h: 36, type: "barrel" },
   { x: 700,  y: MAP_H - 200, w: 32, h: 70, type: "locker" },
-  // Bottom-right room
   { x: MAP_W - 300, y: MAP_H - 360, w: 50, h: 50, type: "crate" },
   { x: MAP_W - 560, y: MAP_H - 300, w: 50, h: 50, type: "crate" },
   { x: MAP_W - 200, y: MAP_H - 180, w: 36, h: 36, type: "barrel" },
   { x: MAP_W - 700, y: MAP_H - 200, w: 32, h: 70, type: "locker" },
-  // Central corridor (between the four rooms)
-  { x: MAP_W / 2,   y: MAP_H * 0.38, w: 50, h: 50, type: "pillar" },
-  { x: MAP_W / 2,   y: MAP_H * 0.62, w: 50, h: 50, type: "pillar" },
-  { x: MAP_W * 0.42, y: MAP_H / 2,   w: 50, h: 50, type: "crate"  },
-  { x: MAP_W * 0.58, y: MAP_H / 2,   w: 50, h: 50, type: "crate"  },
-  { x: MAP_W * 0.3,  y: MAP_H / 2,   w: 36, h: 36, type: "barrel" },
-  { x: MAP_W * 0.7,  y: MAP_H / 2,   w: 36, h: 36, type: "barrel" },
+  { x: MAP_W / 2,    y: MAP_H * 0.38, w: 50, h: 50, type: "pillar" },
+  { x: MAP_W / 2,    y: MAP_H * 0.62, w: 50, h: 50, type: "pillar" },
+  { x: MAP_W * 0.42, y: MAP_H / 2,    w: 50, h: 50, type: "crate"  },
+  { x: MAP_W * 0.58, y: MAP_H / 2,    w: 50, h: 50, type: "crate"  },
+  { x: MAP_W * 0.3,  y: MAP_H / 2,    w: 36, h: 36, type: "barrel" },
+  { x: MAP_W * 0.7,  y: MAP_H / 2,    w: 36, h: 36, type: "barrel" },
 ];
+// Factory obstacles — industrial props placed in the maze's corridors
+// and rooms (not blocking the conveyor lanes). drawObstacles re-skins
+// them with metal/hazard colors when G.mapId === "factory".
+const FACTORY_OBSTACLES = [
+  { x: 300,  y: 240,  w: 50, h: 50, type: "crate" },
+  { x: 2100, y: 240,  w: 50, h: 50, type: "crate" },
+  { x: 300,  y: 1360, w: 50, h: 50, type: "crate" },
+  { x: 2100, y: 1360, w: 50, h: 50, type: "crate" },
+  { x: 500,  y: 700,  w: 36, h: 36, type: "barrel" },
+  { x: 1900, y: 700,  w: 36, h: 36, type: "barrel" },
+  { x: 500,  y: 1000, w: 32, h: 70, type: "locker" },
+  { x: 1900, y: 1000, w: 32, h: 70, type: "locker" },
+  { x: 1100, y: 350,  w: 50, h: 50, type: "crate" },
+  { x: 1300, y: 350,  w: 50, h: 50, type: "crate" },
+  { x: 1100, y: 1250, w: 36, h: 36, type: "barrel" },
+  { x: 1300, y: 1250, w: 36, h: 36, type: "barrel" },
+  { x: 250,  y: 1100, w: 50, h: 50, type: "pillar" },
+  { x: 2150, y: 1100, w: 50, h: 50, type: "pillar" },
+];
+let OBSTACLES = CIRCUS_OBSTACLES;
 
 // Skill-check geometry (radians).
 const DIAL_RADIUS = 70;
@@ -1412,7 +1426,8 @@ function onMessage(msg) {
       // Swap to the round's map.
       G.mapId = msg.mapId || "circus";
       if (MAPS[G.mapId]) {
-        WALLS = MAPS[G.mapId].walls;
+        WALLS     = MAPS[G.mapId].walls;
+        OBSTACLES = MAPS[G.mapId].obstacles;
         CONVEYORS = MAPS[G.mapId].conveyors || [];
       }
       G.cooldowns = [0, 0, 0];
@@ -3584,6 +3599,7 @@ function render() {
 }
 
 function drawObstacles() {
+  if (G.mapId === "factory") { drawObstaclesFactory(); return; }
   for (const o of OBSTACLES) {
     const x0 = o.x - o.w / 2, y0 = o.y - o.h / 2;
     if (o.type === "crate") {
@@ -3661,6 +3677,69 @@ function drawObstacles() {
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(x0 + 5, y0 + 2, 2, 1);          // highlight on the head
       ctx.strokeStyle = "#3a0010"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    }
+  }
+}
+
+function drawObstaclesFactory() {
+  for (const o of OBSTACLES) {
+    const x0 = o.x - o.w / 2, y0 = o.y - o.h / 2;
+    if (o.type === "crate") {
+      // Gray metal crate with hazard stripe and rivets.
+      ctx.fillStyle = "#5a606c"; ctx.fillRect(x0, y0, o.w, o.h);
+      ctx.fillStyle = "#7a808c"; ctx.fillRect(x0, y0, o.w, 3);
+      ctx.fillStyle = "#3a3e46"; ctx.fillRect(x0, y0 + o.h - 3, o.w, 3);
+      // Yellow + black hazard band
+      ctx.fillStyle = "#ffd860"; ctx.fillRect(x0, o.y - 2, o.w, 4);
+      ctx.fillStyle = "#1a1a20";
+      for (let s = 0; s < o.w; s += 8) ctx.fillRect(x0 + s, o.y - 2, 4, 4);
+      // Rivets
+      ctx.fillStyle = "#a0a8b4";
+      ctx.fillRect(x0 + 4, y0 + 4, 2, 2);
+      ctx.fillRect(x0 + o.w - 6, y0 + 4, 2, 2);
+      ctx.fillRect(x0 + 4, y0 + o.h - 6, 2, 2);
+      ctx.fillRect(x0 + o.w - 6, y0 + o.h - 6, 2, 2);
+      ctx.strokeStyle = "#1a1c20"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    } else if (o.type === "pillar") {
+      // Steel column with bolt collar.
+      ctx.fillStyle = "#6a6e78"; ctx.fillRect(x0, y0, o.w, o.h);
+      ctx.fillStyle = "#8a8e98"; ctx.fillRect(x0, y0, o.w, 4);
+      ctx.fillStyle = "#3a3e46"; ctx.fillRect(x0, y0 + o.h - 4, o.w, 4);
+      ctx.fillStyle = "#a0a8b4";
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(x0 + 2 + i * (o.w - 4) / 3, y0 + 2, 2, 2);
+        ctx.fillRect(x0 + 2 + i * (o.w - 4) / 3, y0 + o.h - 4, 2, 2);
+      }
+      ctx.strokeStyle = "#1a1c20"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    } else if (o.type === "locker") {
+      // Red shipping container.
+      ctx.fillStyle = "#a82838"; ctx.fillRect(x0, y0, o.w, o.h);
+      ctx.fillStyle = "#7a1018"; ctx.fillRect(o.x - 1, y0 + 3, 2, o.h - 6);
+      // Corrugation lines
+      ctx.fillStyle = "#7a1c28";
+      for (let i = 0; i < o.h - 6; i += 4) ctx.fillRect(x0 + 2, y0 + 4 + i, o.w - 4, 1);
+      // Door handles
+      ctx.fillStyle = "#c8c8d0";
+      ctx.fillRect(x0 + 3, y0 + o.h - 12, 3, 2);
+      ctx.fillRect(x0 + o.w - 6, y0 + o.h - 12, 3, 2);
+      ctx.strokeStyle = "#1a0008"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, o.w, o.h);
+    } else if (o.type === "barrel") {
+      // Yellow oil drum with black hazard stripe.
+      ctx.fillStyle = "#e0b830"; ctx.fillRect(x0, y0, o.w, o.h);
+      ctx.fillStyle = "#1a1820";
+      ctx.fillRect(x0, y0 + 4, o.w, 3);
+      ctx.fillRect(x0, y0 + o.h - 7, o.w, 3);
+      // Cap
+      ctx.fillStyle = "#a08018"; ctx.fillRect(x0 + 3, y0 + 1, o.w - 6, 3);
+      // Hazard symbol (a tiny exclamation)
+      ctx.fillStyle = "#1a1820";
+      ctx.fillRect(o.x - 0.5, o.y - 2, 1, 4);
+      ctx.fillRect(o.x - 0.5, o.y + 3, 1, 1);
+      ctx.strokeStyle = "#1a1820"; ctx.lineWidth = 2;
       ctx.strokeRect(x0, y0, o.w, o.h);
     }
   }

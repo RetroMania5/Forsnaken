@@ -14,8 +14,9 @@ const TICK_MS = 50;
 
 const MAP = { w: 2400, h: 1600 };
 const WALL_T = 30;
-// Gens are picked from this pool each round — only GENS_PER_ROUND spawn.
-const GEN_SPAWN_POOL = [
+// Each map has its own gen-spawn pool — only GENS_PER_ROUND of the
+// configured pool spawn per round.
+const CIRCUS_GEN_POOL = [
   { x: MAP.w * 0.12, y: MAP.h * 0.15 },
   { x: MAP.w * 0.88, y: MAP.h * 0.15 },
   { x: MAP.w * 0.12, y: MAP.h * 0.85 },
@@ -32,6 +33,26 @@ const GEN_SPAWN_POOL = [
   { x: MAP.w * 0.60, y: MAP.h * 0.42 },
   { x: MAP.w * 0.40, y: MAP.h * 0.58 },
   { x: MAP.w * 0.60, y: MAP.h * 0.58 },
+];
+// Factory gens: tucked into the clear pockets of the factory maze
+// (between walls and below the top conveyor / above the bottom conveyor).
+const FACTORY_GEN_POOL = [
+  { x: 200,  y: 240 },
+  { x: 1000, y: 240 },
+  { x: 1400, y: 240 },
+  { x: 2200, y: 240 },
+  { x: 200,  y: 1360 },
+  { x: 1000, y: 1360 },
+  { x: 1400, y: 1360 },
+  { x: 2200, y: 1360 },
+  { x: 200,  y: 700 },
+  { x: 1000, y: 800 },
+  { x: 1400, y: 800 },
+  { x: 2200, y: 700 },
+  { x: 600,  y: 1100 },
+  { x: 1900, y: 1100 },
+  { x: 700,  y: 500 },
+  { x: 1700, y: 500 },
 ];
 const GENS_PER_ROUND = 5;
 
@@ -97,16 +118,7 @@ const FACTORY_CONVEYORS = [
   // Bottom west-bound belt
   { x: MAP.w / 2, y: MAP.h - 150, w: 2200, h: 80, vx: -110, vy: 0 },
 ];
-const MAPS = {
-  circus:  { walls: CIRCUS_WALLS,  conveyors: [] },
-  factory: { walls: FACTORY_WALLS, conveyors: FACTORY_CONVEYORS },
-};
-const MAP_IDS = Object.keys(MAPS);
-// Active map references — reassigned in startRound. The helper functions
-// below (positionBlocked, etc.) read from WALLS / OBSTACLES / CONVEYORS.
-let WALLS = CIRCUS_WALLS;
-let CONVEYORS = [];
-const OBSTACLES = [
+const CIRCUS_OBSTACLES = [
   { x: 300,  y: 360,  w: 50, h: 50 },
   { x: 560,  y: 300,  w: 50, h: 50 },
   { x: 200,  y: 180,  w: 36, h: 36 },
@@ -130,6 +142,36 @@ const OBSTACLES = [
   { x: MAP.w * 0.3,  y: MAP.h / 2,    w: 36, h: 36 },
   { x: MAP.w * 0.7,  y: MAP.h / 2,    w: 36, h: 36 },
 ];
+// Factory obstacles: scattered industrial props in the corridors and
+// rooms. Types reused (crate / barrel / locker) — client rerenders them
+// with an industrial palette when G.mapId === "factory".
+const FACTORY_OBSTACLES = [
+  { x: 300,  y: 240,  w: 50, h: 50 },
+  { x: 2100, y: 240,  w: 50, h: 50 },
+  { x: 300,  y: 1360, w: 50, h: 50 },
+  { x: 2100, y: 1360, w: 50, h: 50 },
+  { x: 500,  y: 700,  w: 36, h: 36 },
+  { x: 1900, y: 700,  w: 36, h: 36 },
+  { x: 500,  y: 1000, w: 32, h: 70 },
+  { x: 1900, y: 1000, w: 32, h: 70 },
+  { x: 1100, y: 350,  w: 50, h: 50 },
+  { x: 1300, y: 350,  w: 50, h: 50 },
+  { x: 1100, y: 1250, w: 36, h: 36 },
+  { x: 1300, y: 1250, w: 36, h: 36 },
+  { x: 250,  y: 1100, w: 50, h: 50 },
+  { x: 2150, y: 1100, w: 50, h: 50 },
+];
+const MAPS = {
+  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  gens: CIRCUS_GEN_POOL,  conveyors: [] },
+  factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, gens: FACTORY_GEN_POOL, conveyors: FACTORY_CONVEYORS },
+};
+const MAP_IDS = Object.keys(MAPS);
+// Active map references — reassigned in startRound. The helper functions
+// below (positionBlocked, etc.) read from WALLS / OBSTACLES / CONVEYORS.
+let WALLS = CIRCUS_WALLS;
+let OBSTACLES = CIRCUS_OBSTACLES;
+let GEN_POOL = CIRCUS_GEN_POOL;
+let CONVEYORS = [];
 
 function pointInRect(x, y, r) {
   return x >= r.x - r.w / 2 && x <= r.x + r.w / 2 &&
@@ -281,13 +323,13 @@ const state = {
 
 function freshGens() {
   // Fisher–Yates shuffle the pool, then take the first GENS_PER_ROUND entries.
-  const idx = GEN_SPAWN_POOL.map((_, i) => i);
+  const idx = GEN_POOL.map((_, i) => i);
   for (let i = idx.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [idx[i], idx[j]] = [idx[j], idx[i]];
   }
   return idx.slice(0, GENS_PER_ROUND).map(k => {
-    const p = GEN_SPAWN_POOL[k];
+    const p = GEN_POOL[k];
     return { x: p.x, y: p.y, progress: 0, done: false };
   });
 }
@@ -959,6 +1001,14 @@ function onSkill(id, msg) {
 }
 
 function startRound() {
+  // Pick the round's map FIRST so freshGens() reads the right pool and
+  // every helper using WALLS/OBSTACLES/CONVEYORS sees the right set.
+  state.currentMap = MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
+  WALLS     = MAPS[state.currentMap].walls;
+  OBSTACLES = MAPS[state.currentMap].obstacles;
+  GEN_POOL  = MAPS[state.currentMap].gens;
+  CONVEYORS = MAPS[state.currentMap].conveyors || [];
+
   state.generators = freshGens();
   state.roundTimer = ROUND_DURATION;
   state.winner = null;
@@ -969,11 +1019,6 @@ function startRound() {
   state.portals = [];
   state.burgers = [];
   state.robots = [];
-  // Pick the round's map. WALLS and CONVEYORS are the active references
-  // used everywhere in the server (sniper collision, robot path, etc).
-  state.currentMap = MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
-  WALLS = MAPS[state.currentMap].walls;
-  CONVEYORS = MAPS[state.currentMap].conveyors || [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
