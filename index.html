@@ -1434,6 +1434,7 @@ function onMessage(msg) {
       // MEOW! visual: an expanding pink ring centered on the caster.
       if (msg.abilityType === "meow") {
         G.meowPulses.push({ x: msg.x, y: msg.y, radius: msg.radius || 600, until: performance.now() + 600 });
+        playSFX("meow");
       }
       // Fencer's Soda: tag the player so drawPlayer renders the can.
       if (msg.abilityType === "heal_self" && msg.duration && p && charIdFor(p) === "fencer") {
@@ -2046,6 +2047,25 @@ function saveSettings() {
 }
 loadSettings();
 
+// ---------- SFX (short one-shot sound effects) ----------
+const SFX = {
+  meow: null,
+};
+function loadSFX() {
+  SFX.meow = new Audio("/sounds/Meow.wav");
+  SFX.meow.preload = "auto";
+}
+function playSFX(name) {
+  const base = SFX[name];
+  if (!base) return;
+  // Clone so multiple plays can overlap without interrupting each other.
+  const a = base.cloneNode();
+  a.volume = Math.max(0, Math.min(1, Settings.musicVolume * 1.2));
+  const p = a.play();
+  if (p && p.catch) p.catch(() => {});
+}
+loadSFX();
+
 // ---------- Music ----------
 // Five looped tracks crossfade by distance to the nearest opposite-role
 // player: base_map (far) → killer_1..3 (closer) → killer_4 (chase).
@@ -2270,6 +2290,7 @@ function applyLocalAbility(me, ab, aim) {
     }
     case "meow": {
       G.meowPulses.push({ x: me.x, y: me.y, radius: ab.radius, until: performance.now() + 600 });
+      playSFX("meow");
       break;
     }
     case "build_portal": {

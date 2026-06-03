@@ -254,6 +254,14 @@ const server = http.createServer((req, res) => {
     const type = file.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
     return sendFile(res, path.join("music", file), type, "public, max-age=86400");
   }
+  if (url.startsWith("/sounds/")) {
+    const file = url.slice("/sounds/".length);
+    if (!/^[a-zA-Z0-9_]+\.(mp3|wav)$/.test(file)) {
+      res.writeHead(400); res.end("bad name"); return;
+    }
+    const type = file.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
+    return sendFile(res, path.join("sounds", file), type, "public, max-age=86400");
+  }
   if (url === "/chars") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({
