@@ -1012,6 +1012,7 @@ function startRound() {
   state.generators = freshGens();
   state.roundTimer = ROUND_DURATION;
   state.winner = null;
+  state.lmsTriggered = false;
   state.lastSkill.clear();
   state.projectiles = [];
   state.smokes = [];
@@ -1022,6 +1023,7 @@ function startRound() {
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
+  state.survivorStartCount = survIds.length;
 
   const killer = state.players.get(killerId);
   const kch = killerCharOf(killer);
@@ -1068,14 +1070,26 @@ function startRound() {
 
 function checkRoundEnd() {
   if (state.phase !== "playing") return;
-  let anyActive = false, anySurv = false;
+  let anyActive = false, anySurv = false, aliveCount = 0;
   for (const p of state.players.values()) {
     if (p.role !== "survivor") continue;
     anySurv = true;
-    if (p.alive) anyActive = true;
+    if (p.alive) { anyActive = true; aliveCount++; }
   }
   if (!anySurv) return;
-  if (!anyActive) endRound("killer");
+  if (!anyActive) { endRound("killer"); return; }
+  // Last-Man-Standing: exactly one survivor left, the round started with
+  // at least two, and we haven't already triggered it.
+  if (!state.lmsTriggered && aliveCount === 1 && (state.survivorStartCount || 0) >= 2) {
+    state.lmsTriggered = true;
+    state.roundTimer = 60;
+    const killer = [...state.players.values()].find(p => p.role === "killer" && p.alive);
+    broadcast({
+      type: "lms",
+      killerChar: killer ? killer.killerChar : "slasher",
+      timer: state.roundTimer,
+    });
+  }
 }
 
 function endRound(winner) {

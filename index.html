@@ -1409,8 +1409,9 @@ function onMessage(msg) {
       G.designatedKillerId = msg.designatedKillerId;
       G.randomKillerEnabled = !!msg.randomKillerEnabled;
       mergeRoster(msg.players);
-      // Round is over or hasn't started — stop the mix.
-      if (G.phase === "lobby") stopMusic();
+      // Round is over or hasn't started — stop the round mix and start
+      // the lobby ambient.
+      if (G.phase === "lobby") { stopMusic(); startLobbyMusic(); }
       if (hudEl.classList.contains("hidden")) {
         showOnly(lobbyEl); renderLobby();
       } else {
@@ -1462,7 +1463,8 @@ function onMessage(msg) {
       hudEl.classList.remove("hidden");
       if (document.body.classList.contains("touch")) touchEl.classList.remove("hidden");
       $("hud-banner").classList.add("hidden");
-      // Music: find this round's killer and start the layered mix.
+      // Music: stop lobby ambient, find this round's killer, start mix.
+      stopLobbyMusic();
       {
         let killerChar = null;
         for (const p of G.players.values()) {
@@ -1592,6 +1594,10 @@ function onMessage(msg) {
       }
       break;
     }
+    case "lms":
+      if (typeof msg.timer === "number") G.timer = msg.timer;
+      enterLMSMode();
+      break;
     case "over":
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
@@ -1880,6 +1886,8 @@ function leaveRoom() {
   G.players.clear(); remoteLerp.clear();
   G.phase = "menu";
   stopMusic();
+  stopLobbyMusic();
+  Music.mode = "round";
   showOnly(menuEl);
   $("menu-status").textContent = "";
 }
@@ -2006,6 +2014,8 @@ function exitTestMode() {
   G.myId = null;
   G.phase = "menu";
   stopMusic();
+  stopLobbyMusic();
+  Music.mode = "round";
   showOnly(menuEl);
 }
 
@@ -2218,8 +2228,11 @@ loadSFX();
 const Music = {
   base: null,
   tier: [null, null, null, null],   // _1, _2, _3, _4
-  loadedFor: null,                  // killerChar we loaded for
+  lms: null,                        // <killer>_lms — only audible during LMS
+  lobby: null,                      // lobby ambient — only audible in lobby
+  loadedFor: null,                  // killerChar|mapId combo we loaded for
   started: false,
+  mode: "round",                    // "round" | "lms" | "lobby"
   master: Settings.musicVolume,
   primed: false,
 };
@@ -2253,20 +2266,26 @@ function killerMusicUrl(killerChar, i) {
   const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
   return `/music/${killerChar}_${i}.${ext}`;
 }
+function killerLmsUrl(killerChar) {
+  const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
+  return `/music/${killerChar}_lms.${ext}`;
+}
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "circus";
   const key = killerChar + "|" + mapKey;
-  if (Music.loadedFor === key) return;
+  if (Music.loadedFor === key) { Music.mode = "round"; return; }
   stopMusic();
   Music.base = mkAudio(MAP_BASE_MUSIC[mapKey] || MAP_BASE_MUSIC.circus);
   for (let i = 0; i < 4; i++) {
     Music.tier[i] = mkAudio(killerMusicUrl(killerChar, i + 1));
   }
+  Music.lms = mkAudio(killerLmsUrl(killerChar));
   Music.loadedFor = key;
+  Music.mode = "round";
 }
 function startMusic() {
   if (!Music.base || Music.started) return;
-  const tracks = [Music.base, ...Music.tier].filter(Boolean);
+  const tracks = [Music.base, ...Music.tier, Music.lms].filter(Boolean);
   Music.started = true;
   for (const t of tracks) {
     const p = t.play();
@@ -2274,14 +2293,44 @@ function startMusic() {
   }
 }
 function stopMusic() {
-  for (const t of [Music.base, ...Music.tier]) {
+  for (const t of [Music.base, ...Music.tier, Music.lms]) {
     if (!t) continue;
     try { t.pause(); t.src = ""; t.load(); } catch {}
   }
   Music.base = null;
   Music.tier = [null, null, null, null];
+  Music.lms = null;
   Music.loadedFor = null;
   Music.started = false;
+}
+// Lobby ambient: a single track that loops while the player is in the
+// lobby phase. Stopped before round music starts.
+function startLobbyMusic() {
+  if (!Music.lobby) {
+    Music.lobby = new Audio("/music/lobby.mp3");
+    Music.lobby.loop = true;
+    Music.lobby.volume = 0;
+    Music.lobby.preload = "auto";
+  }
+  Music.lobby.volume = Math.max(0, Math.min(1, Music.master));
+  const p = Music.lobby.play();
+  if (p && p.catch) p.catch(() => {});
+  Music.mode = "lobby";
+}
+function stopLobbyMusic() {
+  if (Music.lobby) {
+    try { Music.lobby.pause(); Music.lobby.currentTime = 0; } catch {}
+  }
+}
+// LMS: from now until round end, only the killer's <killer>_lms track
+// plays. setupMusic already preloaded it.
+function enterLMSMode() {
+  Music.mode = "lms";
+  if (Music.lms) {
+    try { Music.lms.currentTime = 0; } catch {}
+    const p = Music.lms.play();
+    if (p && p.catch) p.catch(() => {});
+  }
 }
 function setMusicVols(baseV, tierV) {
   const m = Music.master;
@@ -2291,7 +2340,23 @@ function setMusicVols(baseV, tierV) {
   }
 }
 function updateMusic() {
+  // Lobby mode: only the lobby track plays.
+  if (Music.mode === "lobby") {
+    if (Music.lobby) Music.lobby.volume = Math.max(0, Math.min(1, Music.master));
+    setMusicVols(0, [0, 0, 0, 0]);
+    if (Music.lms) Music.lms.volume = 0;
+    return;
+  }
+  if (Music.lobby) Music.lobby.volume = 0;
   if (!Music.base || !Music.started) return;
+  // LMS mode: only the killer's lms track is audible.
+  if (Music.mode === "lms") {
+    setMusicVols(0, [0, 0, 0, 0]);
+    if (Music.lms) Music.lms.volume = Math.max(0, Math.min(1, Music.master));
+    return;
+  }
+  // Round mode below — keep lms silent and run the regular crossfade.
+  if (Music.lms) Music.lms.volume = 0;
   const me = G.players.get(G.myId);
   if (!me || !me.alive || G.phase !== "playing") {
     setMusicVols(0, [0, 0, 0, 0]);
@@ -2522,8 +2587,11 @@ async function preflightMusic() {
   const killers = (G.killerChars && G.killerChars.length)
     ? G.killerChars.map(c => c.id)
     : ["slasher", "stalker", "lunar"];
-  const urls = ["/music/base_map.mp3", "/music/factory.mp3"];
-  for (const k of killers) for (let i = 1; i <= 4; i++) urls.push(killerMusicUrl(k, i));
+  const urls = ["/music/base_map.mp3", "/music/factory.mp3", "/music/lobby.mp3"];
+  for (const k of killers) {
+    for (let i = 1; i <= 4; i++) urls.push(killerMusicUrl(k, i));
+    urls.push(killerLmsUrl(k));
+  }
   let ok = 0;
   const failed = [];
   setMusicStatus(`♪ Loading music 0/${urls.length}…`, "info");
