@@ -761,13 +761,6 @@ const FACTORY_CONVEYORS = [
   { x: MAP_W / 2, y: 150,        w: 2200, h: 80, vx:  110, vy: 0 },
   { x: MAP_W / 2, y: MAP_H - 150, w: 2200, h: 80, vx: -110, vy: 0 },
 ];
-const MAPS = {
-  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  conveyors: [] },
-  factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, conveyors: FACTORY_CONVEYORS },
-};
-let WALLS = CIRCUS_WALLS;
-let CONVEYORS = [];
-
 // Static obstacles: rendered with type-specific styling, collide via the
 // same circleVsRect logic as walls. Each map has its own set.
 const CIRCUS_OBSTACLES = [
@@ -813,7 +806,17 @@ const FACTORY_OBSTACLES = [
   { x: 250,  y: 1100, w: 50, h: 50, type: "pillar" },
   { x: 2150, y: 1100, w: 50, h: 50, type: "pillar" },
 ];
+// Now that every per-map array has been declared, build the MAPS table
+// and the active references. (Order matters — const declarations have a
+// Temporal Dead Zone, so MAPS / WALLS / OBSTACLES must live AFTER the
+// obstacle arrays above.)
+const MAPS = {
+  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  conveyors: [] },
+  factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, conveyors: FACTORY_CONVEYORS },
+};
+let WALLS = CIRCUS_WALLS;
 let OBSTACLES = CIRCUS_OBSTACLES;
+let CONVEYORS = [];
 
 // Skill-check geometry (radians).
 const DIAL_RADIUS = 70;
