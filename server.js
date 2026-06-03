@@ -37,8 +37,8 @@ const GENS_PER_ROUND = 5;
 
 // Walls and obstacles — duplicated from client so the server can resolve
 // sniper-projectile collisions authoritatively. Must stay in sync with
-// the client's WALLS / OBSTACLES arrays.
-const WALLS = [
+// the client's WALLS / OBSTACLES / CONVEYORS arrays for each map.
+const CIRCUS_WALLS = [
   { x: MAP.w / 2, y: WALL_T / 2, w: MAP.w, h: WALL_T },
   { x: MAP.w / 2, y: MAP.h - WALL_T / 2, w: MAP.w, h: WALL_T },
   { x: WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
@@ -61,6 +61,51 @@ const WALLS = [
   { x: 700,  y: 1000, w: 280,    h: WALL_T },
   { x: 1700, y: 1000, w: 280,    h: WALL_T },
 ];
+// Factory map — dense maze with conveyor belts. Vertical walls all sit
+// between y=300 and y=1300 so the top and bottom corridors stay clear
+// for the belts.
+const FACTORY_WALLS = [
+  { x: MAP.w / 2, y: WALL_T / 2, w: MAP.w, h: WALL_T },
+  { x: MAP.w / 2, y: MAP.h - WALL_T / 2, w: MAP.w, h: WALL_T },
+  { x: WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
+  { x: MAP.w - WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
+  // Vertical maze walls
+  { x: 400,  y: 450,  w: WALL_T, h: 300 },
+  { x: 400,  y: 950,  w: WALL_T, h: 300 },
+  { x: 800,  y: 700,  w: WALL_T, h: 400 },
+  { x: 800,  y: 1200, w: WALL_T, h: 200 },
+  { x: 1200, y: 400,  w: WALL_T, h: 200 },
+  { x: 1200, y: 900,  w: WALL_T, h: 600 },
+  { x: 1600, y: 700,  w: WALL_T, h: 400 },
+  { x: 1600, y: 1200, w: WALL_T, h: 200 },
+  { x: 2000, y: 450,  w: WALL_T, h: 300 },
+  { x: 2000, y: 950,  w: WALL_T, h: 300 },
+  // Horizontal maze walls
+  { x: 600,  y: 600,  w: 380, h: WALL_T },
+  { x: 1400, y: 600,  w: 380, h: WALL_T },
+  { x: 1000, y: 1000, w: 380, h: WALL_T },
+  { x: 1800, y: 1000, w: 380, h: WALL_T },
+  { x: 400,  y: 800,  w: 600, h: WALL_T },
+  { x: 2000, y: 800,  w: 600, h: WALL_T },
+  { x: 600,  y: 1200, w: 280, h: WALL_T },
+  { x: 1800, y: 400,  w: 280, h: WALL_T },
+];
+// Conveyors: { x, y, w, h, vx, vy } — pushes any entity standing inside.
+const FACTORY_CONVEYORS = [
+  // Top east-bound belt (full-width top corridor, y < 200 is clear)
+  { x: MAP.w / 2, y: 150, w: 2200, h: 80, vx: 110, vy: 0 },
+  // Bottom west-bound belt
+  { x: MAP.w / 2, y: MAP.h - 150, w: 2200, h: 80, vx: -110, vy: 0 },
+];
+const MAPS = {
+  circus:  { walls: CIRCUS_WALLS,  conveyors: [] },
+  factory: { walls: FACTORY_WALLS, conveyors: FACTORY_CONVEYORS },
+};
+const MAP_IDS = Object.keys(MAPS);
+// Active map references — reassigned in startRound. The helper functions
+// below (positionBlocked, etc.) read from WALLS / OBSTACLES / CONVEYORS.
+let WALLS = CIRCUS_WALLS;
+let CONVEYORS = [];
 const OBSTACLES = [
   { x: 300,  y: 360,  w: 50, h: 50 },
   { x: 560,  y: 300,  w: 50, h: 50 },
@@ -924,6 +969,11 @@ function startRound() {
   state.portals = [];
   state.burgers = [];
   state.robots = [];
+  // Pick the round's map. WALLS and CONVEYORS are the active references
+  // used everywhere in the server (sniper collision, robot path, etc).
+  state.currentMap = MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
+  WALLS = MAPS[state.currentMap].walls;
+  CONVEYORS = MAPS[state.currentMap].conveyors || [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -967,6 +1017,7 @@ function startRound() {
     gens: state.generators,
     roundDuration: ROUND_DURATION,
     timer: state.roundTimer,
+    mapId: state.currentMap,
   });
 }
 
@@ -1114,6 +1165,19 @@ function tick() {
       }
     }
 
+    // Convey-on-tick helper: any entity within a CONVEYORS rect gets
+    // pushed by that belt's (vx, vy). Used for server-owned entities
+    // (robots, burgers). Players push themselves client-side.
+    const applyConveyor = (e, dt2) => {
+      for (const c of CONVEYORS) {
+        if (pointInRect(e.x, e.y, c)) {
+          e.x += c.vx * dt2;
+          e.y += c.vy * dt2;
+          return;
+        }
+      }
+    };
+
     // Engineer robots: walk toward the killer at their configured speed,
     // stun on contact, despawn after TTL or contact.
     state.robots = state.robots.filter(r => {
@@ -1139,6 +1203,8 @@ function tick() {
           if (!positionBlocked(tx, r.y, 12)) r.x = tx;
           if (!positionBlocked(r.x, ty, 12)) r.y = ty;
         }
+        // Conveyors carry the robot too.
+        applyConveyor(r, dt);
         if (Math.hypot(r.x - killer.x, r.y - killer.y) < r.hitRadius) {
           killer.effects.slowMult = 0.05;
           killer.effects.slowUntil = Math.max(killer.effects.slowUntil || 0, Date.now() + r.stunDuration * 1000);
@@ -1202,6 +1268,7 @@ function tick() {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.vx *= fric; b.vy *= fric;
+      applyConveyor(b, dt);
       if (Math.abs(b.vx) < 2) b.vx = 0;
       if (Math.abs(b.vy) < 2) b.vy = 0;
       for (const w of WALLS) burgerHit(b, w);

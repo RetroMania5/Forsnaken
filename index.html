@@ -581,6 +581,11 @@
     <div class="gd-line">Generator completed: <b>−20s</b> (pulls the survivor win closer).</div>
     <div class="gd-line">Survivor downed: <b>+25s</b> (gives killer more hunt time).</div>
 
+    <div class="gd-h">MAPS</div>
+    <div class="gd-line"><b>Circus</b>: open big top with a central ring; striped tent walls; popcorn carts, drums, and tent poles for cover.</div>
+    <div class="gd-line"><b>Factory</b>: very mazy steel-paneled interior with two <b>conveyor belts</b> (top east-bound, bottom west-bound). Walking on a belt adds its push to your input — going with it is fast, going against it is slow.</div>
+    <div class="gd-line">The host's <b>Start Round</b> randomly picks Circus or Factory each round.</div>
+
     <div class="gd-h">SURVIVORS</div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#ff80c0"></span><b>Runner</b><span class="gd-muted">+10% speed</span></div>
@@ -704,18 +709,17 @@ const SPRINT_MULT = 1.35;
 const INTERACT_R = 80;
 const SEND_RATE = 50;
 
-const WALLS = [
-  // outer
+// Per-map wall sets. The active arrays below (WALLS, CONVEYORS) are
+// swapped to the chosen map on case "start". Must match server.js.
+const CIRCUS_WALLS = [
   { x: MAP_W / 2, y: WALL_T / 2, w: MAP_W, h: WALL_T },
   { x: MAP_W / 2, y: MAP_H - WALL_T / 2, w: MAP_W, h: WALL_T },
   { x: WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
   { x: MAP_W - WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
-  // interior dividers (proportional so they scale with map size)
   { x: MAP_W / 2, y: MAP_H * 0.25, w: MAP_W * 0.55, h: WALL_T },
   { x: MAP_W / 2, y: MAP_H * 0.75, w: MAP_W * 0.55, h: WALL_T },
   { x: MAP_W / 3,     y: MAP_H / 2, w: WALL_T, h: MAP_H * 0.33 },
   { x: 2 * MAP_W / 3, y: MAP_H / 2, w: WALL_T, h: MAP_H * 0.33 },
-  // Maze interior — symmetric about both axes. Must match server.js.
   { x: 550,  y: 250,  w: WALL_T, h: 280 },
   { x: 1850, y: 250,  w: WALL_T, h: 280 },
   { x: 550,  y: 1350, w: WALL_T, h: 280 },
@@ -729,6 +733,40 @@ const WALLS = [
   { x: 700,  y: 1000, w: 280,    h: WALL_T },
   { x: 1700, y: 1000, w: 280,    h: WALL_T },
 ];
+const FACTORY_WALLS = [
+  { x: MAP_W / 2, y: WALL_T / 2, w: MAP_W, h: WALL_T },
+  { x: MAP_W / 2, y: MAP_H - WALL_T / 2, w: MAP_W, h: WALL_T },
+  { x: WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
+  { x: MAP_W - WALL_T / 2, y: MAP_H / 2, w: WALL_T, h: MAP_H },
+  { x: 400,  y: 450,  w: WALL_T, h: 300 },
+  { x: 400,  y: 950,  w: WALL_T, h: 300 },
+  { x: 800,  y: 700,  w: WALL_T, h: 400 },
+  { x: 800,  y: 1200, w: WALL_T, h: 200 },
+  { x: 1200, y: 400,  w: WALL_T, h: 200 },
+  { x: 1200, y: 900,  w: WALL_T, h: 600 },
+  { x: 1600, y: 700,  w: WALL_T, h: 400 },
+  { x: 1600, y: 1200, w: WALL_T, h: 200 },
+  { x: 2000, y: 450,  w: WALL_T, h: 300 },
+  { x: 2000, y: 950,  w: WALL_T, h: 300 },
+  { x: 600,  y: 600,  w: 380, h: WALL_T },
+  { x: 1400, y: 600,  w: 380, h: WALL_T },
+  { x: 1000, y: 1000, w: 380, h: WALL_T },
+  { x: 1800, y: 1000, w: 380, h: WALL_T },
+  { x: 400,  y: 800,  w: 600, h: WALL_T },
+  { x: 2000, y: 800,  w: 600, h: WALL_T },
+  { x: 600,  y: 1200, w: 280, h: WALL_T },
+  { x: 1800, y: 400,  w: 280, h: WALL_T },
+];
+const FACTORY_CONVEYORS = [
+  { x: MAP_W / 2, y: 150,        w: 2200, h: 80, vx:  110, vy: 0 },
+  { x: MAP_W / 2, y: MAP_H - 150, w: 2200, h: 80, vx: -110, vy: 0 },
+];
+const MAPS = {
+  circus:  { walls: CIRCUS_WALLS,  conveyors: [] },
+  factory: { walls: FACTORY_WALLS, conveyors: FACTORY_CONVEYORS },
+};
+let WALLS = CIRCUS_WALLS;
+let CONVEYORS = [];
 
 // Static obstacles: rendered with type-specific styling, collide via the
 // same circleVsRect logic as walls. Positioned to add cover near generators
@@ -821,6 +859,7 @@ const G = {
   shieldBlocks: [],        // VFX flash when a shield blocks damage
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
+  mapId: "circus",
   designatedKillerId: null,
   randomKillerEnabled: false,
   survivorChars: [],   // from welcome
@@ -1370,6 +1409,12 @@ function onMessage(msg) {
       G.timer = msg.timer;
       G.winner = null;
       G.phase = "playing";
+      // Swap to the round's map.
+      G.mapId = msg.mapId || "circus";
+      if (MAPS[G.mapId]) {
+        WALLS = MAPS[G.mapId].walls;
+        CONVEYORS = MAPS[G.mapId].conveyors || [];
+      }
       G.cooldowns = [0, 0, 0];
       G.localAbilityUses = [0, 0, 0];
       G.mainAttackCd = 0;
@@ -1408,7 +1453,7 @@ function onMessage(msg) {
         for (const p of G.players.values()) {
           if (p.role === "killer") { killerChar = p.killerChar; break; }
         }
-        if (killerChar) { setupMusic(killerChar); startMusic(); }
+        if (killerChar) { setupMusic(killerChar, G.mapId); startMusic(); }
       }
       break;
     case "state":
@@ -2182,18 +2227,25 @@ function primeAudio() {
 }
 // Killers whose tier files aren't .mp3. (Lunar's stems are .wav.)
 const KILLER_MUSIC_EXT = { lunar: "wav" };
+// Each map's base ambient track.
+const MAP_BASE_MUSIC = {
+  circus:  "/music/base_map.mp3",
+  factory: "/music/factory.mp3",
+};
 function killerMusicUrl(killerChar, i) {
   const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
   return `/music/${killerChar}_${i}.${ext}`;
 }
-function setupMusic(killerChar) {
-  if (Music.loadedFor === killerChar) return;
+function setupMusic(killerChar, mapId) {
+  const mapKey = mapId || "circus";
+  const key = killerChar + "|" + mapKey;
+  if (Music.loadedFor === key) return;
   stopMusic();
-  Music.base = mkAudio("/music/base_map.mp3");
+  Music.base = mkAudio(MAP_BASE_MUSIC[mapKey] || MAP_BASE_MUSIC.circus);
   for (let i = 0; i < 4; i++) {
     Music.tier[i] = mkAudio(killerMusicUrl(killerChar, i + 1));
   }
-  Music.loadedFor = killerChar;
+  Music.loadedFor = key;
 }
 function startMusic() {
   if (!Music.base || Music.started) return;
@@ -2453,7 +2505,7 @@ async function preflightMusic() {
   const killers = (G.killerChars && G.killerChars.length)
     ? G.killerChars.map(c => c.id)
     : ["slasher", "stalker", "lunar"];
-  const urls = ["/music/base_map.mp3"];
+  const urls = ["/music/base_map.mp3", "/music/factory.mp3"];
   for (const k of killers) for (let i = 1; i <= 4; i++) urls.push(killerMusicUrl(k, i));
   let ok = 0;
   const failed = [];
@@ -2873,6 +2925,15 @@ function gameTick(now) {
       // Engineer Shield slows the holder while it's up.
       if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
       stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
+      // Conveyors push you in their direction (you can still walk against
+      // them, just slower in net). Done after movement + collision so the
+      // push doesn't override your input.
+      for (const c of CONVEYORS) {
+        if (pointInRect(me.x, me.y, c)) {
+          stepWithCollision(me, c.vx * dt, c.vy * dt);
+          break;
+        }
+      }
       if (moving) facing = { x: v.x, y: v.y };
       }
 
@@ -3363,72 +3424,98 @@ function render() {
   ctx.scale(zoom, zoom);
   ctx.translate(-camX, -camY);
 
-  // Circus floor — dark sawdust with a big-top ring + accent rings.
-  ctx.fillStyle = "#2a1f14"; ctx.fillRect(0, 0, MAP_W, MAP_H);
-  // Faint grid for orientation
-  ctx.strokeStyle = "rgba(255,255,255,0.04)"; ctx.lineWidth = 1;
-  for (let gx = 0; gx <= MAP_W; gx += 80) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, MAP_H); ctx.stroke(); }
-  for (let gy = 0; gy <= MAP_H; gy += 80) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(MAP_W, gy); ctx.stroke(); }
-  // Big-top ring at center
-  {
-    const cx = MAP_W / 2, cy = MAP_H / 2;
-    // Sawdust interior
-    ctx.fillStyle = "#a08050";
-    ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.fill();
-    // Ring edge: red + gold trim
-    ctx.strokeStyle = "#d04050"; ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, 296, 0, Math.PI * 2); ctx.stroke();
-    // Tent-flap segments suggesting spokes
-    ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 4;
-    for (let i = 0; i < 12; i++) {
-      const a = i * Math.PI / 6;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * 60, cy + Math.sin(a) * 60);
-      ctx.lineTo(cx + Math.cos(a) * 290, cy + Math.sin(a) * 290);
-      ctx.stroke();
-    }
-    // Center medallion
-    ctx.fillStyle = "#d04050";
-    ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = "#ffd860";
-    // Five-point star in the medallion
-    ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const a = -Math.PI / 2 + i * Math.PI / 5;
-      const r = (i % 2 === 0) ? 36 : 16;
-      const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath(); ctx.fill();
-  }
-
-  // Walls — red + white circus tent stripes.
-  {
-    const STRIPE = 14;
+  if (G.mapId === "factory") {
+    // Factory floor: dark concrete with metal panel grid + warning tape edges.
+    ctx.fillStyle = "#2a2c30"; ctx.fillRect(0, 0, MAP_W, MAP_H);
+    ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+    for (let gx = 0; gx <= MAP_W; gx += 80) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, MAP_H); ctx.stroke(); }
+    for (let gy = 0; gy <= MAP_H; gy += 80) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(MAP_W, gy); ctx.stroke(); }
+    // Larger 240-px tile grid in lighter gray for the "industrial floor" feel
+    ctx.strokeStyle = "rgba(180,200,220,0.08)"; ctx.lineWidth = 2;
+    for (let gx = 0; gx <= MAP_W; gx += 240) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, MAP_H); ctx.stroke(); }
+    for (let gy = 0; gy <= MAP_H; gy += 240) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(MAP_W, gy); ctx.stroke(); }
+    drawConveyors();
+    // Walls — steel panels with bolt accents.
     for (const w of WALLS) {
       const x0 = w.x - w.w / 2, y0 = w.y - w.h / 2;
-      const horizontal = w.w >= w.h;
-      if (horizontal) {
-        for (let s = 0; s < w.w; s += STRIPE) {
-          const idx = Math.floor((x0 + s) / STRIPE);
-          ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
-          ctx.fillRect(x0 + s, y0, Math.min(STRIPE, w.w - s), w.h);
+      ctx.fillStyle = "#4a4e58"; ctx.fillRect(x0, y0, w.w, w.h);
+      ctx.fillStyle = "#646874"; ctx.fillRect(x0, y0, w.w, 3);
+      ctx.fillStyle = "#2a2c34"; ctx.fillRect(x0, y0 + w.h - 3, w.w, 3);
+      // Rivets along the length
+      ctx.fillStyle = "#8a8e98";
+      if (w.w >= w.h) {
+        for (let bx = x0 + 8; bx < x0 + w.w - 6; bx += 30) {
+          ctx.fillRect(bx, y0 + 4, 2, 2);
+          ctx.fillRect(bx, y0 + w.h - 6, 2, 2);
         }
       } else {
-        for (let s = 0; s < w.h; s += STRIPE) {
-          const idx = Math.floor((y0 + s) / STRIPE);
-          ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
-          ctx.fillRect(x0, y0 + s, w.w, Math.min(STRIPE, w.h - s));
+        for (let by = y0 + 8; by < y0 + w.h - 6; by += 30) {
+          ctx.fillRect(x0 + 4, by, 2, 2);
+          ctx.fillRect(x0 + w.w - 6, by, 2, 2);
         }
       }
+      ctx.strokeStyle = "#1a1c20"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, y0, w.w, w.h);
     }
-    // Outline so the walls stay readable on the busy floor
-    ctx.strokeStyle = "#1a0008"; ctx.lineWidth = 2;
-    for (const w of WALLS) ctx.strokeRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
+  } else {
+    // Circus floor — dark sawdust with a big-top ring + accent rings.
+    ctx.fillStyle = "#2a1f14"; ctx.fillRect(0, 0, MAP_W, MAP_H);
+    ctx.strokeStyle = "rgba(255,255,255,0.04)"; ctx.lineWidth = 1;
+    for (let gx = 0; gx <= MAP_W; gx += 80) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, MAP_H); ctx.stroke(); }
+    for (let gy = 0; gy <= MAP_H; gy += 80) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(MAP_W, gy); ctx.stroke(); }
+    {
+      const cx = MAP_W / 2, cy = MAP_H / 2;
+      ctx.fillStyle = "#a08050";
+      ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#d04050"; ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, 296, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 4;
+      for (let i = 0; i < 12; i++) {
+        const a = i * Math.PI / 6;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * 60, cy + Math.sin(a) * 60);
+        ctx.lineTo(cx + Math.cos(a) * 290, cy + Math.sin(a) * 290);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#d04050";
+      ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#ffd860";
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 5;
+        const r = (i % 2 === 0) ? 36 : 16;
+        const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    // Walls — red + white circus tent stripes.
+    {
+      const STRIPE = 14;
+      for (const w of WALLS) {
+        const x0 = w.x - w.w / 2, y0 = w.y - w.h / 2;
+        const horizontal = w.w >= w.h;
+        if (horizontal) {
+          for (let s = 0; s < w.w; s += STRIPE) {
+            const idx = Math.floor((x0 + s) / STRIPE);
+            ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
+            ctx.fillRect(x0 + s, y0, Math.min(STRIPE, w.w - s), w.h);
+          }
+        } else {
+          for (let s = 0; s < w.h; s += STRIPE) {
+            const idx = Math.floor((y0 + s) / STRIPE);
+            ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
+            ctx.fillRect(x0, y0 + s, w.w, Math.min(STRIPE, w.h - s));
+          }
+        }
+      }
+      ctx.strokeStyle = "#1a0008"; ctx.lineWidth = 2;
+      for (const w of WALLS) ctx.strokeRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
+    }
   }
 
   // obstacles
@@ -3632,6 +3719,56 @@ function drawSmokes() {
     ctx.setLineDash([8, 6]);
     ctx.beginPath(); ctx.arc(sm.x, sm.y, sm.radius, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+function drawConveyors() {
+  if (!CONVEYORS || CONVEYORS.length === 0) return;
+  const now = performance.now();
+  for (const c of CONVEYORS) {
+    const x0 = c.x - c.w / 2, y0 = c.y - c.h / 2;
+    // Belt base
+    ctx.fillStyle = "#3a3e44";
+    ctx.fillRect(x0, y0, c.w, c.h);
+    // Side rails
+    ctx.fillStyle = "#1a1c20";
+    ctx.fillRect(x0, y0,           c.w, 3);
+    ctx.fillRect(x0, y0 + c.h - 3, c.w, 3);
+    // Yellow safety stripes on each rail
+    ctx.fillStyle = "#ffd860";
+    for (let s = 0; s < c.w; s += 24) {
+      ctx.fillRect(x0 + s, y0,           12, 1);
+      ctx.fillRect(x0 + s + 12, y0 + c.h - 1, 12, 1);
+    }
+    // Moving chevrons indicating belt direction
+    const horizontal = Math.abs(c.vx) > Math.abs(c.vy);
+    const speed = Math.hypot(c.vx, c.vy);
+    const dir = horizontal ? Math.sign(c.vx) : Math.sign(c.vy);
+    // Each chevron drifts by (now / 1000 * speed) along the belt's axis,
+    // looping over a 60 px spacing.
+    const drift = ((now / 1000) * speed * dir) % 60;
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    if (horizontal) {
+      for (let s = -60 + drift; s < c.w; s += 60) {
+        const ax = x0 + s;
+        const tip = dir > 0 ? 14 : -14;
+        ctx.beginPath();
+        ctx.moveTo(ax,        y0 + c.h * 0.5);
+        ctx.lineTo(ax + tip,  y0 + c.h * 0.25);
+        ctx.lineTo(ax + tip,  y0 + c.h * 0.75);
+        ctx.closePath(); ctx.fill();
+      }
+    } else {
+      for (let s = -60 + drift; s < c.h; s += 60) {
+        const ay = y0 + s;
+        const tip = dir > 0 ? 14 : -14;
+        ctx.beginPath();
+        ctx.moveTo(x0 + c.w * 0.5, ay);
+        ctx.lineTo(x0 + c.w * 0.25, ay + tip);
+        ctx.lineTo(x0 + c.w * 0.75, ay + tip);
+        ctx.closePath(); ctx.fill();
+      }
+    }
   }
 }
 
