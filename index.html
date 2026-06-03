@@ -3908,10 +3908,11 @@ function drawConveyors() {
       for (let s = -60 + drift; s < c.w; s += 60) {
         const ax = x0 + s;
         const tip = dir > 0 ? 14 : -14;
+        // Single "point" vertex is the leading edge in the belt's direction.
         ctx.beginPath();
-        ctx.moveTo(ax,        y0 + c.h * 0.5);
-        ctx.lineTo(ax + tip,  y0 + c.h * 0.25);
-        ctx.lineTo(ax + tip,  y0 + c.h * 0.75);
+        ctx.moveTo(ax + tip,  y0 + c.h * 0.5);
+        ctx.lineTo(ax,        y0 + c.h * 0.25);
+        ctx.lineTo(ax,        y0 + c.h * 0.75);
         ctx.closePath(); ctx.fill();
       }
     } else {
@@ -3919,9 +3920,9 @@ function drawConveyors() {
         const ay = y0 + s;
         const tip = dir > 0 ? 14 : -14;
         ctx.beginPath();
-        ctx.moveTo(x0 + c.w * 0.5, ay);
-        ctx.lineTo(x0 + c.w * 0.25, ay + tip);
-        ctx.lineTo(x0 + c.w * 0.75, ay + tip);
+        ctx.moveTo(x0 + c.w * 0.5, ay + tip);
+        ctx.lineTo(x0 + c.w * 0.25, ay);
+        ctx.lineTo(x0 + c.w * 0.75, ay);
         ctx.closePath(); ctx.fill();
       }
     }
