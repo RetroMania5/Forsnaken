@@ -759,20 +759,20 @@ function applyAbility(p, ab, slot, msg) {
       break;
     }
     case "teleport": {
+      // Shadow Step now phases through walls and obstacles. Teleport to
+      // the full distance, then if the landing point is inside a wall,
+      // keep stepping forward until it isn't (so the killer always
+      // emerges past the wall, never gets stuck inside it).
       const f = p.facing;
       const norm = Math.hypot(f.x, f.y) || 1;
       const fxn = f.x / norm, fyn = f.y / norm;
       const fromX = p.x, fromY = p.y;
-      // Sub-step the teleport so it stops at the first wall/obstacle hit
-      // instead of landing inside one.
-      const STEPS = 16;
-      const PLAYER_R = 18;
-      let tx = p.x, ty = p.y;
-      for (let i = 1; i <= STEPS; i++) {
-        const nx = p.x + fxn * ab.distance * (i / STEPS);
-        const ny = p.y + fyn * ab.distance * (i / STEPS);
-        if (positionBlocked(nx, ny, PLAYER_R)) break;
-        tx = nx; ty = ny;
+      let tx = p.x + fxn * ab.distance;
+      let ty = p.y + fyn * ab.distance;
+      for (let i = 0; i < 24; i++) {
+        if (!positionBlocked(tx, ty, 18)) break;
+        tx += fxn * 6;
+        ty += fyn * 6;
       }
       p.x = clamp(tx, 30, MAP.w - 30);
       p.y = clamp(ty, 30, MAP.h - 30);

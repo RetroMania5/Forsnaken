@@ -634,7 +634,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#7a2030"></span><b>Stalker</b><span class="gd-muted">110 px reach, 8% slower</span></div>
       <div class="gd-ab"><b>Z — Claw Strike</b>: 13 dmg melee at long reach. CD 1.3s.</div>
-      <div class="gd-ab"><b>X — Shadow Step</b>: teleport ~220 px in your facing direction. CD 6s.</div>
+      <div class="gd-ab"><b>X — Shadow Step</b>: teleport ~220 px in your facing direction. <b>Phases through walls and obstacles</b> — if the landing spot is inside something, you keep emerging forward until you're clear. CD 6s.</div>
       <div class="gd-ab"><b>C — Stalk</b>: your next Claw Strike deals 2× damage (26). Buff lasts 4s. CD 15s.</div>
     </div>
     <div class="gd-card">
@@ -3705,15 +3705,16 @@ function positionBlocked(x, y, r) {
   for (const o of OBSTACLES) if (circleRectOverlap(x, y, r, o)) return true;
   return false;
 }
-// Sub-step a teleport line so it stops before the first wall/obstacle hit.
+// Shadow Step phases through walls — teleport the full distance, then
+// if the destination is inside a wall, keep walking forward in the
+// teleport direction until we emerge in clear space.
 function teleportEnd(fromX, fromY, dxn, dyn, distance) {
-  const STEPS = 16;
-  let tx = fromX, ty = fromY;
-  for (let i = 1; i <= STEPS; i++) {
-    const nx = fromX + dxn * distance * (i / STEPS);
-    const ny = fromY + dyn * distance * (i / STEPS);
-    if (positionBlocked(nx, ny, PLAYER_R)) break;
-    tx = nx; ty = ny;
+  let tx = fromX + dxn * distance;
+  let ty = fromY + dyn * distance;
+  for (let i = 0; i < 24; i++) {
+    if (!positionBlocked(tx, ty, PLAYER_R)) break;
+    tx += dxn * 6;
+    ty += dyn * 6;
   }
   return { x: tx, y: ty };
 }
