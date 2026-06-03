@@ -194,6 +194,9 @@ const ABILITIES = {
     // channelDuration, then teleports the killer. The bar's Back button
     // simply closes the menu without spending the CD.
     { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 2.0 },
+    // Dash: 3s speed boost; the first survivor Lunar collides with during
+    // the dash takes hitDamage and is slowed to hitSlowMult for hitSlowDuration.
+    { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 3.0, speedMult: 1.8, hitDamage: 30, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
   ],
 };
 
@@ -359,6 +362,10 @@ function freshEffects() {
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
     sneakUntil: 0,
+    dashStrikeUntil: 0,
+    dashHitDamage: 0,
+    dashHitSlowMult: 1,
+    dashHitSlowDuration: 0,
   };
 }
 
@@ -715,6 +722,15 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.sneakUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "dash_strike":
+      p.effects.speedMult = ab.speedMult;
+      p.effects.speedUntil = now + ab.duration * 1000;
+      p.effects.dashStrikeUntil = now + ab.duration * 1000;
+      p.effects.dashHitDamage = ab.hitDamage;
+      p.effects.dashHitSlowMult = ab.hitSlowMult;
+      p.effects.dashHitSlowDuration = ab.hitSlowDuration;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, mult: ab.speedMult, duration: ab.duration });
+      break;
     case "throw_burger": {
       const f = p.facing;
       const norm = Math.hypot(f.x, f.y) || 1;
@@ -1023,6 +1039,37 @@ function tick() {
     for (const h of projHits) applyDamage(h.s, h.dmg, h.att);
     if (broken.length > 0) broadcast({ type: "projectile_break", projectiles: broken });
 
+    // Lunar dash collision: first survivor within 30 px of a dashing
+    // killer takes hitDamage + a slow, then the dash strike is consumed.
+    for (const k of state.players.values()) {
+      if (k.role !== "killer" || !k.alive) continue;
+      if (!k.effects.dashStrikeUntil || now >= k.effects.dashStrikeUntil) continue;
+      for (const s of state.players.values()) {
+        if (s.role !== "survivor" || !s.alive) continue;
+        if (Math.hypot(s.x - k.x, s.y - k.y) < 30) {
+          applyDamage(s, k.effects.dashHitDamage || 30, k);
+          s.effects.slowMult = Math.min(s.effects.slowMult || 1, k.effects.dashHitSlowMult || 0.7);
+          s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, now + (k.effects.dashHitSlowDuration || 3) * 1000);
+          k.effects.dashStrikeUntil = 0;
+          broadcast({ type: "dash_hit", id: s.id, by: k.id, x: s.x, y: s.y });
+          break;
+        }
+      }
+    }
+
+    // Portal step pings: any portal with a survivor on it pings the killer.
+    const portalsActive = [];
+    for (const pt of state.portals) {
+      for (const s of state.players.values()) {
+        if (s.role !== "survivor" || !s.alive) continue;
+        if (Math.hypot(s.x - pt.x, s.y - pt.y) < 40) {
+          portalsActive.push(pt.id);
+          break;
+        }
+      }
+    }
+    state._portalsActiveSnapshot = portalsActive;
+
     // Reload completion (sniper).
     for (const p of state.players.values()) {
       if (p.reloadUntil && now >= p.reloadUntil) {
@@ -1102,7 +1149,7 @@ function tick() {
           re: now < p.effects.revealedUntil ? 1 : 0,
           sn: now < (p.effects.sneakUntil || 0) ? 1 : 0,
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
-          sm: (p.role === "killer" && now < p.effects.slowUntil) ? +p.effects.slowMult.toFixed(2) : 1,
+          sm: now < (p.effects.slowUntil || 0) ? +(p.effects.slowMult || 1).toFixed(2) : 1,
           am: p.ammo || 0,
           rl: p.reloadUntil || 0,
         })),
@@ -1119,6 +1166,7 @@ function tick() {
           id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
         })),
         portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y })),
+        portalsActive: state._portalsActiveSnapshot || [],
         burgers: state.burgers.map(b => ({
           id: b.id,
           x: Math.round(b.x), y: Math.round(b.y),

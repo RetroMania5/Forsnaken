@@ -628,6 +628,8 @@
       <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 2s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
+      <div class="gd-ab"><b>V — Dash</b>: <b>1.8× speed for 3s</b>. The first survivor you collide with takes <b>30 damage</b> and is slowed to <b>0.7× for 3s</b>. CD 20s.</div>
+      <div class="gd-ab"><b>Portal alert</b>: whenever a survivor is standing on one of your portals, an orange arrow appears above you pointing toward it (with the distance).</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -799,6 +801,7 @@ const G = {
   fieldBreaks: [],
   bulletBreaks: [],
   portals: [],
+  portalsActive: [],       // portal ids currently being stepped on (server-driven)
   portalMenu: "closed",    // "closed" | "teleport"
   portalBreaks: [],        // VFX when oldest portal is evicted
   burgers: [],             // Kacey's burger physics objects (from server)
@@ -1448,6 +1451,7 @@ function onMessage(msg) {
         // Full rebuild only when the portal list actually changed.
         if (oldIds !== newIds && G.portalMenu !== "closed") renderPortalBar();
       }
+      G.portalsActive = msg.portalsActive || [];
       break;
     case "damage": {
       const v = G.players.get(msg.id);
@@ -2325,6 +2329,11 @@ function applyLocalAbility(me, ab, aim) {
       // Test mode has no killer to stun — visual feedback comes from
       // the existing actionUntil flash. Nothing to do here.
       break;
+    case "dash_strike":
+      // Just the speed boost — no survivor to hit in the sandbox.
+      me.speedBuff = true;
+      setTimeout(() => { me.speedBuff = false; }, ab.duration * 1000);
+      break;
     case "throw_burger": {
       const f = facing;
       const norm = Math.hypot(f.x, f.y) || 1;
@@ -3139,6 +3148,10 @@ function tryFireAbility(slot, me) {
     G.scanArrowUntil = now + ab.duration * 1000;
   } else if (ab.type === "sneak") {
     me._localSneakUntil = now + ab.duration * 1000;
+  } else if (ab.type === "dash_strike") {
+    // Local speed prediction so the dash feels instant.
+    me._localSpeedUntil = now + ab.duration * 1000;
+    me._localSpeedMult = ab.speedMult;
   } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
     // Brief sip animation; the actual heal continues silently.
     me.sodaUntil = now + 700;
@@ -3401,6 +3414,8 @@ function render() {
   drawSmokes();
   // Scan arrow (in world space above the local player)
   drawScanArrow();
+  // Lunar: arrows pointing at any portal currently being stepped on.
+  drawPortalStepArrows();
   // Sniper aim reticle (in world space, only while local sniper is aiming)
   drawAimReticle();
   // Bullet break sparks (sniper projectile hit a wall/obstacle)
@@ -3786,6 +3801,50 @@ function drawBulletBreaks() {
       const a = i * Math.PI / 3;
       ctx.fillRect(b.x + Math.cos(a) * r - 1, b.y + Math.sin(a) * r - 1, 2, 2);
     }
+    ctx.restore();
+  }
+}
+
+function drawPortalStepArrows() {
+  const me = G.players.get(G.myId);
+  if (!me || me.role !== "killer") return;
+  if (!G.portalsActive || G.portalsActive.length === 0) return;
+  if (!G.portals || G.portals.length === 0) return;
+  const now = performance.now();
+  const pulse = 1 + Math.sin(now * 0.015) * 0.12;
+  for (const pid of G.portalsActive) {
+    const portal = G.portals.find(p => p.id === pid);
+    if (!portal) continue;
+    const dx = portal.x - me.x, dy = portal.y - me.y;
+    const ang = Math.atan2(dy, dx);
+    const dist = Math.hypot(dx, dy);
+    ctx.save();
+    ctx.translate(me.x, me.y - 56);
+    ctx.rotate(ang);
+    ctx.scale(pulse, pulse);
+    ctx.fillStyle = "rgba(255,180,80,0.95)";
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(28, 0);
+    ctx.lineTo(8, -12);
+    ctx.lineTo(14, 0);
+    ctx.lineTo(8, 12);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    // Distance label on the arrow
+    ctx.save();
+    ctx.translate(me.x, me.y - 56);
+    ctx.fillStyle = "rgba(255,220,160,0.95)";
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 3;
+    ctx.font = "bold 11px system-ui";
+    ctx.textAlign = "center";
+    const labX = Math.cos(ang) * 44;
+    const labY = Math.sin(ang) * 44;
+    ctx.strokeText(`${Math.round(dist)}`, labX, labY - 12);
+    ctx.fillText(`${Math.round(dist)}`, labX, labY - 12);
     ctx.restore();
   }
 }
