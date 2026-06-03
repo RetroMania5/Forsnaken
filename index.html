@@ -1110,28 +1110,25 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "rgba(233,69,96,0.7)";
     sx.fillRect(cx + 14, 20, 5, 1);
   }
-  // Fencer sword: gripped in the front hand. Idle = blade points down
-  // at the side; action = blade thrusts horizontally forward.
+  // Fencer sword: the hilt overlaps the front-hand pixels so it reads
+  // as actually part of the character art rather than floating beside it.
   if (v.weapon === "sword") {
     if (isAction) {
-      // Front-hand action position is around cx+9..cx+14, y=17..20 — put
-      // the hilt right there and extend the blade past it.
-      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 10, 17, 3, 4);   // grip in hand
-      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 9,  17, 1, 4);   // pommel
-      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 13, 16, 1, 6);   // crossguard
-      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 14, 18, 12, 2);  // blade
-      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 14, 18, 10, 1);  // blade highlight
-      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 25, 18, 1, 2);   // tip
+      // Front-hand action position: cx+6..cx+14, y=16..20. Grip sits
+      // INSIDE those hand pixels.
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 11, 18, 2, 2);   // grip (in hand)
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 12, 17, 1, 4);   // crossguard
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 13, 18, 12, 2);  // blade
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 13, 18, 10, 1);  // blade highlight
       sx.fillStyle = "rgba(255,255,255,0.5)";
-      sx.fillRect(cx + 26, 19, 4, 1);                             // motion streak
+      sx.fillRect(cx + 25, 19, 4, 1);                             // motion streak
     } else {
-      // Idle front hand sits around cx+7, y=27..29 — drop the sword down
-      // from there so it's clearly in their grip.
-      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 7, 26, 4, 1);    // pommel cap
-      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 8, 27, 2, 3);    // grip
-      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 7, 30, 4, 1);    // crossguard
-      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 8, 31, 2, 8);    // blade pointing down
-      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 8, 31, 1, 7);    // blade highlight
+      // Idle front hand sits around cx+6..cx+9, y=27..29. Grip overlaps
+      // the hand pixels; blade drops straight down past the leg.
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 7, 27, 2, 3);    // grip (in hand)
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 6, 30, 4, 1);    // crossguard
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 7, 31, 2, 9);    // blade
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 7, 31, 1, 7);    // blade highlight
     }
   }
   // Sniper rifle: drawn whether idle or action (always shouldered).
@@ -1446,9 +1443,9 @@ function onMessage(msg) {
         G.meowPulses.push({ x: msg.x, y: msg.y, radius: msg.radius || 600, until: performance.now() + 600 });
         playSFX("meow");
       }
-      // Fencer's Soda: tag the player so drawPlayer renders the can.
-      if (msg.abilityType === "heal_self" && msg.duration && p && charIdFor(p) === "fencer") {
-        p.sodaUntil = performance.now() + msg.duration * 1000;
+      // Fencer's Soda: brief sip animation (the heal itself runs silently).
+      if (msg.abilityType === "heal_self" && p && charIdFor(p) === "fencer") {
+        p.sodaUntil = performance.now() + 700;
       }
       // Teleport: snap remote players to the server position.
       // Local player already predicted in tryFireAbility — skip the snap +
@@ -3096,8 +3093,8 @@ function tryFireAbility(slot, me) {
   } else if (ab.type === "sneak") {
     me._localSneakUntil = now + ab.duration * 1000;
   } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
-    // Predict soda visual locally for instant feedback.
-    me.sodaUntil = now + ab.duration * 1000;
+    // Brief sip animation; the actual heal continues silently.
+    me.sodaUntil = now + 700;
   } else if (ab.type === "slow_field" && ab.channelDuration) {
     // Local prediction: show summoning channel immediately on the caster.
     me.channelUntil = now + ab.channelDuration * 1000;
@@ -3899,33 +3896,42 @@ function drawPlayer(p) {
   ctx.fillText(p.name || "", p.x, nameY);
   ctx.restore();
 
-  // Fencer Soda: a small can held right at the lips, with a tiny
-  // "sip" bob to read as drinking, and fizz bubbles above.
+  // Fencer Soda: short sip animation — can lies horizontally, opening
+  // (grey rim) tipped toward the mouth, body extending forward.
   if (p.alive && charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil) {
     const facingX = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
     const dir = facingX >= 0 ? 1 : -1;
-    const sip = Math.sin(now * 0.006) * 1.2;
-    const cx0 = Math.round(p.x + 4 * dir);
-    const cy0 = Math.round(p.y - 6 + sip);
-    // Can body
-    ctx.fillStyle = "#d02030"; ctx.fillRect(cx0 - 3, cy0 - 4, 6, 9);
-    ctx.fillStyle = "#a01828"; ctx.fillRect(cx0 + 2 * dir, cy0 - 4, 1, 9);  // shaded side
-    // White stripe
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(cx0 - 3, cy0 - 1, 6, 2);
-    // Aluminum top
-    ctx.fillStyle = "#9a9aa4"; ctx.fillRect(cx0 - 3, cy0 - 5, 6, 1);
-    ctx.fillStyle = "#cccdd6"; ctx.fillRect(cx0 - 3, cy0 - 6, 6, 1);
-    // Tab
-    ctx.fillStyle = "#5a5a64"; ctx.fillRect(cx0 - 1, cy0 - 7, 2, 1);
-    // Bottom rim
-    ctx.fillStyle = "#7a1018"; ctx.fillRect(cx0 - 3, cy0 + 4, 6, 1);
-    // Rising fizz bubbles
+    const sip = Math.sin(now * 0.018) * 1;        // quick wobble
+    const my = Math.round(p.y - 5 + sip);          // mouth height
+    // mx0 is the pixel right at the lips; the can extends OUTWARD from there.
+    const mx0 = Math.round(p.x + 3 * dir);
+    // Body x range: from "lipX + 1 * dir" outward by 7 pixels.
+    const bodyLeft = dir > 0 ? mx0 + 1 : mx0 - 7;
+    const rimX     = dir > 0 ? mx0     : mx0;      // grey rim sits right at the lips
+    // Grey opening rim (faces the mouth) — 1 px wide, 5 tall
+    ctx.fillStyle = "#9a9aa4"; ctx.fillRect(rimX, my - 2, 1, 5);
+    ctx.fillStyle = "#cccdd6"; ctx.fillRect(rimX, my - 2, 1, 1);
+    // Red body (6 px wide)
+    ctx.fillStyle = "#d02030"; ctx.fillRect(bodyLeft, my - 2, 6, 5);
+    // Top edge highlight
+    ctx.fillStyle = "#f04050"; ctx.fillRect(bodyLeft, my - 2, 6, 1);
+    // Bottom shadow row
+    ctx.fillStyle = "#a01828"; ctx.fillRect(bodyLeft, my + 2, 6, 1);
+    // White label stripe across the middle
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(bodyLeft, my, 6, 1);
+    // Far rim (bottom of the can, away from the mouth)
+    const farX = dir > 0 ? bodyLeft + 6 : bodyLeft - 1;
+    ctx.fillStyle = "#7a1018"; ctx.fillRect(farX, my - 2, 1, 5);
+    // Tab on the top (sticks up off the body)
+    const tabX = bodyLeft + 2;
+    ctx.fillStyle = "#5a5a64"; ctx.fillRect(tabX, my - 3, 2, 1);
+    // A couple of fizz bubbles right at the lips
     ctx.fillStyle = "rgba(255,255,255,0.85)";
-    const t = (now / 200) % 1;
-    for (let i = 0; i < 3; i++) {
-      const phase = (t + i / 3) % 1;
-      const bx = cx0 + Math.sin((i * 1.7) + now * 0.004) * 2;
-      const by = cy0 - 9 - phase * 9;
+    const t = (now / 180) % 1;
+    for (let i = 0; i < 2; i++) {
+      const phase = (t + i / 2) % 1;
+      const bx = rimX - dir * 1 + Math.sin(i * 2 + now * 0.005) * 1;
+      const by = my - 4 - phase * 5;
       ctx.fillRect(bx - 1, by - 1, 2, 2);
     }
   }
