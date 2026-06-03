@@ -1110,18 +1110,28 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "rgba(233,69,96,0.7)";
     sx.fillRect(cx + 14, 20, 5, 1);
   }
-  // Fencer sword: idle pointing down by their side, swung forward on action.
+  // Fencer sword: gripped in the front hand. Idle = blade points down
+  // at the side; action = blade thrusts horizontally forward.
   if (v.weapon === "sword") {
     if (isAction) {
-      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 7, 18, 14, 2);   // blade
-      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 7, 18, 12, 1);   // blade highlight
-      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 5, 17, 3, 4);    // hilt
-      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 4, 18, 1, 2);    // pommel
-      sx.fillStyle = "rgba(255,255,255,0.5)";                     // motion streak
-      sx.fillRect(cx + 21, 19, 4, 1);
+      // Front-hand action position is around cx+9..cx+14, y=17..20 — put
+      // the hilt right there and extend the blade past it.
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 10, 17, 3, 4);   // grip in hand
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 9,  17, 1, 4);   // pommel
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 13, 16, 1, 6);   // crossguard
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 14, 18, 12, 2);  // blade
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 14, 18, 10, 1);  // blade highlight
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 25, 18, 1, 2);   // tip
+      sx.fillStyle = "rgba(255,255,255,0.5)";
+      sx.fillRect(cx + 26, 19, 4, 1);                             // motion streak
     } else {
-      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 5, 20, 2, 7);    // blade pointing down
-      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 4, 18, 4, 2);    // hilt crossguard
+      // Idle front hand sits around cx+7, y=27..29 — drop the sword down
+      // from there so it's clearly in their grip.
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 7, 26, 4, 1);    // pommel cap
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 8, 27, 2, 3);    // grip
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 7, 30, 4, 1);    // crossguard
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 8, 31, 2, 8);    // blade pointing down
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 8, 31, 1, 7);    // blade highlight
     }
   }
   // Sniper rifle: drawn whether idle or action (always shouldered).
@@ -3431,63 +3441,49 @@ function drawSmokes() {
 function drawBurgers() {
   const now = performance.now();
   for (const b of (G.burgers || [])) {
-    const sx = b.x, sy = b.y;
+    const sx = Math.round(b.x), sy = Math.round(b.y);
     const vx = b.vx || 0, vy = b.vy || 0;
     const speed = Math.hypot(vx, vy);
-    // Motion trail (two trailing ghosts) while flying
+    // Motion trail while flying — small pixel-block ghosts behind the burger.
     if (speed > 30) {
       ctx.save();
       ctx.globalAlpha = 0.35;
       ctx.fillStyle = "#e0a868";
-      ctx.beginPath(); ctx.arc(sx - vx * 0.06, sy - vy * 0.06, 9, 0, Math.PI * 2); ctx.fill();
+      const tx = Math.round(sx - vx * 0.06), ty = Math.round(sy - vy * 0.06);
+      ctx.fillRect(tx - 4, ty - 3, 8, 6);
       ctx.globalAlpha = 0.18;
-      ctx.beginPath(); ctx.arc(sx - vx * 0.12, sy - vy * 0.12, 6, 0, Math.PI * 2); ctx.fill();
+      const tx2 = Math.round(sx - vx * 0.12), ty2 = Math.round(sy - vy * 0.12);
+      ctx.fillRect(tx2 - 3, ty2 - 2, 6, 4);
       ctx.restore();
     }
-    // Ground shadow under the burger
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.beginPath();
-    ctx.ellipse(sx, sy + 12, 14, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Bottom bun (lower half-circle)
-    ctx.fillStyle = "#a86c30";
-    ctx.beginPath(); ctx.arc(sx, sy + 4, 14, 0, Math.PI); ctx.fill();
-    ctx.fillStyle = "#c58040";
-    ctx.fillRect(sx - 12, sy + 4, 24, 2);
-    // Lettuce frill
-    ctx.fillStyle = "#7ac050";
-    ctx.fillRect(sx - 14, sy + 1, 28, 4);
-    ctx.fillStyle = "#9ad068";
-    ctx.fillRect(sx - 13, sy + 1, 5, 2);
-    ctx.fillRect(sx - 4,  sy + 1, 5, 2);
-    ctx.fillRect(sx + 5,  sy + 1, 7, 2);
-    // Cheese (yellow slab with a melted drip)
-    ctx.fillStyle = "#ffd860";
-    ctx.fillRect(sx - 14, sy - 1, 28, 3);
-    ctx.fillStyle = "#ffb840";
-    ctx.fillRect(sx + 8, sy + 1, 5, 3);
-    ctx.fillRect(sx - 11, sy + 1, 4, 3);
-    // Patty (dark brown)
-    ctx.fillStyle = "#4a2818";
-    ctx.fillRect(sx - 14, sy - 5, 28, 5);
-    ctx.fillStyle = "#62351c";
-    ctx.fillRect(sx - 14, sy - 5, 28, 1);     // top edge highlight
-    // Top bun (upper half-circle)
+    // Soft ground shadow
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(sx - 5, sy + 6, 10, 1);
+    // Top bun — rounded square (narrower top row, wider middle)
     ctx.fillStyle = "#e0a868";
-    ctx.beginPath(); ctx.arc(sx, sy - 5, 14, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = "#f0c080";
-    ctx.beginPath();
-    ctx.arc(sx, sy - 5, 14, Math.PI + 0.3, Math.PI + 1.0);
-    ctx.lineTo(sx, sy - 5);
-    ctx.closePath();
-    ctx.fill();
-    // Sesame seeds (5 of them, scattered across the top bun)
+    ctx.fillRect(sx - 5, sy - 5, 10, 1);
+    ctx.fillRect(sx - 6, sy - 4, 12, 3);
+    // Sesame seeds
     ctx.fillStyle = "#fff5c0";
-    ctx.fillRect(sx - 8, sy - 11, 2, 2);
-    ctx.fillRect(sx - 2, sy - 14, 2, 2);
-    ctx.fillRect(sx + 4, sy - 12, 2, 2);
-    ctx.fillRect(sx + 8, sy - 8,  2, 2);
-    ctx.fillRect(sx - 9, sy - 8,  2, 2);
+    ctx.fillRect(sx - 3, sy - 3, 1, 1);
+    ctx.fillRect(sx + 1, sy - 4, 1, 1);
+    ctx.fillRect(sx - 1, sy - 2, 1, 1);
+    // Top bun shadow
+    ctx.fillStyle = "#c58040";
+    ctx.fillRect(sx - 6, sy - 1, 12, 1);
+    // Lettuce
+    ctx.fillStyle = "#7ac050";
+    ctx.fillRect(sx - 7, sy, 14, 1);
+    // Cheese
+    ctx.fillStyle = "#ffd860";
+    ctx.fillRect(sx - 6, sy + 1, 12, 1);
+    // Patty
+    ctx.fillStyle = "#4a2818";
+    ctx.fillRect(sx - 6, sy + 2, 12, 2);
+    // Bottom bun — wider middle row, narrower bottom row to mirror the top
+    ctx.fillStyle = "#a86c30";
+    ctx.fillRect(sx - 6, sy + 4, 12, 1);
+    ctx.fillRect(sx - 5, sy + 5, 10, 1);
   }
   // Eat sparkles (green starburst)
   G.burgerEats = G.burgerEats.filter(e => now < e.until);
@@ -3720,7 +3716,9 @@ function drawPlayer(p) {
   const now = performance.now();
 
   const a = p._anim || { frame: "idle", actionUntil: 0 };
-  const frame = (now < a.actionUntil) ? "action" : a.frame;
+  // Fencer holds the drinking pose for the whole soda channel.
+  const drinkingSoda = charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil;
+  const frame = (drinkingSoda || now < a.actionUntil) ? "action" : a.frame;
   const img = sheet[frame] || sheet.idle;
   const fx = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
   const flip = fx < 0;
@@ -3903,31 +3901,33 @@ function drawPlayer(p) {
   ctx.fillText(p.name || "", p.x, nameY);
   ctx.restore();
 
-  // Fencer Soda: floating soda can with a little bob + fizz bubbles
-  // while the heal effect is active.
+  // Fencer Soda: a small can held right at the lips, with a tiny
+  // "sip" bob to read as drinking, and fizz bubbles above.
   if (p.alive && charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil) {
-    const bob = Math.sin(now * 0.005) * 1.5;
-    const cx0 = Math.round(p.x + 14);    // off to the side so it doesn't block the head
-    const cy0 = Math.round(p.y - 24 + bob);
-    // Can body (red with white horizontal stripe)
-    ctx.fillStyle = "#d02030"; ctx.fillRect(cx0 - 4, cy0 - 5, 8, 11);
-    ctx.fillStyle = "#a01828"; ctx.fillRect(cx0 + 3, cy0 - 5, 1, 11); // shadow side
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(cx0 - 4, cy0 - 1, 8, 2);
-    ctx.fillStyle = "#d04050"; ctx.fillRect(cx0 - 4, cy0,     8, 1);
-    // Can top (aluminum lid)
-    ctx.fillStyle = "#9a9aa4"; ctx.fillRect(cx0 - 4, cy0 - 7, 8, 2);
-    ctx.fillStyle = "#cccdd6"; ctx.fillRect(cx0 - 4, cy0 - 7, 8, 1);
+    const facingX = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
+    const dir = facingX >= 0 ? 1 : -1;
+    const sip = Math.sin(now * 0.006) * 1.2;
+    const cx0 = Math.round(p.x + 4 * dir);
+    const cy0 = Math.round(p.y - 6 + sip);
+    // Can body
+    ctx.fillStyle = "#d02030"; ctx.fillRect(cx0 - 3, cy0 - 4, 6, 9);
+    ctx.fillStyle = "#a01828"; ctx.fillRect(cx0 + 2 * dir, cy0 - 4, 1, 9);  // shaded side
+    // White stripe
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(cx0 - 3, cy0 - 1, 6, 2);
+    // Aluminum top
+    ctx.fillStyle = "#9a9aa4"; ctx.fillRect(cx0 - 3, cy0 - 5, 6, 1);
+    ctx.fillStyle = "#cccdd6"; ctx.fillRect(cx0 - 3, cy0 - 6, 6, 1);
     // Tab
-    ctx.fillStyle = "#5a5a64"; ctx.fillRect(cx0 - 1, cy0 - 8, 2, 1);
+    ctx.fillStyle = "#5a5a64"; ctx.fillRect(cx0 - 1, cy0 - 7, 2, 1);
     // Bottom rim
-    ctx.fillStyle = "#7a1018"; ctx.fillRect(cx0 - 4, cy0 + 5, 8, 1);
+    ctx.fillStyle = "#7a1018"; ctx.fillRect(cx0 - 3, cy0 + 4, 6, 1);
     // Rising fizz bubbles
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     const t = (now / 200) % 1;
     for (let i = 0; i < 3; i++) {
       const phase = (t + i / 3) % 1;
-      const bx = cx0 + Math.sin((i * 1.7) + now * 0.004) * 3;
-      const by = cy0 - 10 - phase * 14;
+      const bx = cx0 + Math.sin((i * 1.7) + now * 0.004) * 2;
+      const by = cy0 - 9 - phase * 9;
       ctx.fillRect(bx - 1, by - 1, 2, 2);
     }
   }
