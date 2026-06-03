@@ -773,7 +773,7 @@ const CHAR_VISUALS = {
   sentinel: { skin: "#e0c0a0", shirt: "#4ad0c0", pants: "#1a4a4a", hair: "#3a2820", hat: "visor",   weapon: null    },
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
   fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
-  kacey:    { skin: "#ff9050", shirt: "#ff9050", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null    },
+  kacey:    { skin: "#ff9050", shirt: "#ffffff", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null, decoration: "burger" },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -1074,6 +1074,20 @@ function drawCharFrame(sx, v, frame) {
   sx.fillStyle = "rgba(0,0,0,0.18)";
   sx.fillRect(cx - 7, 28, 14, 2);
 
+  // Chest decoration (e.g. Kacey's burger logo)
+  if (v.decoration === "burger") {
+    // Tiny burger printed on the shirt, centered slightly left so the
+    // front arm doesn't cover it in the idle pose.
+    const bx = cx - 1;
+    sx.fillStyle = "#c58040"; sx.fillRect(bx - 2, 21, 4, 1);     // top bun crown
+    sx.fillStyle = "#e0a868"; sx.fillRect(bx - 3, 22, 6, 1);     // top bun body
+    sx.fillStyle = "#fff5c0"; sx.fillRect(bx + 0, 22, 1, 1);     // sesame seed
+    sx.fillStyle = "#7ac050"; sx.fillRect(bx - 3, 23, 6, 1);     // lettuce
+    sx.fillStyle = "#4a2818"; sx.fillRect(bx - 3, 24, 6, 1);     // patty
+    sx.fillStyle = "#a86c30"; sx.fillRect(bx - 3, 25, 6, 1);     // bottom bun body
+    sx.fillStyle = "#8a5524"; sx.fillRect(bx - 2, 26, 4, 1);     // bottom bun base
+  }
+
   // Back arm (behind torso)
   sx.fillStyle = v.skin;
   sx.fillRect(cx - 9, 20 + walkOff, 3, 9);
@@ -1201,9 +1215,21 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "#222";
     sx.fillRect(cx - 5, 12, 10, 1);  // strap
   } else if (v.hat === "cat") {
-    // Kacey: ginger cat — pointy ears + pink inner ear, big eyes, nose, whiskers.
+    // Kacey: ginger cat — pointy ears + pink inner ear, big eyes, nose, whiskers,
+    // plus a tiny pink beanie with a white pom-pom that sits between the ears.
+    // Pom-pom
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx, 0, 1, 1);
+    // Beanie body (fits between the ears at y=1..3, cx-1..cx+1)
+    sx.fillStyle = "#ff80a0";
+    sx.fillRect(cx - 1, 1, 3, 2);
+    sx.fillStyle = "#e06088";
+    sx.fillRect(cx - 1, 3, 3, 1);
+    // White cuff
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx - 2, 4, 5, 1);
     sx.fillStyle = v.hair;
-    // Ears
+    // Ears (unchanged position so they still poke out clearly above the cuff)
     sx.fillRect(cx - 5, 4, 3, 4);
     sx.fillRect(cx - 4, 5, 1, 3);
     sx.fillRect(cx + 2, 4, 3, 4);
