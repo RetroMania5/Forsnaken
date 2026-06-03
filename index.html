@@ -3716,9 +3716,7 @@ function drawPlayer(p) {
   const now = performance.now();
 
   const a = p._anim || { frame: "idle", actionUntil: 0 };
-  // Fencer holds the drinking pose for the whole soda channel.
-  const drinkingSoda = charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil;
-  const frame = (drinkingSoda || now < a.actionUntil) ? "action" : a.frame;
+  const frame = (now < a.actionUntil) ? "action" : a.frame;
   const img = sheet[frame] || sheet.idle;
   const fx = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
   const flip = fx < 0;
