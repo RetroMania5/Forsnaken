@@ -1435,6 +1435,10 @@ function onMessage(msg) {
       if (msg.abilityType === "meow") {
         G.meowPulses.push({ x: msg.x, y: msg.y, radius: msg.radius || 600, until: performance.now() + 600 });
       }
+      // Fencer's Soda: tag the player so drawPlayer renders the can.
+      if (msg.abilityType === "heal_self" && msg.duration && p && charIdFor(p) === "fencer") {
+        p.sodaUntil = performance.now() + msg.duration * 1000;
+      }
       // Teleport: snap remote players to the server position.
       // Local player already predicted in tryFireAbility — skip the snap +
       // ghost so we don't fight prediction or double-render.
@@ -1467,7 +1471,7 @@ function onMessage(msg) {
     case "over":
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
-      for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; }
+      for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; p.sodaUntil = 0; }
       G.portalMenu = "closed";
       $("portal-bar").classList.add("hidden");
       G.spectateId = null;
@@ -2999,6 +3003,9 @@ function tryFireAbility(slot, me) {
     G.scanArrowUntil = now + ab.duration * 1000;
   } else if (ab.type === "sneak") {
     me._localSneakUntil = now + ab.duration * 1000;
+  } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
+    // Predict soda visual locally for instant feedback.
+    me.sodaUntil = now + ab.duration * 1000;
   } else if (ab.type === "slow_field" && ab.channelDuration) {
     // Local prediction: show summoning channel immediately on the caster.
     me.channelUntil = now + ab.channelDuration * 1000;
@@ -3780,6 +3787,35 @@ function drawPlayer(p) {
   ctx.strokeText(p.name || "", p.x, nameY);
   ctx.fillText(p.name || "", p.x, nameY);
   ctx.restore();
+
+  // Fencer Soda: floating soda can with a little bob + fizz bubbles
+  // while the heal effect is active.
+  if (p.alive && charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil) {
+    const bob = Math.sin(now * 0.005) * 1.5;
+    const cx0 = Math.round(p.x + 14);    // off to the side so it doesn't block the head
+    const cy0 = Math.round(p.y - 24 + bob);
+    // Can body (red with white horizontal stripe)
+    ctx.fillStyle = "#d02030"; ctx.fillRect(cx0 - 4, cy0 - 5, 8, 11);
+    ctx.fillStyle = "#a01828"; ctx.fillRect(cx0 + 3, cy0 - 5, 1, 11); // shadow side
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(cx0 - 4, cy0 - 1, 8, 2);
+    ctx.fillStyle = "#d04050"; ctx.fillRect(cx0 - 4, cy0,     8, 1);
+    // Can top (aluminum lid)
+    ctx.fillStyle = "#9a9aa4"; ctx.fillRect(cx0 - 4, cy0 - 7, 8, 2);
+    ctx.fillStyle = "#cccdd6"; ctx.fillRect(cx0 - 4, cy0 - 7, 8, 1);
+    // Tab
+    ctx.fillStyle = "#5a5a64"; ctx.fillRect(cx0 - 1, cy0 - 8, 2, 1);
+    // Bottom rim
+    ctx.fillStyle = "#7a1018"; ctx.fillRect(cx0 - 4, cy0 + 5, 8, 1);
+    // Rising fizz bubbles
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    const t = (now / 200) % 1;
+    for (let i = 0; i < 3; i++) {
+      const phase = (t + i / 3) % 1;
+      const bx = cx0 + Math.sin((i * 1.7) + now * 0.004) * 3;
+      const by = cy0 - 10 - phase * 14;
+      ctx.fillRect(bx - 1, by - 1, 2, 2);
+    }
+  }
 }
 
 function drawSkillDial(W, H) {
