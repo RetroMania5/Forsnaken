@@ -206,6 +206,7 @@ const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
   { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, slower, lower dmg" },
   { id: "lunar",   name: "Lunar",   color: "#9070ff", speedMult: 1.00, attackRadius: 80,  attackDamage: 15, attackName: "Punch",       attackCooldown: 1.0, blurb: "portals & teleport" },
+  { id: "sly",     name: "Sly",     color: "#3a2a4a", speedMult: 1.00, attackRadius: 75,  attackDamage: 14, attackName: "Strike",      attackCooldown: 1.0, blurb: "human / dino shapeshifter" },
 ];
 
 // ---- HP ----
@@ -273,6 +274,16 @@ const ABILITIES = {
     { id: "step",  name: "Shadow Step", cd: 6,  type: "teleport",    distance: 220 },
     { id: "stalk", name: "Stalk",       cd: 15, type: "buff_attack", multiplier: 2, duration: 4.0 },
   ],
+  sly: [
+    // Slot 0 — Trap when human, FIRE!! when dino. Server dispatches by form.
+    { id: "trap_fire", name: "Trap", cd: 15, type: "trap_fire",
+      trapCD: 15, fireCD: 8,
+      trapStunDuration: 4, maxTraps: 3,
+      fireSpeed: 700, fireRange: 800, fireDamage: 10 },
+    // Slot 1 — Transform: 5s rooted channel, then dino for 20s, then revert.
+    { id: "transform", name: "Transform", cd: 40, type: "transform",
+      channelDuration: 5.0, duration: 20.0 },
+  ],
   lunar: [
     // Build Portal: 4s rooted channel, drops a portal at the killer's
     // position when the channel completes. Cap at maxPortals — placing a
@@ -318,6 +329,7 @@ const state = {
   portals: [],
   burgers: [],
   robots: [],
+  traps: [],
   nextEntityId: 1,
 };
 
@@ -849,6 +861,60 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.shieldUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "trap_fire": {
+      if (p.form === "dino") {
+        // FIRE!! — projectile that damages on hit.
+        p.cooldowns[slot] = now + ab.fireCD * 1000;
+        const f = p.facing;
+        const norm = Math.hypot(f.x, f.y) || 1;
+        const fxn = f.x / norm, fyn = f.y / norm;
+        state.projectiles.push({
+          id: state.nextEntityId++,
+          x: p.x + fxn * 25, y: p.y + fyn * 25,
+          vx: fxn * ab.fireSpeed, vy: fyn * ab.fireSpeed,
+          ownerId: p.id,
+          damage: ab.fireDamage,
+          range: ab.fireRange,
+          dist: 0,
+          kind: "fire",
+        });
+        broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: "fire", fx: fxn, fy: fyn });
+      } else {
+        // Trap — drop one at the killer's feet; cap to maxTraps per owner.
+        p.cooldowns[slot] = now + ab.trapCD * 1000;
+        const mine = state.traps.filter(t => t.ownerId === p.id);
+        if (mine.length >= (ab.maxTraps || 3)) {
+          const oldest = mine[0];
+          state.traps = state.traps.filter(t => t.id !== oldest.id);
+          broadcast({ type: "trap_break", id: oldest.id, x: oldest.x, y: oldest.y, evicted: true });
+        }
+        const trap = {
+          id: state.nextEntityId++,
+          x: p.x, y: p.y,
+          ownerId: p.id,
+          stunDuration: ab.trapStunDuration || 4,
+          hitRadius: 22,
+        };
+        state.traps.push(trap);
+        broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: "trap", x: trap.x, y: trap.y, trapId: trap.id });
+      }
+      break;
+    }
+    case "transform": {
+      // 5s rooted channel, then form = "dino" for ab.duration seconds.
+      const ownerId = p.id;
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        owner.form = "dino";
+        owner.formUntil = Date.now() + ab.duration * 1000;
+        broadcast({ type: "form", id: ownerId, form: "dino", duration: ab.duration });
+      }, channelMs);
+      break;
+    }
     case "spawn_robot": {
       // 3s rooted build channel, then a robot spawns at the Engineer's position.
       const ownerId = p.id;
@@ -1020,6 +1086,7 @@ function startRound() {
   state.portals = [];
   state.burgers = [];
   state.robots = [];
+  state.traps = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1038,6 +1105,8 @@ function startRound() {
   killer.mainAttackCdUntil = 0;
   killer.ammo = 1; killer.reloadUntil = 0;
   killer.abilityUses = {};
+  killer.form = "human";        // Sly starts human each round; reset for everyone
+  killer.formUntil = 0;
   killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
@@ -1275,6 +1344,31 @@ function tick() {
       return true;
     });
 
+    // Sly traps: any survivor stepping on one gets stunned and the trap breaks.
+    state.traps = state.traps.filter(tr => {
+      for (const s of state.players.values()) {
+        if (s.role !== "survivor" || !s.alive) continue;
+        if (Math.hypot(s.x - tr.x, s.y - tr.y) < (tr.hitRadius || 22)) {
+          s.effects.slowMult = 0.05;
+          s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, Date.now() + tr.stunDuration * 1000);
+          broadcast({ type: "stun", id: s.id, by: tr.ownerId, duration: tr.stunDuration });
+          broadcast({ type: "trap_break", id: tr.id, x: tr.x, y: tr.y, by: s.id });
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Sly form auto-revert: when formUntil expires, drop back to "human".
+    for (const p of state.players.values()) {
+      if (p.role !== "killer") continue;
+      if (p.form === "dino" && p.formUntil && Date.now() >= p.formUntil) {
+        p.form = "human";
+        p.formUntil = 0;
+        broadcast({ type: "form", id: p.id, form: "human" });
+      }
+    }
+
     // Portal step pings: any portal with a survivor on it pings the killer.
     const portalsActive = [];
     for (const pt of state.portals) {
@@ -1370,6 +1464,7 @@ function tick() {
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
           sm: now < (p.effects.slowUntil || 0) ? +(p.effects.slowMult || 1).toFixed(2) : 1,
           sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
+          fm: p.form === "dino" ? 1 : 0,
           am: p.ammo || 0,
           rl: p.reloadUntil || 0,
         })),
@@ -1393,6 +1488,7 @@ function tick() {
           vx: +b.vx.toFixed(1), vy: +b.vy.toFixed(1),
         })),
         robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y) })),
+        traps:  state.traps.map(t  => ({ id: t.id, x: Math.round(t.x), y: Math.round(t.y) })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -1405,6 +1501,7 @@ function tick() {
     state.portals = [];
     state.burgers = [];
     state.robots = [];
+    state.traps = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
