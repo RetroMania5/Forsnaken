@@ -1941,13 +1941,25 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
 };
 const ACCOUNT_KEY = "fk:account";
+const ACCOUNT_VERSION = 2;
+// Each entry removes character ids from older saves' unlocks list — used
+// when a character that used to be a default unlock is now priced.
+const ACCOUNT_MIGRATIONS = {
+  2: ["sentinel"],   // Frost Knight was free in v1, costs 100 in v2.
+};
 function loadAccount() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || "null"); } catch {}
   if (saved && typeof saved.coins === "number" && Array.isArray(saved.unlocks)) {
     Account.coins = saved.coins;
-    // Ensure defaults stay unlocked even if we later add new starter chars.
-    const set = new Set([...DEFAULT_UNLOCKS, ...saved.unlocks]);
+    let unlocks = saved.unlocks.slice();
+    const fromVersion = saved.version || 1;
+    for (let v = fromVersion + 1; v <= ACCOUNT_VERSION; v++) {
+      const strip = ACCOUNT_MIGRATIONS[v] || [];
+      if (strip.length) unlocks = unlocks.filter(id => !strip.includes(id));
+    }
+    // Ensure current defaults stay unlocked regardless of migrations.
+    const set = new Set([...DEFAULT_UNLOCKS, ...unlocks]);
     Account.unlocks = [...set];
   } else {
     Account.coins = 0;
@@ -1958,6 +1970,7 @@ function loadAccount() {
 }
 function saveAccount() {
   localStorage.setItem(ACCOUNT_KEY, JSON.stringify({
+    version: ACCOUNT_VERSION,
     coins: Account.coins,
     unlocks: Account.unlocks,
   }));
@@ -1968,7 +1981,7 @@ loadAccount();
 // Export the current save to a downloadable .txt file (JSON inside).
 function downloadSave() {
   const data = JSON.stringify({
-    version: 1,
+    version: ACCOUNT_VERSION,
     coins: Account.coins,
     unlocks: Account.unlocks,
     exportedAt: new Date().toISOString(),
@@ -2003,7 +2016,14 @@ function loadSaveFromFile(file) {
     );
     if (!ok) return;
     Account.coins = Math.max(0, Math.floor(data.coins));
-    const valid = data.unlocks.filter(id => typeof id === "string");
+    let valid = data.unlocks.filter(id => typeof id === "string");
+    // Apply the same migrations the loader runs so an old save can't
+    // re-grant characters that are now priced.
+    const fromVersion = data.version || 1;
+    for (let v = fromVersion + 1; v <= ACCOUNT_VERSION; v++) {
+      const strip = ACCOUNT_MIGRATIONS[v] || [];
+      if (strip.length) valid = valid.filter(id => !strip.includes(id));
+    }
     Account.unlocks = [...new Set([...DEFAULT_UNLOCKS, ...valid])];
     saveAccount();
     updateCoinDisplay();
