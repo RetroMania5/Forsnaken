@@ -3272,16 +3272,73 @@ function render() {
   ctx.scale(zoom, zoom);
   ctx.translate(-camX, -camY);
 
-  // floor
-  ctx.fillStyle = "#15151f"; ctx.fillRect(0, 0, MAP_W, MAP_H);
-  // grid
-  ctx.strokeStyle = "rgba(255,255,255,0.03)"; ctx.lineWidth = 1;
-  for (let x = 0; x <= MAP_W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP_H); ctx.stroke(); }
-  for (let y = 0; y <= MAP_H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP_W, y); ctx.stroke(); }
+  // Circus floor — dark sawdust with a big-top ring + accent rings.
+  ctx.fillStyle = "#2a1f14"; ctx.fillRect(0, 0, MAP_W, MAP_H);
+  // Faint grid for orientation
+  ctx.strokeStyle = "rgba(255,255,255,0.04)"; ctx.lineWidth = 1;
+  for (let gx = 0; gx <= MAP_W; gx += 80) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, MAP_H); ctx.stroke(); }
+  for (let gy = 0; gy <= MAP_H; gy += 80) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(MAP_W, gy); ctx.stroke(); }
+  // Big-top ring at center
+  {
+    const cx = MAP_W / 2, cy = MAP_H / 2;
+    // Sawdust interior
+    ctx.fillStyle = "#a08050";
+    ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.fill();
+    // Ring edge: red + gold trim
+    ctx.strokeStyle = "#d04050"; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(cx, cy, 300, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, 296, 0, Math.PI * 2); ctx.stroke();
+    // Tent-flap segments suggesting spokes
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 4;
+    for (let i = 0; i < 12; i++) {
+      const a = i * Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * 60, cy + Math.sin(a) * 60);
+      ctx.lineTo(cx + Math.cos(a) * 290, cy + Math.sin(a) * 290);
+      ctx.stroke();
+    }
+    // Center medallion
+    ctx.fillStyle = "#d04050";
+    ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#ffd860"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#ffd860";
+    // Five-point star in the medallion
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const r = (i % 2 === 0) ? 36 : 16;
+      const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+  }
 
-  // walls
-  ctx.fillStyle = "#3a3a4d";
-  for (const w of WALLS) ctx.fillRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
+  // Walls — red + white circus tent stripes.
+  {
+    const STRIPE = 14;
+    for (const w of WALLS) {
+      const x0 = w.x - w.w / 2, y0 = w.y - w.h / 2;
+      const horizontal = w.w >= w.h;
+      if (horizontal) {
+        for (let s = 0; s < w.w; s += STRIPE) {
+          const idx = Math.floor((x0 + s) / STRIPE);
+          ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
+          ctx.fillRect(x0 + s, y0, Math.min(STRIPE, w.w - s), w.h);
+        }
+      } else {
+        for (let s = 0; s < w.h; s += STRIPE) {
+          const idx = Math.floor((y0 + s) / STRIPE);
+          ctx.fillStyle = (idx & 1) === 0 ? "#d04050" : "#ffffff";
+          ctx.fillRect(x0, y0 + s, w.w, Math.min(STRIPE, w.h - s));
+        }
+      }
+    }
+    // Outline so the walls stay readable on the busy floor
+    ctx.strokeStyle = "#1a0008"; ctx.lineWidth = 2;
+    for (const w of WALLS) ctx.strokeRect(w.x - w.w / 2, w.y - w.h / 2, w.w, w.h);
+  }
 
   // obstacles
   drawObstacles();
@@ -3339,59 +3396,80 @@ function drawObstacles() {
   for (const o of OBSTACLES) {
     const x0 = o.x - o.w / 2, y0 = o.y - o.h / 2;
     if (o.type === "crate") {
+      // Circus poster crate: wooden box with a yellow poster nailed on.
       ctx.fillStyle = "#7a5524";
       ctx.fillRect(x0, y0, o.w, o.h);
-      // wood plank cross
-      ctx.fillStyle = "#5a3a18";
+      ctx.fillStyle = "#5a3a18";   // plank lines
       ctx.fillRect(x0, o.y - 1, o.w, 2);
       ctx.fillRect(o.x - 1, y0, 2, o.h);
-      ctx.strokeStyle = "#2a1808";
-      ctx.lineWidth = 2;
+      // Yellow poster
+      ctx.fillStyle = "#ffd860";
+      ctx.fillRect(x0 + 5, y0 + 5, o.w - 10, o.h - 10);
+      ctx.fillStyle = "#d04050";   // red banner stripe
+      ctx.fillRect(o.x - 7, o.y - 2, 14, 1);
+      ctx.fillStyle = "#3a0010";
+      ctx.fillRect(o.x - 5, o.y + 3, 10, 1);
+      ctx.strokeStyle = "#2a1808"; ctx.lineWidth = 2;
       ctx.strokeRect(x0, y0, o.w, o.h);
     } else if (o.type === "pillar") {
-      // round stone pillar
-      ctx.fillStyle = "#65656b";
-      ctx.beginPath();
-      ctx.arc(o.x, o.y, o.w / 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#2a2a30";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      // highlight crescent
-      ctx.fillStyle = "#8a8a92";
-      ctx.beginPath();
-      ctx.arc(o.x - 3, o.y - 3, o.w / 2 - 5, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (o.type === "locker") {
-      ctx.fillStyle = "#3a4045";
-      ctx.fillRect(x0, y0, o.w, o.h);
-      // door split
-      ctx.fillStyle = "#1a2025";
-      ctx.fillRect(o.x - 1, y0 + 3, 2, o.h - 6);
-      // vents
-      ctx.fillStyle = "#5a6065";
-      for (let i = 0; i < 3; i++) {
-        ctx.fillRect(x0 + 4, y0 + 6 + i * 5, o.w - 8, 1);
+      // Striped tent pole — vertical red/white stripes inside the circle.
+      ctx.save();
+      ctx.beginPath(); ctx.arc(o.x, o.y, o.w / 2, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(o.x - o.w / 2, o.y - o.h / 2, o.w, o.h);
+      ctx.fillStyle = "#d04050";
+      const stripeW = 6;
+      for (let s = -o.w; s < o.w; s += stripeW * 2) {
+        ctx.fillRect(o.x + s, o.y - o.h / 2, stripeW, o.h);
       }
-      // handles
-      ctx.fillStyle = "#aaaa90";
-      ctx.fillRect(x0 + 4, y0 + o.h - 14, 4, 2);
-      ctx.fillRect(x0 + o.w - 8, y0 + o.h - 14, 4, 2);
-      ctx.strokeStyle = "#0a1015";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x0, y0, o.w, o.h);
+      ctx.restore();
+      ctx.strokeStyle = "#3a0010"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(o.x, o.y, o.w / 2, 0, Math.PI * 2); ctx.stroke();
+      // Little flag on top
+      ctx.fillStyle = "#ffd860";
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y - o.w / 2 - 1);
+      ctx.lineTo(o.x + 6, o.y - o.w / 2 - 4);
+      ctx.lineTo(o.x, o.y - o.w / 2 - 7);
+      ctx.closePath(); ctx.fill();
+    } else if (o.type === "locker") {
+      // Popcorn cart — red+white striped cart with fluffy popcorn on top.
+      const cartTop = y0 + 8;       // 8 px reserved at top for popcorn
+      ctx.fillStyle = "#d04050"; ctx.fillRect(x0, cartTop, o.w, o.h - 8);
+      ctx.fillStyle = "#ffffff";
+      for (let s = 0; s < o.w; s += 8) {
+        if (((s / 8) | 0) % 2) ctx.fillRect(x0 + s, cartTop, 4, o.h - 8);
+      }
+      // Gold trim
+      ctx.fillStyle = "#ffd860";
+      ctx.fillRect(x0, cartTop, o.w, 2);
+      ctx.fillRect(x0, y0 + o.h - 6, o.w, 2);
+      // Wheels
+      ctx.fillStyle = "#1a0008";
+      ctx.fillRect(x0 + 1, y0 + o.h - 4, 5, 4);
+      ctx.fillRect(x0 + o.w - 6, y0 + o.h - 4, 5, 4);
+      // Popcorn pile up top
+      ctx.fillStyle = "#fff5c0";
+      ctx.beginPath();
+      ctx.arc(o.x - 7, cartTop - 1, 4, 0, Math.PI * 2);
+      ctx.arc(o.x,     cartTop - 3, 5, 0, Math.PI * 2);
+      ctx.arc(o.x + 7, cartTop - 1, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffd860";
+      ctx.fillRect(o.x - 1, cartTop - 6, 2, 2);   // buttery highlight
+      ctx.strokeStyle = "#3a0010"; ctx.lineWidth = 2;
+      ctx.strokeRect(x0, cartTop, o.w, o.h - 8);
     } else if (o.type === "barrel") {
-      ctx.fillStyle = "#5a4530";
-      ctx.fillRect(x0, y0, o.w, o.h);
-      // metal bands
-      ctx.fillStyle = "#2a2018";
+      // Circus drum — red shell with gold bands and a tan drumhead on top.
+      ctx.fillStyle = "#d04050"; ctx.fillRect(x0, y0, o.w, o.h);
+      ctx.fillStyle = "#ffd860";  // gold rims
       ctx.fillRect(x0, y0 + 4, o.w, 2);
       ctx.fillRect(x0, y0 + o.h - 6, o.w, 2);
-      // cap
-      ctx.fillStyle = "#7a6048";
+      ctx.fillStyle = "#e8c890";  // drumhead
       ctx.fillRect(x0 + 3, y0 + 1, o.w - 6, 3);
-      ctx.strokeStyle = "#1a1208";
-      ctx.lineWidth = 2;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(x0 + 5, y0 + 2, 2, 1);          // highlight on the head
+      ctx.strokeStyle = "#3a0010"; ctx.lineWidth = 2;
       ctx.strokeRect(x0, y0, o.w, o.h);
     }
   }
