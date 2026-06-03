@@ -1897,8 +1897,9 @@ function highlightTestRole() {
 function buildTestCharRow() {
   const row = $("test-char-row");
   row.innerHTML = "";
-  const list = G.testRole === "killer" ? G.killerChars : G.survivorChars;
-  if (!list.length) return;
+  const base = G.testRole === "killer" ? G.killerChars : G.survivorChars;
+  if (!base.length) return;
+  const list = (typeof sortByCostThenName === "function") ? sortByCostThenName(base) : base;
   if (!list.some(c => c.id === G.testChar)) G.testChar = list[0].id;
   for (const c of list) {
     const el = document.createElement("div");
@@ -2559,7 +2560,7 @@ function buildCharGrids() {
     return b;
   };
   const sg = $("surv-grid"); sg.innerHTML = "";
-  for (const c of G.survivorChars) {
+  for (const c of sortByCostThenName(G.survivorChars)) {
     sg.appendChild(makeCard(c, (id) => {
       G.myChars.survivor = id;
       sendMsg({ type: "pick_char", survivorChar: id });
@@ -2567,7 +2568,7 @@ function buildCharGrids() {
     }));
   }
   const kg = $("kill-grid"); kg.innerHTML = "";
-  for (const c of G.killerChars) {
+  for (const c of sortByCostThenName(G.killerChars)) {
     kg.appendChild(makeCard(c, (id) => {
       G.myChars.killer = id;
       sendMsg({ type: "pick_char", killerChar: id });
@@ -2575,6 +2576,13 @@ function buildCharGrids() {
     }));
   }
   renderCharSelection();
+}
+function sortByCostThenName(chars) {
+  return [...chars].sort((a, b) => {
+    const pa = priceOf(a.id), pb = priceOf(b.id);
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
 }
 function updateCoinDisplay() {
   const el = $("lobby-coins");
