@@ -201,6 +201,7 @@ const SURVIVOR_CHARS = [
   { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
   { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
   { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
+  { id: "angle",    name: "Angle",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -269,6 +270,17 @@ const ABILITIES = {
     { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
     { id: "scan",  name: "Scan",  cd: 12, type: "reveal",     duration: 2.0 },
   ],
+  angle: [
+    // Stab: short-range dagger. Stuns the killer 3s on hit (no damage),
+    // grants 20% malice (40% if currently ducking).
+    { id: "stab",    name: "Stab",    cd: 8,  type: "stab", range: 80, stunDuration: 3, maliceGain: 20, maliceGainDuck: 40 },
+    // Duck: 95% invis + 0.6x speed for 7s. No reveal-on-attack — Angle can
+    // stab from inside the duck for the malice bonus.
+    { id: "duck",    name: "Duck",    cd: 18, type: "duck", duration: 7.0, speedMult: 0.6 },
+    // Spawner: 3s channel, places one spawn pad. Locked after first use
+    // (handled via maxUses). The pad is what the passive respawns on.
+    { id: "spawner", name: "Spawner", cd: 60, type: "spawn_pad", channelDuration: 3.0, maxUses: 1 },
+  ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
     { id: "frenzy", name: "Frenzy",      cd: 14, type: "speed_self", mult: 1.30, duration: 4.0 },
@@ -333,6 +345,7 @@ const state = {
   burgers: [],
   robots: [],
   traps: [],
+  spawnPads: [],
   nextEntityId: 1,
 };
 
@@ -481,6 +494,7 @@ function freshEffects() {
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
     sneakUntil: 0,
+    duckUntil: 0,
     shieldUntil: 0,
     dashStrikeUntil: 0,
     dashHitDamage: 0,
@@ -635,6 +649,22 @@ function applyDamage(target, amount, attacker) {
     amount,
   });
   if (target.hp <= 0) {
+    // Angle passive: at 100% malice with a spawn pad, the next lethal hit
+    // sends Angle back to the pad at 65% HP with wings instead of going down.
+    // Malice is consumed; pad stays. If no pad was placed, Angle dies normally.
+    if (target.role === "survivor" && target.survivorChar === "angle"
+        && (target.malice || 0) >= 100) {
+      const pad = state.spawnPads.find(sp => sp.ownerId === target.id);
+      if (pad) {
+        target.hp = Math.round(SURVIVOR_HP_MAX * 0.65);
+        target.x = pad.x;
+        target.y = pad.y;
+        target.malice = 0;
+        target.respawned = true;
+        broadcast({ type: "respawn", id: target.id, x: pad.x, y: pad.y, hp: target.hp });
+        return;
+      }
+    }
     target.alive = false;
     state.roundTimer += TIME_PER_DOWN;
     broadcast({ type: "down", id: target.id, by: attacker.id, timer: state.roundTimer });
@@ -1040,6 +1070,51 @@ function applyAbility(p, ab, slot, msg) {
       p.reloadUntil = now + ab.reloadDuration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
       break;
+    case "stab": {
+      // Angle's dagger: closest alive killer within range gets stunned, no
+      // damage. Malice gain is doubled if Angle is currently ducking.
+      let best = null, bestD = ab.range;
+      for (const k of state.players.values()) {
+        if (k.role !== "killer" || !k.alive) continue;
+        const d = Math.hypot(k.x - p.x, k.y - p.y);
+        if (d < bestD) { bestD = d; best = k; }
+      }
+      if (best) {
+        best.effects.slowMult = 0.05;
+        best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
+        broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+        const ducking = now < (p.effects.duckUntil || 0);
+        const gain = ducking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
+        p.malice = Math.min(100, (p.malice || 0) + gain);
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
+      break;
+    }
+    case "duck":
+      // 95% invisible (shares the sneak visibility path) + flag that Angle is
+      // ducking so the next Stab counts double. Self-slow is applied client-side.
+      p.effects.sneakUntil = now + ab.duration * 1000;
+      p.effects.duckUntil  = now + ab.duration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration, speedMult: ab.speedMult });
+      break;
+    case "spawn_pad": {
+      // 3s rooted channel, then a spawn pad drops at Angle's position. One
+      // pad per Angle — slot also has maxUses: 1 so it locks after firing.
+      const ownerId = p.id;
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        // Replace any existing pad for this Angle.
+        state.spawnPads = state.spawnPads.filter(sp => sp.ownerId !== ownerId);
+        const pad = { id: state.nextEntityId++, x: owner.x, y: owner.y, ownerId };
+        state.spawnPads.push(pad);
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, x: pad.x, y: pad.y, padId: pad.id });
+      }, channelMs);
+      break;
+    }
   }
 }
 
@@ -1092,6 +1167,7 @@ function startRound() {
   state.burgers = [];
   state.robots = [];
   state.traps = [];
+  state.spawnPads = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1129,6 +1205,8 @@ function startRound() {
     p.ammo = 1; p.reloadUntil = 0;
     p.abilityUses = {};
     p.effects = freshEffects();
+    p.malice = 0;
+    p.respawned = false;
   });
 
   state.phase = "playing";
@@ -1470,6 +1548,9 @@ function tick() {
           sm: now < (p.effects.slowUntil || 0) ? +(p.effects.slowMult || 1).toFixed(2) : 1,
           sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
           fm: p.form === "dino" ? 1 : 0,
+          du: now < (p.effects.duckUntil || 0) ? 1 : 0,
+          ml: p.role === "survivor" && p.survivorChar === "angle" ? Math.round(p.malice || 0) : 0,
+          wg: p.respawned ? 1 : 0,
           am: p.ammo || 0,
           rl: p.reloadUntil || 0,
         })),
@@ -1494,6 +1575,7 @@ function tick() {
         })),
         robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y) })),
         traps:  state.traps.map(t  => ({ id: t.id, x: Math.round(t.x), y: Math.round(t.y) })),
+        spawnPads: state.spawnPads.map(sp => ({ id: sp.id, x: sp.x, y: sp.y, ownerId: sp.ownerId })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -1507,12 +1589,15 @@ function tick() {
     state.burgers = [];
     state.robots = [];
     state.traps = [];
+    state.spawnPads = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
       p.hp = SURVIVOR_HP_MAX;
       p.cooldowns = [0, 0, 0];
       p.effects = freshEffects();
+      p.malice = 0;
+      p.respawned = false;
       const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
       if (sc) p.color = sc.color;
     }

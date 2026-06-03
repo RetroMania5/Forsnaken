@@ -623,6 +623,13 @@
       <div class="gd-ab"><b>Z — Burger!</b>: throws a burger in your facing direction. It slows down with friction and bounces off walls / obstacles. <b>Any other survivor that touches it heals 25 HP</b> (you can't eat your own). Sits on the ground until eaten or for 30s. CD 18s.</div>
       <div class="gd-ab"><b>X — MEOW!</b>: every survivor within 600 px heals <b>20 HP</b> instantly; any killer in range is <b>slowed to 0.9× speed for 4s</b>. CD 35s.</div>
     </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angle</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
+      <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you're currently ducking. CD 8s.</div>
+      <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. No reveal-on-stab, so the malice bonus stacks. CD 18s.</div>
+      <div class="gd-ab"><b>C — Spawner</b>: <b>3s rooted channel</b>, then drops a spawn pad where you stand. <b>One pad per round</b> — the ability locks once you use it.</div>
+      <div class="gd-ab"><b>Passive — Wings</b>: when you die with <b>100% Malice</b> AND you've placed a Spawner pad, you respawn at the pad with <b>65 HP</b> and angelic wings. Malice is consumed by the respawn. With no pad placed, you die normally.</div>
+    </div>
 
     <div class="gd-h">KILLERS</div>
     <div class="gd-card">
@@ -847,6 +854,7 @@ const CHAR_VISUALS = {
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
   fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
   kacey:    { skin: "#ff9050", shirt: "#ffffff", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null, decoration: "burger" },
+  angle:    { skin: "#1a1422", shirt: "#2a1840", pants: "#0a0612", hair: "#000000", hat: "shadow",  weapon: "dagger" },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -885,6 +893,8 @@ const G = {
   shieldBlocks: [],        // VFX flash when a shield blocks damage
   traps: [],               // Sly's bear traps (from server)
   trapBreaks: [],          // VFX when a trap snaps shut or is evicted
+  spawnPads: [],           // Angle's spawn pads (from server)
+  respawnFlashes: [],      // VFX when Angle respawns at a pad
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   mapId: "circus",
@@ -1309,6 +1319,16 @@ function drawCharFrame(sx, v, frame) {
     sx.fillRect(cx + 14, 13, 1, 9);
     sx.fillStyle = "#7a5524";
     sx.fillRect(cx + 13, 20, 4, 3);
+  } else if (isAction && v.weapon === "dagger") {
+    // Angle's dagger: short dark blade with a faint purple gleam.
+    sx.fillStyle = "#2a1840";
+    sx.fillRect(cx + 13, 21, 4, 2);    // grip
+    sx.fillStyle = "#b070ff";
+    sx.fillRect(cx + 13, 20, 4, 1);    // crossguard
+    sx.fillStyle = "#cccccc";
+    sx.fillRect(cx + 14, 14, 2, 6);    // blade
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx + 14, 14, 1, 6);    // blade highlight
   } else if (isAction && v.weapon === "claws") {
     sx.fillStyle = "#ffffff";
     sx.fillRect(cx + 14, 16, 1, 5);
@@ -1448,6 +1468,19 @@ function drawCharFrame(sx, v, frame) {
     sx.fillRect(cx + 5, 14, 2, 1);
     sx.fillRect(cx - 7, 15, 1, 1);
     sx.fillRect(cx + 6, 15, 1, 1);
+  } else if (v.hat === "shadow") {
+    // Angle: dark shady figure (no hood). The head is mostly silhouette
+    // with two faint purple eye glints peering out.
+    sx.fillStyle = "#0a0612";
+    sx.fillRect(cx - 6, 5, 12, 12);          // dark skull cap
+    sx.fillStyle = "rgba(0,0,0,0.6)";
+    sx.fillRect(cx - 5, 8, 10, 8);           // face shadow
+    sx.fillStyle = "#b070ff";
+    sx.fillRect(cx - 2, 12, 1, 1);           // left eye glow
+    sx.fillRect(cx + 2, 12, 1, 1);           // right eye glow
+    sx.fillStyle = "rgba(176,112,255,0.35)";
+    sx.fillRect(cx - 3, 11, 3, 3);           // left eye halo
+    sx.fillRect(cx + 1, 11, 3, 3);           // right eye halo
   } else if (v.hat === "dino") {
     // Sly's dino form: scaly head with snout extending forward, teeth,
     // slitted yellow eyes, small spikes on top.
@@ -1646,6 +1679,9 @@ function onMessage(msg) {
           p.sneaking = !!s.sn;
           p.shielded = !!s.sh;
           p.form = s.fm ? "dino" : "human";
+          p.ducking = !!s.du;
+          p.malice = typeof s.ml === "number" ? s.ml : 0;
+          p.respawned = !!s.wg;
           p.hiddenInSmoke = !!s.hd;
           p.slowMult = typeof s.sm === "number" ? s.sm : 1;
           p.ammo = typeof s.am === "number" ? s.am : (p.ammo == null ? 1 : p.ammo);
@@ -1682,6 +1718,7 @@ function onMessage(msg) {
       G.burgers = msg.burgers || [];
       G.robots = msg.robots || [];
       G.traps  = msg.traps  || [];
+      G.spawnPads = msg.spawnPads || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -1765,6 +1802,20 @@ function onMessage(msg) {
         const downed = G.players.get(msg.id);
         if (downed) { downed.channelUntil = 0; downed.channelType = null; }
       }
+      break;
+    }
+    case "respawn": {
+      // Angle passive: teleport home with new HP and the wings flag set.
+      const v = G.players.get(msg.id);
+      if (v) {
+        v.x = msg.x; v.y = msg.y;
+        v.hp = msg.hp;
+        v.respawned = true;
+        v.alive = true;
+        v.malice = 0;
+        v.healFlashUntil = performance.now() + 400;
+      }
+      G.respawnFlashes.push({ x: msg.x, y: msg.y, until: performance.now() + 700 });
       break;
     }
     case "lms":
@@ -2199,7 +2250,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100 };
+const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angle: 80 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
@@ -2214,12 +2265,13 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
 };
 const ACCOUNT_KEY = "fk:account";
-const ACCOUNT_VERSION = 3;
+const ACCOUNT_VERSION = 4;
 // Each entry removes character ids from older saves' unlocks list — used
 // when a character that used to be a default unlock is now priced.
 const ACCOUNT_MIGRATIONS = {
   2: ["sentinel"],            // Frost Knight was free in v1, costs 100 in v2.
   3: ["engineer", "runner"],  // Engineer (115) and Runner (100) became priced in v3.
+  4: ["angle"],               // Angle (80) — make sure no save grants it free.
 };
 function loadAccount() {
   let saved = null;
@@ -2740,6 +2792,34 @@ function applyLocalAbility(me, ab, aim) {
       playSFX("meow");
       break;
     }
+    case "stab":
+      // Test mode has no killer — visual marker only via action frame.
+      // Still bump local malice so the sandbox bar reflects the ability.
+      {
+        const gain = (me.ducking || now < (me._localDuckUntil || 0))
+          ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
+        me.malice = Math.min(100, (me.malice || 0) + (gain || 0));
+      }
+      break;
+    case "duck":
+      me.sneaking = true;
+      me.ducking = true;
+      me._localSneakUntil = now + ab.duration * 1000;
+      me._localDuckUntil  = now + ab.duration * 1000;
+      setTimeout(() => { me.sneaking = false; me.ducking = false; }, ab.duration * 1000);
+      break;
+    case "spawn_pad": {
+      const placePad = () => {
+        if (!me.alive) return;
+        G.spawnPads = G.spawnPads || [];
+        // Replace any pad I already own.
+        G.spawnPads = G.spawnPads.filter(sp => sp.ownerId !== me.id);
+        G.spawnPads.push({ id: ++G.localEntityId, x: me.x, y: me.y, ownerId: me.id });
+      };
+      if (ab.channelDuration) setTimeout(placePad, ab.channelDuration * 1000);
+      else placePad();
+      break;
+    }
     case "build_portal": {
       const placePortal = () => {
         if (!me.alive) return;
@@ -3221,6 +3301,8 @@ function gameTick(now) {
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
       // Engineer Shield slows the holder while it's up.
       if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
+      // Angle Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
+      if (me.ducking || (me.id === G.myId && now < (me._localDuckUntil || 0))) speed *= 0.6;
       stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
       // Conveyors push you in their direction (you can still walk against
       // them, just slower in net). Done after movement + collision so the
@@ -3579,6 +3661,13 @@ function tryFireAbility(slot, me) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
     me.channelType = ab.type;
+  } else if (ab.type === "spawn_pad" && ab.channelDuration) {
+    me.channelUntil = now + ab.channelDuration * 1000;
+    me.channelDuration = ab.channelDuration * 1000;
+    me.channelType = ab.type;
+  } else if (ab.type === "duck") {
+    me._localSneakUntil = now + ab.duration * 1000;
+    me._localDuckUntil  = now + ab.duration * 1000;
   } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
     // Brief sip animation; the actual heal continues silently.
     me.sodaUntil = now + 700;
@@ -3900,6 +3989,8 @@ function render() {
   drawRobots();
   // Sly's bear traps
   drawTraps();
+  // Angle's spawn pads + respawn flashes
+  drawSpawnPads();
   // Slow fields (under smokes)
   drawSlowFields();
   // Smokes (after everything else so they obscure)
@@ -4270,6 +4361,44 @@ function drawTraps() {
     ctx.fillRect(sxc - d - 1, syc + d - 1, 2, 2);
     ctx.fillRect(sxc + d - 1, syc - d - 1, 2, 2);
     ctx.fillRect(sxc - d - 1, syc - d - 1, 2, 2);
+  }
+}
+
+function drawSpawnPads() {
+  const now = performance.now();
+  for (const sp of (G.spawnPads || [])) {
+    const x = Math.round(sp.x), y = Math.round(sp.y);
+    // Dark base plate
+    ctx.fillStyle = "#1a0a2a";
+    ctx.fillRect(x - 14, y - 4, 28, 10);
+    ctx.fillRect(x - 12, y - 6, 24, 14);
+    // Glowing purple rune ring (chunky pixels — no smooth arcs)
+    const pulse = 0.55 + 0.25 * Math.sin(now * 0.005);
+    ctx.fillStyle = `rgba(176,112,255,${pulse.toFixed(2)})`;
+    ctx.fillRect(x - 10, y - 5, 20, 2);   // top edge
+    ctx.fillRect(x - 10, y + 5, 20, 2);   // bottom edge
+    ctx.fillRect(x - 11, y - 3, 2, 6);    // left edge
+    ctx.fillRect(x + 9, y - 3, 2, 6);     // right edge
+    // Inner sigil — angular plus
+    ctx.fillStyle = "#e0c8ff";
+    ctx.fillRect(x - 1, y - 3, 2, 7);
+    ctx.fillRect(x - 4, y, 8, 2);
+    // Corner studs
+    ctx.fillStyle = "#3a1860";
+    ctx.fillRect(x - 11, y - 5, 2, 2);
+    ctx.fillRect(x + 9, y - 5, 2, 2);
+    ctx.fillRect(x - 11, y + 5, 2, 2);
+    ctx.fillRect(x + 9, y + 5, 2, 2);
+  }
+  // Respawn flash — quick expanding pixel cross
+  G.respawnFlashes = (G.respawnFlashes || []).filter(b => now < b.until);
+  for (const b of G.respawnFlashes) {
+    const t = (b.until - now) / 700;
+    const r = Math.round(8 + (1 - t) * 30);
+    ctx.fillStyle = `rgba(176,112,255,${(t).toFixed(2)})`;
+    const sxc = Math.round(b.x), syc = Math.round(b.y);
+    ctx.fillRect(sxc - 1, syc - r, 2, r * 2);
+    ctx.fillRect(sxc - r, syc - 1, r * 2, 2);
   }
 }
 
@@ -4812,6 +4941,27 @@ function drawPlayer(p) {
     }
   }
 
+  // Angle wings: drawn behind the sprite when Angle has respawned this round.
+  // Faint pixel-feather pair flapping with a slow sine.
+  if (p.role === "survivor" && p.survivorChar === "angle" && p.respawned && p.alive) {
+    ctx.save();
+    const wf = Math.sin(now * 0.005) * 1.5;
+    const wx = Math.round(p.x), wy = Math.round(p.y - 6);
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    // Left wing
+    ctx.fillRect(wx - 14, wy + wf, 10, 2);
+    ctx.fillRect(wx - 12, wy - 2 + wf, 8, 2);
+    ctx.fillRect(wx - 16, wy + 2 + wf, 12, 2);
+    // Right wing
+    ctx.fillRect(wx + 4, wy + wf, 10, 2);
+    ctx.fillRect(wx + 4, wy - 2 + wf, 8, 2);
+    ctx.fillRect(wx + 4, wy + 2 + wf, 12, 2);
+    ctx.fillStyle = "rgba(176,112,255,0.55)";
+    ctx.fillRect(wx - 10, wy + 4 + wf, 4, 2);   // wing root glow
+    ctx.fillRect(wx + 6, wy + 4 + wf, 4, 2);
+    ctx.restore();
+  }
+
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   ctx.translate(p.x, p.y);
@@ -4864,6 +5014,15 @@ function drawPlayer(p) {
     const ratio = (p.hp != null ? p.hp : G.survivorHpMax) / G.survivorHpMax;
     ctx.fillStyle = ratio > 0.5 ? "#66e08a" : ratio > 0.25 ? "#ffd84a" : "#e94560";
     ctx.fillRect(bx, by, bw * ratio, bh);
+    // Angle malice bar — directly under HP. Purple fill, 0..100.
+    if (p.survivorChar === "angle") {
+      const my = by + bh + 1;
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(bx, my, bw, 3);
+      const mr = Math.max(0, Math.min(100, p.malice || 0)) / 100;
+      ctx.fillStyle = mr >= 1 ? "#e0c8ff" : "#b070ff";
+      ctx.fillRect(bx, my, bw * mr, 3);
+    }
   }
 
   // Name label
