@@ -322,12 +322,13 @@
   .gd-ab b { color: var(--text); }
 
   /* Test pick screen */
-  .pill-row { display: flex; gap: 6px; margin-top: 4px; }
+  .pill-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
   .pill {
-    flex: 1; padding: 8px 6px;
+    flex: 1 1 80px; padding: 8px 8px;
     background: rgba(255,255,255,0.06); color: var(--text);
     border: 2px solid transparent; border-radius: 8px;
     font-size: 12px; font-weight: 600; text-align: center; cursor: pointer;
+    white-space: nowrap;
   }
   .pill.selected { border-color: var(--accent); background: rgba(233,69,96,0.12); }
   .pill .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
