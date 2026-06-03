@@ -2000,9 +2000,9 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150, sniper: 75 };
+const CHAR_PRICES = { lunar: 150, sniper: 75, engineer: 115, runner: 100 };
 const DEFAULT_PRICE = 100;
-const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "slasher", "fencer", "kacey"];
+const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
 const PAYOUT = {
@@ -2015,11 +2015,12 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
 };
 const ACCOUNT_KEY = "fk:account";
-const ACCOUNT_VERSION = 2;
+const ACCOUNT_VERSION = 3;
 // Each entry removes character ids from older saves' unlocks list — used
 // when a character that used to be a default unlock is now priced.
 const ACCOUNT_MIGRATIONS = {
-  2: ["sentinel"],   // Frost Knight was free in v1, costs 100 in v2.
+  2: ["sentinel"],            // Frost Knight was free in v1, costs 100 in v2.
+  3: ["engineer", "runner"],  // Engineer (115) and Runner (100) became priced in v3.
 };
 function loadAccount() {
   let saved = null;
