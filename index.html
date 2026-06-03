@@ -588,8 +588,8 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#ffd84a"></span><b>Engineer</b><span class="gd-muted">+30% repair</span></div>
-      <div class="gd-ab"><b>Z — Overcharge</b>: instantly +30% progress to the nearest unfinished generator within 90px. CD 15s.</div>
-      <div class="gd-ab"><b>X — Mend</b>: heal +50 HP over 2s. CD 20s.</div>
+      <div class="gd-ab"><b>Z — Shield</b>: a hex bubble surrounds you for <b>6s</b>. You take <b>no damage</b> from any source, but you move at <b>0.6× speed</b> while it's up. CD 20s.</div>
+      <div class="gd-ab"><b>X — Robot</b>: <b>3s rooted build</b>, then a small robot spawns at your feet and trundles toward the killer at their walk speed. Touching the killer <b>stuns them for 12s</b>; the robot self-destructs on hit or after <b>40s</b>. Only <b>one robot</b> per Engineer at a time. CD 50s.</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#6cb6ff"></span><b>Scout</b><span class="gd-muted">+5% speed / +5% repair</span></div>
@@ -815,6 +815,9 @@ const G = {
   burgers: [],             // Kacey's burger physics objects (from server)
   burgerEats: [],          // VFX when a survivor eats a burger
   meowPulses: [],          // VFX when MEOW! is cast
+  robots: [],              // Engineer robots (from server)
+  robotBreaks: [],         // VFX when a robot is destroyed
+  shieldBlocks: [],        // VFX flash when a shield blocks damage
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   designatedKillerId: null,
@@ -1378,6 +1381,8 @@ function onMessage(msg) {
       G.burgers = [];
       G.burgerEats = [];
       G.meowPulses = [];
+      G.robots = [];
+      G.robotBreaks = [];
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
       $("portal-bar").classList.add("hidden");
@@ -1418,6 +1423,7 @@ function onMessage(msg) {
           p.stalkActive = !!s.st;
           p.revealed = !!s.re;
           p.sneaking = !!s.sn;
+          p.shielded = !!s.sh;
           p.hiddenInSmoke = !!s.hd;
           p.slowMult = typeof s.sm === "number" ? s.sm : 1;
           p.ammo = typeof s.am === "number" ? s.am : (p.ammo == null ? 1 : p.ammo);
@@ -1452,6 +1458,7 @@ function onMessage(msg) {
       G.smokes = msg.smokes || [];
       G.slowFields = msg.slowFields || [];
       G.burgers = msg.burgers || [];
+      G.robots = msg.robots || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -1474,6 +1481,14 @@ function onMessage(msg) {
     case "burger_eat":
       G.burgerEats.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
       break;
+    case "robot_break":
+      G.robotBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 500, hit: !!msg.hit });
+      break;
+    case "shield_block": {
+      const v = G.players.get(msg.id);
+      if (v) v._shieldFlashUntil = performance.now() + 350;
+      break;
+    }
     case "ability": {
       const p = G.players.get(msg.id);
       if (p && p._anim) p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
@@ -2342,6 +2357,26 @@ function applyLocalAbility(me, ab, aim) {
       me.speedBuff = true;
       setTimeout(() => { me.speedBuff = false; }, ab.duration * 1000);
       break;
+    case "shield":
+      me.shielded = true;
+      setTimeout(() => { me.shielded = false; }, ab.duration * 1000);
+      break;
+    case "spawn_robot": {
+      // Sandbox preview: spawn a stationary local robot that despawns after TTL.
+      const placeBot = () => {
+        if (!me.alive) return;
+        G.robots = G.robots || [];
+        const rid = ++G.localEntityId;
+        G.robots.push({ id: rid, x: me.x, y: me.y });
+        setTimeout(() => {
+          G.robots = (G.robots || []).filter(r => r.id !== rid);
+          G.robotBreaks.push({ x: me.x, y: me.y, until: performance.now() + 500, hit: false });
+        }, (ab.ttl || 40) * 1000);
+      };
+      if (ab.channelDuration) setTimeout(placeBot, ab.channelDuration * 1000);
+      else placeBot();
+      break;
+    }
     case "throw_burger": {
       const f = facing;
       const norm = Math.hypot(f.x, f.y) || 1;
@@ -2829,6 +2864,8 @@ function gameTick(now) {
       else if (me.speedBuff) speed *= 1.5;
       // Slow effect (Sentinel abilities target killers).
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
+      // Engineer Shield slows the holder while it's up.
+      if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
       stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
       if (moving) facing = { x: v.x, y: v.y };
       }
@@ -3160,6 +3197,13 @@ function tryFireAbility(slot, me) {
     // Local speed prediction so the dash feels instant.
     me._localSpeedUntil = now + ab.duration * 1000;
     me._localSpeedMult = ab.speedMult;
+  } else if (ab.type === "shield") {
+    // Local shield prediction so the slow + visual kick in instantly.
+    me._localShieldUntil = now + ab.duration * 1000;
+  } else if (ab.type === "spawn_robot" && ab.channelDuration) {
+    me.channelUntil = now + ab.channelDuration * 1000;
+    me.channelDuration = ab.channelDuration * 1000;
+    me.channelType = ab.type;
   } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
     // Brief sip animation; the actual heal continues silently.
     me.sodaUntil = now + 700;
@@ -3416,6 +3460,8 @@ function render() {
   drawBurgers();
   // MEOW! pulse ring
   drawMeowPulses();
+  // Engineer robots
+  drawRobots();
   // Slow fields (under smokes)
   drawSlowFields();
   // Smokes (after everything else so they obscure)
@@ -3580,6 +3626,63 @@ function drawSmokes() {
     ctx.setLineDash([8, 6]);
     ctx.beginPath(); ctx.arc(sm.x, sm.y, sm.radius, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+function drawRobots() {
+  const now = performance.now();
+  for (const r of (G.robots || [])) {
+    const sx = Math.round(r.x), sy = Math.round(r.y);
+    // Shadow
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(sx - 7, sy + 10, 14, 2);
+    // Body
+    ctx.fillStyle = "#8a8a94";
+    ctx.fillRect(sx - 7, sy - 8, 14, 14);
+    ctx.fillStyle = "#a8a8b4";
+    ctx.fillRect(sx - 7, sy - 8, 14, 2);
+    ctx.fillStyle = "#5a5a64";
+    ctx.fillRect(sx - 7, sy + 4, 14, 2);
+    // Yellow stripe
+    ctx.fillStyle = "#ffd860";
+    ctx.fillRect(sx - 7, sy - 2, 14, 1);
+    // Eyes (red LEDs, flicker)
+    const litR = (Math.sin(now * 0.012) + 1) * 0.5;
+    ctx.fillStyle = `rgba(255,${60 + litR * 80},80,1)`;
+    ctx.fillRect(sx - 4, sy - 5, 3, 2);
+    ctx.fillRect(sx + 1, sy - 5, 3, 2);
+    // Antenna
+    ctx.fillStyle = "#3a3a44";
+    ctx.fillRect(sx, sy - 11, 1, 3);
+    ctx.fillStyle = (Math.floor(now / 250) & 1) ? "#ff4040" : "#80ff80";
+    ctx.fillRect(sx - 1, sy - 13, 2, 2);
+    // Legs (walking)
+    const phase = Math.floor(now / 200) & 1;
+    ctx.fillStyle = "#3a3a44";
+    if (phase === 0) {
+      ctx.fillRect(sx - 5, sy + 6, 3, 4);
+      ctx.fillRect(sx + 2, sy + 6, 3, 4);
+    } else {
+      ctx.fillRect(sx - 4, sy + 6, 3, 4);
+      ctx.fillRect(sx + 1, sy + 6, 3, 4);
+    }
+  }
+  // Break sparkles
+  G.robotBreaks = G.robotBreaks.filter(b => now < b.until);
+  for (const b of G.robotBreaks) {
+    const t = (b.until - now) / 500;
+    const col = b.hit ? "rgba(255,220,140," : "rgba(180,180,200,";
+    ctx.save();
+    ctx.strokeStyle = col + t + ")";
+    ctx.lineWidth = 2;
+    const r = 12 + (1 - t) * 14;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = col + t + ")";
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ctx.fillRect(b.x + Math.cos(a) * r - 1, b.y + Math.sin(a) * r - 1, 2, 2);
+    }
+    ctx.restore();
   }
 }
 
@@ -3912,6 +4015,37 @@ function drawPlayer(p) {
 
   // Aura under sprite for buffs
   if (p.alive) {
+    // Engineer Shield: pulsing cyan hex bubble around the player.
+    if (p.shielded || (p.id === G.myId && now < (p._localShieldUntil || 0))) {
+      ctx.save();
+      const r = 28 + Math.sin(now * 0.012) * 2;
+      const grad = ctx.createRadialGradient(p.x, p.y + 4, r - 10, p.x, p.y + 4, r + 4);
+      grad.addColorStop(0, "rgba(120,220,255,0)");
+      grad.addColorStop(0.7, "rgba(140,230,255,0.32)");
+      grad.addColorStop(1, "rgba(180,240,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 4, r + 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(160,235,255,0.85)";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 4, r, 0, Math.PI * 2); ctx.stroke();
+      if (p._shieldFlashUntil && now < p._shieldFlashUntil) {
+        const t = (p._shieldFlashUntil - now) / 350;
+        ctx.strokeStyle = `rgba(255,255,255,${t})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(p.x, p.y + 4, r + 2, 0, Math.PI * 2); ctx.stroke();
+      }
+      // Rotating hex-segment hints
+      ctx.strokeStyle = "rgba(160,235,255,0.25)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const a = now * 0.0008 + i * (Math.PI / 3);
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(a) * (r - 3), p.y + 4 + Math.sin(a) * (r - 3));
+        ctx.lineTo(p.x + Math.cos(a + Math.PI / 3) * (r - 3), p.y + 4 + Math.sin(a + Math.PI / 3) * (r - 3));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     // Channeling visual: pulsing ring + spinning runes + charge arc.
     // Themed per channel type: Sentinel = cyan, Lunar = purple.
     if (p.channelUntil && now < p.channelUntil) {
@@ -3922,11 +4056,18 @@ function drawPlayer(p) {
       const r = 30 + progress * 22;
       const ct = p.channelType;
       const isLunar = ct === "build_portal" || ct === "teleport_portal";
+      const isEngineer = ct === "spawn_robot";
       const halo = isLunar
         ? ["rgba(220,180,255,0.18)", "rgba(160,90,220,0.55)", "rgba(80,40,160,0)"]
+        : isEngineer
+        ? ["rgba(255,230,140,0.20)", "rgba(220,160,40,0.55)", "rgba(140,90,20,0)"]
         : ["rgba(140,230,250,0.15)", "rgba(80,180,220,0.45)", "rgba(50,140,200,0)"];
-      const runeCol = isLunar ? "rgba(230,200,255,0.95)" : "rgba(200,245,255,0.95)";
-      const arcCol  = isLunar ? "rgba(210,170,255,0.95)" : "rgba(150,230,255,0.95)";
+      const runeCol = isLunar ? "rgba(230,200,255,0.95)"
+                    : isEngineer ? "rgba(255,235,170,0.95)"
+                    : "rgba(200,245,255,0.95)";
+      const arcCol  = isLunar ? "rgba(210,170,255,0.95)"
+                    : isEngineer ? "rgba(255,210,90,0.95)"
+                    : "rgba(150,230,255,0.95)";
       const grad = ctx.createRadialGradient(p.x, p.y + 6, 0, p.x, p.y + 6, r);
       grad.addColorStop(0, halo[0]);
       grad.addColorStop(0.6, halo[1]);

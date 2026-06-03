@@ -167,8 +167,12 @@ const ABILITIES = {
     { id: "sneak",  name: "Sneak",  cd: 20, type: "sneak", duration: 6.0 },
   ],
   engineer: [
-    { id: "overcharge", name: "Overcharge", cd: 15, type: "gen_boost", amount: 0.30, range: 90 },
-    { id: "mend",       name: "Mend",       cd: 20, type: "heal_self", amount: 50,   duration: 2.0 },
+    // Shield: 6s of damage immunity, but you move at 0.6x speed while it's up.
+    { id: "shield", name: "Shield", cd: 20, type: "shield", duration: 6.0, speedMult: 0.6 },
+    // Robot: 3s rooted build, then a robot trundles toward the killer at walk
+    // speed. Touches them -> 12s stun. Self-destructs after 40s if it doesn't
+    // catch them. Only one robot per Engineer at a time.
+    { id: "robot",  name: "Robot",  cd: 50, type: "spawn_robot", channelDuration: 3.0, speed: 230, hitRadius: 25, stunDuration: 12, ttl: 40 },
   ],
   scout: [
     { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
@@ -226,6 +230,7 @@ const state = {
   slowFields: [],
   portals: [],
   burgers: [],
+  robots: [],
   nextEntityId: 1,
 };
 
@@ -374,6 +379,7 @@ function freshEffects() {
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
     sneakUntil: 0,
+    shieldUntil: 0,
     dashStrikeUntil: 0,
     dashHitDamage: 0,
     dashHitSlowMult: 1,
@@ -511,6 +517,11 @@ function onAttack(id) {
 
 function applyDamage(target, amount, attacker) {
   if (!target.alive) return;
+  // Engineer shield: full damage immunity while active.
+  if (Date.now() < (target.effects.shieldUntil || 0)) {
+    broadcast({ type: "shield_block", id: target.id, by: attacker.id });
+    return;
+  }
   target.hp = Math.max(0, target.hp - amount);
   broadcast({
     type: "damage",
@@ -544,6 +555,10 @@ function onAbility(id, msg) {
   if (ab.type === "reload_sniper") {
     if ((p.ammo || 0) >= 1) return;            // already loaded
     if (now < (p.reloadUntil || 0)) return;    // already reloading
+  }
+  if (ab.type === "spawn_robot") {
+    // One robot per Engineer at a time.
+    if (state.robots.some(r => r.ownerId === p.id)) return;
   }
   // Generic per-round use-limit (e.g. Fencer's Soda).
   if (ab.maxUses) {
@@ -743,6 +758,35 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.dashHitSlowDuration = ab.hitSlowDuration;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, mult: ab.speedMult, duration: ab.duration });
       break;
+    case "shield":
+      p.effects.shieldUntil = now + ab.duration * 1000;
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
+      break;
+    case "spawn_robot": {
+      // 3s rooted build channel, then a robot spawns at the Engineer's position.
+      const ownerId = p.id;
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        // Still only one robot allowed.
+        if (state.robots.some(r => r.ownerId === ownerId)) return;
+        const robot = {
+          id: state.nextEntityId++,
+          x: owner.x, y: owner.y,
+          ownerId,
+          ttl: ab.ttl || 40,
+          speed: ab.speed || 230,
+          hitRadius: ab.hitRadius || 25,
+          stunDuration: ab.stunDuration || 12,
+        };
+        state.robots.push(robot);
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, x: robot.x, y: robot.y, robotId: robot.id });
+      }, channelMs);
+      break;
+    }
     case "throw_burger": {
       const f = p.facing;
       const norm = Math.hypot(f.x, f.y) || 1;
@@ -879,6 +923,7 @@ function startRound() {
   state.slowFields = [];
   state.portals = [];
   state.burgers = [];
+  state.robots = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1069,6 +1114,42 @@ function tick() {
       }
     }
 
+    // Engineer robots: walk toward the killer at their configured speed,
+    // stun on contact, despawn after TTL or contact.
+    state.robots = state.robots.filter(r => {
+      r.ttl -= dt;
+      if (r.ttl <= 0) {
+        broadcast({ type: "robot_break", id: r.id, x: r.x, y: r.y, expired: true });
+        return false;
+      }
+      let killer = null;
+      for (const p of state.players.values()) {
+        if (p.role === "killer" && p.alive) { killer = p; break; }
+      }
+      if (killer) {
+        const dxk = killer.x - r.x, dyk = killer.y - r.y;
+        const dk = Math.hypot(dxk, dyk);
+        if (dk > 0.5) {
+          const nx = dxk / dk, ny = dyk / dk;
+          const step = r.speed * dt;
+          const tx = r.x + nx * step;
+          const ty = r.y + ny * step;
+          // Move axis-by-axis so walls don't fully stop motion when the
+          // straight path is blocked.
+          if (!positionBlocked(tx, r.y, 12)) r.x = tx;
+          if (!positionBlocked(r.x, ty, 12)) r.y = ty;
+        }
+        if (Math.hypot(r.x - killer.x, r.y - killer.y) < r.hitRadius) {
+          killer.effects.slowMult = 0.05;
+          killer.effects.slowUntil = Math.max(killer.effects.slowUntil || 0, Date.now() + r.stunDuration * 1000);
+          broadcast({ type: "stun", id: killer.id, by: r.ownerId, duration: r.stunDuration });
+          broadcast({ type: "robot_break", id: r.id, x: r.x, y: r.y, hit: true });
+          return false;
+        }
+      }
+      return true;
+    });
+
     // Portal step pings: any portal with a survivor on it pings the killer.
     const portalsActive = [];
     for (const pt of state.portals) {
@@ -1162,6 +1243,7 @@ function tick() {
           sn: now < (p.effects.sneakUntil || 0) ? 1 : 0,
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
           sm: now < (p.effects.slowUntil || 0) ? +(p.effects.slowMult || 1).toFixed(2) : 1,
+          sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
           am: p.ammo || 0,
           rl: p.reloadUntil || 0,
         })),
@@ -1184,6 +1266,7 @@ function tick() {
           x: Math.round(b.x), y: Math.round(b.y),
           vx: +b.vx.toFixed(1), vy: +b.vy.toFixed(1),
         })),
+        robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y) })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -1195,6 +1278,7 @@ function tick() {
     state.slowFields = [];
     state.portals = [];
     state.burgers = [];
+    state.robots = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
