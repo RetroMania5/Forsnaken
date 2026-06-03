@@ -113,6 +113,7 @@ const SURVIVOR_CHARS = [
   { id: "sentinel", name: "Frost Knight", color: "#4ad0c0", speedMult: 1.00, repairMult: 0.95, blurb: "slows the killer" },
   { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
   { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
+  { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -143,6 +144,15 @@ const ABILITIES = {
     { id: "slash", name: "Slash", cd: 25, type: "slash_stun", range: 80, stunDuration: 5 },
     // Soda: heals 30 HP over 10s. Limited to maxUses casts per round.
     { id: "soda",  name: "Soda",  cd: 30, type: "heal_self",  amount: 30, duration: 10, maxUses: 3 },
+  ],
+  kacey: [
+    // Burger: throw a healing burger in the facing direction. It slows
+    // down with friction, bounces off walls/obstacles, and heals any
+    // OTHER survivor that touches it. Despawns on pickup or after TTL.
+    { id: "burger", name: "Burger!", cd: 18, type: "throw_burger", speed: 500, healAmount: 25, ttl: 30, bounce: 0.6 },
+    // Meow: short-range aoe. Heals every survivor within radius and
+    // applies a light slow (0.9x) to any killer within radius.
+    { id: "meow",   name: "MEOW!",  cd: 35, type: "meow", radius: 600, healAmount: 20, slowMult: 0.9, slowDuration: 4 },
   ],
   sniper: [
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
@@ -212,6 +222,7 @@ const state = {
   smokes: [],
   slowFields: [],
   portals: [],
+  burgers: [],
   nextEntityId: 1,
 };
 
@@ -696,6 +707,40 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.sneakUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "throw_burger": {
+      const f = p.facing;
+      const norm = Math.hypot(f.x, f.y) || 1;
+      const fxn = f.x / norm, fyn = f.y / norm;
+      state.burgers.push({
+        id: state.nextEntityId++,
+        x: p.x + fxn * 22,
+        y: p.y + fyn * 22,
+        vx: fxn * ab.speed,
+        vy: fyn * ab.speed,
+        ownerId: p.id,
+        healAmount: ab.healAmount,
+        ttl: ab.ttl || 30,
+        bounce: ab.bounce || 0.6,
+      });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fx: fxn, fy: fyn });
+      break;
+    }
+    case "meow": {
+      const R = ab.radius;
+      for (const other of state.players.values()) {
+        if (!other.alive) continue;
+        if (Math.hypot(other.x - p.x, other.y - p.y) > R) continue;
+        if (other.role === "survivor") {
+          other.hp = Math.min(SURVIVOR_HP_MAX, other.hp + ab.healAmount);
+          broadcast({ type: "heal", id: other.id, hp: Math.round(other.hp), by: p.id, amount: ab.healAmount });
+        } else if (other.role === "killer") {
+          other.effects.slowMult = Math.min(other.effects.slowMult || 1, ab.slowMult);
+          other.effects.slowUntil = Math.max(other.effects.slowUntil || 0, now + ab.slowDuration * 1000);
+        }
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: p.x, y: p.y, radius: R });
+      break;
+    }
     case "slash_stun": {
       // Single-target melee. The closest alive killer within range gets
       // stunned (slowMult = 0.05) for stunDuration seconds. No damage.
@@ -797,6 +842,7 @@ function startRound() {
   state.smokes = [];
   state.slowFields = [];
   state.portals = [];
+  state.burgers = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -981,6 +1027,57 @@ function tick() {
     for (const sm of state.smokes) sm.ttl -= dt;
     state.smokes = state.smokes.filter(sm => sm.ttl > 0);
 
+    // Burgers (Kacey): move with friction, bounce off walls/obstacles,
+    // get eaten by any other survivor, despawn after TTL.
+    const BURGER_R = 10;
+    const FRICTION_PER_SEC = 0.3; // multiplier per second
+    const fric = Math.pow(FRICTION_PER_SEC, dt);
+    const burgerHit = (b, rect) => {
+      const wl = rect.x - rect.w / 2, wr = rect.x + rect.w / 2;
+      const wt = rect.y - rect.h / 2, wb = rect.y + rect.h / 2;
+      if (b.x + BURGER_R <= wl || b.x - BURGER_R >= wr) return false;
+      if (b.y + BURGER_R <= wt || b.y - BURGER_R >= wb) return false;
+      const penX = Math.min(b.x + BURGER_R - wl, wr - (b.x - BURGER_R));
+      const penY = Math.min(b.y + BURGER_R - wt, wb - (b.y - BURGER_R));
+      if (penX < penY) {
+        if (b.x < rect.x) b.x = wl - BURGER_R; else b.x = wr + BURGER_R;
+        b.vx = -b.vx * b.bounce;
+      } else {
+        if (b.y < rect.y) b.y = wt - BURGER_R; else b.y = wb + BURGER_R;
+        b.vy = -b.vy * b.bounce;
+      }
+      return true;
+    };
+    state.burgers = state.burgers.filter(b => {
+      b.ttl -= dt;
+      if (b.ttl <= 0) return false;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.vx *= fric; b.vy *= fric;
+      if (Math.abs(b.vx) < 2) b.vx = 0;
+      if (Math.abs(b.vy) < 2) b.vy = 0;
+      for (const w of WALLS) burgerHit(b, w);
+      for (const o of OBSTACLES) burgerHit(b, o);
+      // Map bounds
+      if (b.x < BURGER_R)            { b.x = BURGER_R;            b.vx = -b.vx * b.bounce; }
+      if (b.x > MAP.w - BURGER_R)    { b.x = MAP.w - BURGER_R;    b.vx = -b.vx * b.bounce; }
+      if (b.y < BURGER_R)            { b.y = BURGER_R;            b.vy = -b.vy * b.bounce; }
+      if (b.y > MAP.h - BURGER_R)    { b.y = MAP.h - BURGER_R;    b.vy = -b.vy * b.bounce; }
+      // Pickup by any other living survivor
+      for (const s of state.players.values()) {
+        if (s.role !== "survivor" || !s.alive) continue;
+        if (s.id === b.ownerId) continue;
+        if (Math.hypot(s.x - b.x, s.y - b.y) < 22) {
+          const before = s.hp;
+          s.hp = Math.min(SURVIVOR_HP_MAX, s.hp + b.healAmount);
+          broadcast({ type: "heal", id: s.id, hp: Math.round(s.hp), amount: s.hp - before });
+          broadcast({ type: "burger_eat", id: b.id, x: b.x, y: b.y, by: s.id });
+          return false;
+        }
+      }
+      return true;
+    });
+
     if (state.roundTimer <= 0) {
       endRound("survivors");
     } else {
@@ -1014,6 +1111,7 @@ function tick() {
           id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
         })),
         portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y })),
+        burgers: state.burgers.map(b => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y) })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -1024,6 +1122,7 @@ function tick() {
     state.smokes = [];
     state.slowFields = [];
     state.portals = [];
+    state.burgers = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;

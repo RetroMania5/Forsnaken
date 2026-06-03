@@ -603,6 +603,11 @@
       <div class="gd-ab"><b>Z — Slash</b>: short-reach sword swing (80 px). If a killer is in range they're <b>stunned for 5s</b> (no damage). CD 25s.</div>
       <div class="gd-ab"><b>X — Soda</b>: drinks a can — heals <b>30 HP over 10s</b>. CD 30s. <b>Only 3 uses per round</b> (shown as dots on the ability slot).</div>
     </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#ff9050"></span><b>Kacey</b><span class="gd-muted">cat — burger + meow heals</span></div>
+      <div class="gd-ab"><b>Z — Burger!</b>: throws a burger in your facing direction. It slows down with friction and bounces off walls / obstacles. <b>Any other survivor that touches it heals 25 HP</b> (you can't eat your own). Sits on the ground until eaten or for 30s. CD 18s.</div>
+      <div class="gd-ab"><b>X — MEOW!</b>: every survivor within 600 px heals <b>20 HP</b> instantly; any killer in range is <b>slowed to 0.9× speed for 4s</b>. CD 35s.</div>
+    </div>
 
     <div class="gd-h">KILLERS</div>
     <div class="gd-card">
@@ -767,6 +772,7 @@ const CHAR_VISUALS = {
   sentinel: { skin: "#e0c0a0", shirt: "#4ad0c0", pants: "#1a4a4a", hair: "#3a2820", hat: "visor",   weapon: null    },
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
   fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
+  kacey:    { skin: "#f4c8a0", shirt: "#ff9050", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null    },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -794,6 +800,9 @@ const G = {
   portals: [],
   portalMenu: "closed",    // "closed" | "teleport"
   portalBreaks: [],        // VFX when oldest portal is evicted
+  burgers: [],             // Kacey's burger physics objects (from server)
+  burgerEats: [],          // VFX when a survivor eats a burger
+  meowPulses: [],          // VFX when MEOW! is cast
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   designatedKillerId: null,
@@ -1183,6 +1192,36 @@ function drawCharFrame(sx, v, frame) {
     sx.fillRect(cx + 2, 11, 2, 1);
     sx.fillStyle = "#222";
     sx.fillRect(cx - 5, 12, 10, 1);  // strap
+  } else if (v.hat === "cat") {
+    // Kacey: ginger cat — pointy ears + pink inner ear, big eyes, nose, whiskers.
+    sx.fillStyle = v.hair;
+    // Ears
+    sx.fillRect(cx - 5, 4, 3, 4);
+    sx.fillRect(cx - 4, 5, 1, 3);
+    sx.fillRect(cx + 2, 4, 3, 4);
+    sx.fillRect(cx + 3, 5, 1, 3);
+    sx.fillStyle = "#ff9090";
+    sx.fillRect(cx - 4, 6, 1, 2);   // inner ear
+    sx.fillRect(cx + 3, 6, 1, 2);
+    // Fur cap on top of head
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 5, 7, 10, 2);
+    // Eyes
+    sx.fillStyle = "#1a1208";
+    sx.fillRect(cx - 3, 11, 2, 2);
+    sx.fillRect(cx + 1, 11, 2, 2);
+    sx.fillStyle = "#80e0ff";
+    sx.fillRect(cx - 2, 11, 1, 1);  // eye glint
+    sx.fillRect(cx + 2, 11, 1, 1);
+    // Pink nose
+    sx.fillStyle = "#ff9090";
+    sx.fillRect(cx, 14, 1, 1);
+    // Whiskers
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx - 7, 14, 2, 1);
+    sx.fillRect(cx + 5, 14, 2, 1);
+    sx.fillRect(cx - 7, 15, 1, 1);
+    sx.fillRect(cx + 6, 15, 1, 1);
   } else if (v.hat === "moon") {
     // Lunar: black hood with a glowing white-eyed face inside and a
     // small crescent moon emblem on the brow.
@@ -1291,6 +1330,9 @@ function onMessage(msg) {
       G.portals = [];
       G.portalMenu = "closed";
       G.portalBreaks = [];
+      G.burgers = [];
+      G.burgerEats = [];
+      G.meowPulses = [];
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
       $("portal-bar").classList.add("hidden");
@@ -1364,6 +1406,7 @@ function onMessage(msg) {
       G.projectiles = msg.projectiles || [];
       G.smokes = msg.smokes || [];
       G.slowFields = msg.slowFields || [];
+      G.burgers = msg.burgers || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -1377,9 +1420,21 @@ function onMessage(msg) {
       if (v) { v.hp = msg.hp; v.hitFlashUntil = performance.now() + 250; }
       break;
     }
+    case "heal": {
+      const v = G.players.get(msg.id);
+      if (v) { v.hp = msg.hp; v.healFlashUntil = performance.now() + 350; }
+      break;
+    }
+    case "burger_eat":
+      G.burgerEats.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
+      break;
     case "ability": {
       const p = G.players.get(msg.id);
       if (p && p._anim) p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+      // MEOW! visual: an expanding pink ring centered on the caster.
+      if (msg.abilityType === "meow") {
+        G.meowPulses.push({ x: msg.x, y: msg.y, radius: msg.radius || 600, until: performance.now() + 600 });
+      }
       // Teleport: snap remote players to the server position.
       // Local player already predicted in tryFireAbility — skip the snap +
       // ghost so we don't fight prediction or double-render.
@@ -1834,7 +1889,7 @@ function exitTestMode() {
 // behind purchase without needing a code change here.
 const CHAR_PRICES = { lunar: 150, sniper: 75 };
 const DEFAULT_PRICE = 100;
-const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "slasher", "fencer"];
+const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
 const PAYOUT = {
@@ -2191,6 +2246,11 @@ function applyLocalAbility(me, ab, aim) {
     case "slash_stun":
       // Test mode has no killer to stun — visual feedback comes from
       // the existing actionUntil flash. Nothing to do here.
+      break;
+    case "throw_burger":
+    case "meow":
+      // Test mode: skip server-side physics/effects. Just play the action
+      // animation flash from tryFireAbility.
       break;
     case "build_portal": {
       const placePortal = () => {
@@ -3131,6 +3191,10 @@ function render() {
   drawTeleportGhosts();
   // Portals (Lunar) — visible to everyone
   drawPortals();
+  // Burgers and burger-eat sparkles (Kacey)
+  drawBurgers();
+  // MEOW! pulse ring
+  drawMeowPulses();
   // Slow fields (under smokes)
   drawSlowFields();
   // Smokes (after everything else so they obscure)
@@ -3272,6 +3336,72 @@ function drawSmokes() {
     ctx.setLineDash([8, 6]);
     ctx.beginPath(); ctx.arc(sm.x, sm.y, sm.radius, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+  }
+}
+
+function drawBurgers() {
+  const now = performance.now();
+  for (const b of (G.burgers || [])) {
+    // Bottom bun
+    ctx.fillStyle = "#a86c30";
+    ctx.beginPath();
+    ctx.ellipse(b.x, b.y + 4, 10, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Patty
+    ctx.fillStyle = "#4a2818";
+    ctx.fillRect(b.x - 10, b.y - 1, 20, 4);
+    // Lettuce
+    ctx.fillStyle = "#7ac050";
+    ctx.fillRect(b.x - 10, b.y + 1, 20, 2);
+    // Cheese
+    ctx.fillStyle = "#ffd860";
+    ctx.fillRect(b.x - 9, b.y, 18, 1);
+    // Top bun
+    ctx.fillStyle = "#d49a5c";
+    ctx.beginPath();
+    ctx.ellipse(b.x, b.y - 2, 10, 5, 0, Math.PI, 0);
+    ctx.fill();
+    // Sesame seeds
+    ctx.fillStyle = "#fff5c0";
+    ctx.fillRect(b.x - 4, b.y - 5, 1, 1);
+    ctx.fillRect(b.x + 2, b.y - 6, 1, 1);
+    ctx.fillRect(b.x - 1, b.y - 6, 1, 1);
+  }
+  // Eat sparkles (green starburst)
+  G.burgerEats = G.burgerEats.filter(e => now < e.until);
+  for (const e of G.burgerEats) {
+    const t = (e.until - now) / 500;
+    ctx.save();
+    ctx.strokeStyle = `rgba(140,255,160,${t})`;
+    ctx.lineWidth = 2;
+    const r = 14 + (1 - t) * 12;
+    ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(220,255,200,${t})`;
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      ctx.fillRect(e.x + Math.cos(a) * r - 1, e.y + Math.sin(a) * r - 1, 2, 2);
+    }
+    ctx.restore();
+  }
+}
+
+function drawMeowPulses() {
+  const now = performance.now();
+  G.meowPulses = G.meowPulses.filter(m => now < m.until);
+  for (const m of G.meowPulses) {
+    const t = (m.until - now) / 600;        // 1 -> 0
+    const r = m.radius * (1 - t);           // grows outward to the full radius
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,180,200,${t * 0.85})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.stroke();
+    // Soft fill
+    const grad = ctx.createRadialGradient(m.x, m.y, r * 0.5, m.x, m.y, r);
+    grad.addColorStop(0, "rgba(255,200,220,0)");
+    grad.addColorStop(1, `rgba(255,180,210,${t * 0.18})`);
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -3605,11 +3735,17 @@ function drawPlayer(p) {
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
     ctx.globalAlpha *= (p.id === G.myId) ? 0.15 : 0.05;
   }
-  // Hit flash: tint sprite red briefly
+  // Hit flash: tint sprite red briefly. Heal flash: green tint.
   if (p.hitFlashUntil && now < p.hitFlashUntil) {
     ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
     ctx.globalCompositeOperation = "source-atop";
     ctx.fillStyle = "rgba(255,60,60,0.55)";
+    ctx.fillRect(-SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4, SPRITE_SIZE, SPRITE_SIZE);
+    ctx.globalCompositeOperation = "source-over";
+  } else if (p.healFlashUntil && now < p.healFlashUntil) {
+    ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.fillStyle = "rgba(120,255,160,0.45)";
     ctx.fillRect(-SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4, SPRITE_SIZE, SPRITE_SIZE);
     ctx.globalCompositeOperation = "source-over";
   } else {
