@@ -277,7 +277,7 @@ const ABILITIES = {
   sly: [
     // Slot 0 — Trap when human, FIRE!! when dino. Server dispatches by form.
     { id: "trap_fire", name: "Trap", cd: 15, type: "trap_fire",
-      trapCD: 15, fireCD: 8,
+      trapCD: 15, fireCD: 3,
       trapStunDuration: 4, maxTraps: 3,
       fireSpeed: 700, fireRange: 800, fireDamage: 10 },
     // Slot 1 — Transform: 5s rooted channel, then dino for 20s, then revert.
