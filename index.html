@@ -650,7 +650,7 @@
       <div class="gd-ab"><b>Z — Strike</b>: 14 dmg melee, 75 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Trap</b> (human form): drops a bear trap at your feet. Any survivor that steps on it gets <b>stunned 4s</b> and the trap snaps. <b>Max 3 active</b> — placing a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>X — FIRE!!</b> (dino form): hurls a fireball in your facing direction. <b>10 dmg</b> on hit, ~800 px range. CD 3s.</div>
-      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>much bigger</b>, hits for <b>30 damage</b> with longer reach, and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also <b>much slower</b> (0.55× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s.</div>
+      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>massive (5.4× size)</b>, hits for <b>60 damage</b> with longer reach, and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also <b>much slower</b> (0.55× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -4822,8 +4822,8 @@ function drawPlayer(p) {
   } else if (flip) {
     ctx.scale(-1, 1);
   }
-  // Sly's dino form is much larger than the human sprite.
-  if (charId === "sly_dino") ctx.scale(1.8, 1.8);
+  // Sly's dino form is massive — 3x its previous 1.8x = 5.4x.
+  if (charId === "sly_dino") ctx.scale(5.4, 5.4);
   // Sniper Sneak: 95% invisible while active (alpha 0.05). Self gets a
   // slightly clearer ghost so the player can still track themselves.
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
