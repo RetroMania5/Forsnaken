@@ -206,7 +206,10 @@ const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
   { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, slower, lower dmg" },
   { id: "lunar",   name: "Lunar",   color: "#9070ff", speedMult: 1.00, attackRadius: 80,  attackDamage: 15, attackName: "Punch",       attackCooldown: 1.0, blurb: "portals & teleport" },
-  { id: "sly",     name: "Sly",     color: "#3a2a4a", speedMult: 1.00, attackRadius: 75,  attackDamage: 14, attackName: "Strike",      attackCooldown: 1.0, blurb: "human / dino shapeshifter" },
+  { id: "sly",     name: "Sly",     color: "#3a2a4a", speedMult: 1.00, attackRadius: 75,  attackDamage: 14, attackName: "Strike",      attackCooldown: 1.0, blurb: "human / dino shapeshifter",
+    // Dino-form overrides. Speed is much lower but damage and reach climb,
+    // and the client lets him phase through interior walls / obstacles.
+    speedMultDino: 0.55, attackDamageDino: 30, attackRadiusDino: 90 },
 ];
 
 // ---- HP ----
@@ -584,7 +587,9 @@ function onAttack(id) {
   const now = Date.now();
   if (now < (a.mainAttackCdUntil || 0)) return;
   a.mainAttackCdUntil = now + (kch.attackCooldown || 1.0) * 1000;
-  let best = null, bestD = kch.attackRadius;
+  const dino = (a.killerChar === "sly" && a.form === "dino");
+  const reach = dino && kch.attackRadiusDino ? kch.attackRadiusDino : kch.attackRadius;
+  let best = null, bestD = reach;
   for (const [pid, p] of state.players) {
     if (pid === id) continue;
     if (p.role !== "survivor" || !p.alive) continue;
@@ -592,7 +597,7 @@ function onAttack(id) {
     if (d < bestD) { bestD = d; best = p; }
   }
   if (best) {
-    let dmg = kch.attackDamage;
+    let dmg = (dino && kch.attackDamageDino) ? kch.attackDamageDino : kch.attackDamage;
     if (now < a.effects.stalkUntil) {
       dmg *= 2;
       a.effects.stalkUntil = 0; // consume
@@ -603,7 +608,7 @@ function onAttack(id) {
   // is within their attack reach.
   const brokenFields = [];
   state.slowFields = state.slowFields.filter(f => {
-    if (Math.hypot(a.x - f.x, a.y - f.y) <= kch.attackRadius) {
+    if (Math.hypot(a.x - f.x, a.y - f.y) <= reach) {
       brokenFields.push({ id: f.id, x: f.x, y: f.y, radius: f.radius });
       return false;
     }

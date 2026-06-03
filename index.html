@@ -650,7 +650,7 @@
       <div class="gd-ab"><b>Z — Strike</b>: 14 dmg melee, 75 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Trap</b> (human form): drops a bear trap at your feet. Any survivor that steps on it gets <b>stunned 4s</b> and the trap snaps. <b>Max 3 active</b> — placing a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>X — FIRE!!</b> (dino form): hurls a fireball in your facing direction. <b>10 dmg</b> on hit, ~800 px range. CD 3s.</div>
-      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b> (slightly larger sprite) before reverting. While in dino form, X swaps from Trap to FIRE!!. CD 40s.</div>
+      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>much bigger</b>, hits for <b>30 damage</b> with longer reach, and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also <b>much slower</b> (0.55× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -1713,6 +1713,12 @@ function onMessage(msg) {
     case "form": {
       const v = G.players.get(msg.id);
       if (v) v.form = msg.form;
+      // Reverting to human while standing in a wall (because Sly phased
+      // there as a dino): shove the local player out so they're not stuck.
+      if (msg.form === "human" && msg.id === G.myId) {
+        const me = G.players.get(G.myId);
+        if (me) pushOutOfWalls(me);
+      }
       break;
     }
     case "shield_block": {
@@ -3631,20 +3637,54 @@ function updatePlayerAnim(p, dt) {
 function charSpeedMult(p) {
   if (p.role === "killer") {
     const c = G.killerChars.find(c => c.id === p.killerChar);
-    return c ? c.speedMult : 1.0;
+    if (!c) return 1.0;
+    // Sly's dino form is much slower.
+    if (p.killerChar === "sly" && p.form === "dino" && c.speedMultDino != null) {
+      return c.speedMultDino;
+    }
+    return c.speedMult;
   } else {
     const c = G.survivorChars.find(c => c.id === p.survivorChar);
     return c ? c.speedMult : 1.0;
   }
 }
+function isPhasing(p) {
+  // Sly's dino form ignores interior walls and obstacles. The outer map
+  // walls (first 4 entries of WALLS, the map border) still apply via the
+  // x/y clamp at the end of stepWithCollision.
+  return p && p.killerChar === "sly" && p.form === "dino";
+}
 
 function stepWithCollision(p, dx, dy) {
+  const phasing = isPhasing(p);
   p.x += dx;
-  for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.x += push.x; }
-  for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.x += push.x; }
+  if (!phasing) {
+    for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.x += push.x; }
+    for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.x += push.x; }
+  }
   p.y += dy;
-  for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.y += push.y; }
-  for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.y += push.y; }
+  if (!phasing) {
+    for (const w of WALLS) { const push = circleVsRect(p.x, p.y, PLAYER_R, w); if (push) p.y += push.y; }
+    for (const o of OBSTACLES) { const push = circleVsRect(p.x, p.y, PLAYER_R, o); if (push) p.y += push.y; }
+  }
+  p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
+  p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
+}
+// Iteratively shove a player out of any wall / obstacle they're inside.
+// Used when Sly reverts from dino back to human while standing in a wall.
+function pushOutOfWalls(p) {
+  for (let iter = 0; iter < 6; iter++) {
+    let moved = false;
+    for (const w of WALLS) {
+      const push = circleVsRect(p.x, p.y, PLAYER_R, w);
+      if (push) { p.x += push.x; p.y += push.y; moved = true; }
+    }
+    for (const o of OBSTACLES) {
+      const push = circleVsRect(p.x, p.y, PLAYER_R, o);
+      if (push) { p.x += push.x; p.y += push.y; moved = true; }
+    }
+    if (!moved) break;
+  }
   p.x = Math.max(PLAYER_R + WALL_T, Math.min(MAP_W - PLAYER_R - WALL_T, p.x));
   p.y = Math.max(PLAYER_R + WALL_T, Math.min(MAP_H - PLAYER_R - WALL_T, p.y));
 }
@@ -4781,8 +4821,8 @@ function drawPlayer(p) {
   } else if (flip) {
     ctx.scale(-1, 1);
   }
-  // Sly's dino form draws ~20% larger than the human sprite.
-  if (charId === "sly_dino") ctx.scale(1.2, 1.2);
+  // Sly's dino form is much larger than the human sprite.
+  if (charId === "sly_dino") ctx.scale(1.8, 1.8);
   // Sniper Sneak: 95% invisible while active (alpha 0.05). Self gets a
   // slightly clearer ghost so the player can still track themselves.
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
