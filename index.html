@@ -1129,8 +1129,117 @@ function buildSprites() {
   }
 }
 
+// A full T-rex-style body for Sly's dino form: hunched, tail, two thick
+// reptilian legs, tiny arms, head + snout extending forward.
+function drawDinoFrame(sx, v, frame) {
+  const cx = SPRITE_SIZE / 2;
+  const walkOff = frame === "walkA" ? 1 : frame === "walkB" ? -1 : 0;
+  const isAction = frame === "action";
+
+  // Shadow under feet (wider than humans).
+  sx.fillStyle = "rgba(0,0,0,0.45)";
+  sx.beginPath();
+  sx.ellipse(cx + 2, 41, 14, 3, 0, 0, Math.PI * 2);
+  sx.fill();
+
+  // Tail — three tapering segments behind the body.
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx - 8,  18, 6, 9);
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx - 12, 19, 5, 7);
+  sx.fillRect(cx - 15, 21, 4, 4);
+  // Tail underside
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx - 14, 24, 3, 1);
+  sx.fillRect(cx - 11, 25, 4, 1);
+  sx.fillRect(cx - 7,  26, 4, 1);
+  // Tail spikes
+  sx.fillStyle = v.hair;
+  sx.fillRect(cx - 7,  17, 1, 1);
+  sx.fillRect(cx - 10, 18, 1, 1);
+  sx.fillRect(cx - 13, 20, 1, 1);
+
+  // Two thick reptilian legs — walk-cycle staggered.
+  sx.fillStyle = v.pants;
+  sx.fillRect(cx - 2, 28 + walkOff, 5, 11 - walkOff);  // back leg
+  sx.fillRect(cx + 4, 28 - walkOff, 5, 11 + walkOff);  // front leg
+  // Three-claw toes per foot
+  sx.fillStyle = "#1a1208";
+  sx.fillRect(cx - 3, 39 + walkOff, 2, 2);
+  sx.fillRect(cx + 0, 39 + walkOff, 2, 2);
+  sx.fillRect(cx + 3, 39 + walkOff, 2, 2);
+  sx.fillRect(cx + 3, 39 - walkOff, 2, 2);
+  sx.fillRect(cx + 6, 39 - walkOff, 2, 2);
+  sx.fillRect(cx + 9, 39 - walkOff, 2, 2);
+
+  // Body torso (hunched, slightly tilted forward).
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx - 4, 18, 14, 12);
+  sx.fillRect(cx - 2, 16, 12, 2);   // top of back
+  // Belly (lighter scales)
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx - 3, 25, 12, 4);
+  // Back spikes along the spine
+  sx.fillStyle = v.hair;
+  sx.fillRect(cx + 6, 16, 1, 2);
+  sx.fillRect(cx + 3, 16, 1, 2);
+  sx.fillRect(cx,     17, 1, 2);
+  sx.fillRect(cx - 3, 18, 1, 2);
+
+  // Tiny T-rex arms tucked against the chest.
+  sx.fillStyle = v.skin;
+  if (isAction) {
+    sx.fillRect(cx + 7, 19, 3, 5);
+    sx.fillRect(cx + 10, 21, 3, 2);
+    sx.fillStyle = "#1a1208";        // claw at the end
+    sx.fillRect(cx + 12, 21, 1, 2);
+  } else {
+    sx.fillRect(cx + 6, 23, 3, 4);
+    sx.fillRect(cx + 8, 26, 2, 1);
+    sx.fillStyle = "#1a1208";
+    sx.fillRect(cx + 9, 26, 1, 1);
+  }
+
+  // Head + snout extending forward.
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx + 1, 8,  10, 11);   // skull
+  sx.fillRect(cx + 9, 13, 6, 5);     // snout extension
+  // Lower jaw / underside shading
+  sx.fillStyle = v.shirt;
+  sx.fillRect(cx + 1, 8,  10, 2);    // top of head
+  sx.fillRect(cx + 9, 16, 6, 2);     // snout underside
+  // Teeth along the snout
+  sx.fillStyle = "#ffffff";
+  sx.fillRect(cx + 9,  17, 1, 1);
+  sx.fillRect(cx + 11, 17, 1, 1);
+  sx.fillRect(cx + 13, 17, 1, 1);
+  // Bigger pair of fangs when in action pose
+  if (isAction) {
+    sx.fillRect(cx + 10, 17, 1, 2);
+    sx.fillRect(cx + 12, 17, 1, 2);
+  }
+  // Slitted yellow reptile eye
+  sx.fillStyle = "#1a1208";
+  sx.fillRect(cx + 4, 11, 3, 3);
+  sx.fillStyle = "#ffd040";
+  sx.fillRect(cx + 5, 12, 2, 1);
+  sx.fillStyle = "#1a1208";
+  sx.fillRect(cx + 5, 12, 1, 1);     // pupil slit
+  // Nostril on the snout
+  sx.fillStyle = "#1a1208";
+  sx.fillRect(cx + 13, 14, 1, 1);
+  // Spiked crest behind the eye
+  sx.fillStyle = v.hair;
+  sx.fillRect(cx + 1, 6, 2, 2);
+  sx.fillRect(cx + 4, 5, 2, 3);
+  sx.fillRect(cx + 7, 6, 2, 2);
+}
+
 // Side-view character, faces right, drawn at integer pixels for a chunky look.
 function drawCharFrame(sx, v, frame) {
+  // Sly's dino form has totally different proportions — render a fresh
+  // body instead of dressing the human silhouette in a dinosaur head.
+  if (v.hat === "dino") { drawDinoFrame(sx, v, frame); return; }
   const cx = SPRITE_SIZE / 2;
   const walkOff = frame === "walkA" ? 1 : frame === "walkB" ? -1 : 0;
   const isAction = frame === "action";
