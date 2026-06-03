@@ -598,6 +598,11 @@
       <div class="gd-ab"><b>X — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. <b>While aiming, this button backs out</b> — your shot is unspent, but Shoot goes on a short <b>5s cooldown</b>.</div>
       <div class="gd-ab"><b>C — Sneak</b>: vanish for 6s — you're mostly invisible to everyone (the killer barely sees you). Great for repositioning after a missed shot. CD 20s.</div>
     </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#d04050"></span><b>Fencer</b><span class="gd-muted">balanced, melee stun + self-heal soda</span></div>
+      <div class="gd-ab"><b>Z — Slash</b>: short-reach sword swing (80 px). If a killer is in range they're <b>stunned for 5s</b> (no damage). CD 25s.</div>
+      <div class="gd-ab"><b>X — Soda</b>: drinks a can — heals <b>30 HP over 10s</b>. CD 30s. <b>Only 3 uses per round</b> (shown as dots on the ability slot).</div>
+    </div>
 
     <div class="gd-h">KILLERS</div>
     <div class="gd-card">
@@ -761,6 +766,7 @@ const CHAR_VISUALS = {
   scout:    { skin: "#f0d0b0", shirt: "#6cb6ff", pants: "#2d4a7a", hair: "#3a3025", hat: null,      weapon: null    },
   sentinel: { skin: "#e0c0a0", shirt: "#4ad0c0", pants: "#1a4a4a", hair: "#3a2820", hat: "visor",   weapon: null    },
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
+  fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -806,6 +812,7 @@ const G = {
   skillQueued: false,
   abilityQueued: [false, false, false],
   cooldowns: [0, 0, 0],   // local CD timestamps (perf.now() ms)
+  localAbilityUses: [0, 0, 0],   // # of times each maxUses ability fired this round
   mainAttackCd: 0,     // local main attack CD timestamp
   stamina: 100,
   // Sniper-specific local state.
@@ -1094,6 +1101,20 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "rgba(233,69,96,0.7)";
     sx.fillRect(cx + 14, 20, 5, 1);
   }
+  // Fencer sword: idle pointing down by their side, swung forward on action.
+  if (v.weapon === "sword") {
+    if (isAction) {
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 7, 18, 14, 2);   // blade
+      sx.fillStyle = "#ffffff"; sx.fillRect(cx + 7, 18, 12, 1);   // blade highlight
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 5, 17, 3, 4);    // hilt
+      sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 4, 18, 1, 2);    // pommel
+      sx.fillStyle = "rgba(255,255,255,0.5)";                     // motion streak
+      sx.fillRect(cx + 21, 19, 4, 1);
+    } else {
+      sx.fillStyle = "#cccccc"; sx.fillRect(cx + 5, 20, 2, 7);    // blade pointing down
+      sx.fillStyle = "#7a5524"; sx.fillRect(cx + 4, 18, 4, 2);    // hilt crossguard
+    }
+  }
   // Sniper rifle: drawn whether idle or action (always shouldered).
   if (v.weapon === "rifle") {
     const ry = isAction ? 18 : 24;
@@ -1261,6 +1282,7 @@ function onMessage(msg) {
       G.winner = null;
       G.phase = "playing";
       G.cooldowns = [0, 0, 0];
+      G.localAbilityUses = [0, 0, 0];
       G.mainAttackCd = 0;
       G.aiming = false;
       G.ammo = 1;
@@ -1812,7 +1834,7 @@ function exitTestMode() {
 // behind purchase without needing a code change here.
 const CHAR_PRICES = { lunar: 150, sniper: 75 };
 const DEFAULT_PRICE = 100;
-const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "slasher"];
+const DEFAULT_UNLOCKS = ["scout", "runner", "engineer", "slasher", "fencer"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
 const PAYOUT = {
@@ -2165,6 +2187,10 @@ function applyLocalAbility(me, ab, aim) {
       // Self goes invisible to the dummy too. No server check in test mode.
       me.sneaking = true;
       setTimeout(() => { me.sneaking = false; }, ab.duration * 1000);
+      break;
+    case "slash_stun":
+      // Test mode has no killer to stun — visual feedback comes from
+      // the existing actionUntil flash. Nothing to do here.
       break;
     case "build_portal": {
       const placePortal = () => {
@@ -2898,7 +2924,10 @@ function tryFireAbility(slot, me) {
   }
 
   if (now < G.cooldowns[slot]) return;
+  // Generic per-round use-limit (e.g. Fencer's Soda).
+  if (ab.maxUses && (G.localAbilityUses[slot] || 0) >= ab.maxUses) return;
   G.cooldowns[slot] = now + ab.cd * 1000;
+  if (ab.maxUses) G.localAbilityUses[slot] = (G.localAbilityUses[slot] || 0) + 1;
   if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
   // Local prediction for self-applied buffs so they feel instant.
   if (ab.type === "speed_self" || ab.type === "speed_team") {
@@ -3874,6 +3903,28 @@ function updateAbilitySlots(me) {
         sFill.style.height = "0";
         mFill.style.height = "0";
       }
+    } else if (ab.maxUses) {
+      // Per-round use-limit (e.g. Fencer's Soda). Show one dot per remaining
+      // charge and grey the slot once all are spent.
+      const used = G.localAbilityUses[i] || 0;
+      const remaining = Math.max(0, ab.maxUses - used);
+      const exhausted = remaining <= 0;
+      slot.classList.toggle("disabled", exhausted);
+      mob.classList.toggle("disabled", exhausted);
+      slot.classList.remove("aim-active");
+      mob.classList.remove("aim-active");
+      sDots.classList.remove("hidden");
+      mDots.classList.remove("hidden");
+      let dots = "";
+      for (let j = 0; j < ab.maxUses; j++) {
+        dots += j < remaining
+          ? '<div class="ammo-dot"></div>'
+          : '<div class="ammo-dot empty"></div>';
+      }
+      sDots.innerHTML = dots;
+      mDots.innerHTML = dots;
+      sFill.style.height = "0";
+      mFill.style.height = "0";
     } else {
       slot.classList.remove("disabled", "aim-active");
       mob.classList.remove("disabled", "aim-active");

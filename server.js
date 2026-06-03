@@ -112,6 +112,7 @@ const SURVIVOR_CHARS = [
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
   { id: "sentinel", name: "Frost Knight", color: "#4ad0c0", speedMult: 1.00, repairMult: 0.95, blurb: "slows the killer" },
   { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
+  { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -135,6 +136,13 @@ const ABILITIES = {
     // Capped at maxFields per Sentinel — placing a new one pops the oldest.
     // channelDuration is the summoning channel before the field drops.
     { id: "field", name: "Snow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999, channelDuration: 0.7, maxFields: 3 },
+  ],
+  fencer: [
+    // Slash: melee swing in front of the fencer. Stuns the killer for
+    // stunDuration seconds if any is within range — no damage.
+    { id: "slash", name: "Slash", cd: 25, type: "slash_stun", range: 80, stunDuration: 5 },
+    // Soda: heals 30 HP over 10s. Limited to maxUses casts per round.
+    { id: "soda",  name: "Soda",  cd: 30, type: "heal_self",  amount: 30, duration: 10, maxUses: 3 },
   ],
   sniper: [
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
@@ -499,6 +507,13 @@ function onAbility(id, msg) {
     if ((p.ammo || 0) >= 1) return;            // already loaded
     if (now < (p.reloadUntil || 0)) return;    // already reloading
   }
+  // Generic per-round use-limit (e.g. Fencer's Soda).
+  if (ab.maxUses) {
+    if (!p.abilityUses) p.abilityUses = {};
+    const used = p.abilityUses[slot] || 0;
+    if (used >= ab.maxUses) return;
+    p.abilityUses[slot] = used + 1;
+  }
   p.cooldowns[slot] = now + ab.cd * 1000;
   applyAbility(p, ab, slot, msg);
 }
@@ -681,6 +696,23 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.sneakUntil = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
+    case "slash_stun": {
+      // Single-target melee. The closest alive killer within range gets
+      // stunned (slowMult = 0.05) for stunDuration seconds. No damage.
+      let best = null, bestD = ab.range;
+      for (const k of state.players.values()) {
+        if (k.role !== "killer" || !k.alive) continue;
+        const d = Math.hypot(k.x - p.x, k.y - p.y);
+        if (d < bestD) { bestD = d; best = k; }
+      }
+      if (best) {
+        best.effects.slowMult = 0.05;
+        best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
+        broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+      }
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
+      break;
+    }
     case "build_portal": {
       // 4s rooted channel, then drop a portal at the killer's position.
       const ownerId = p.id;
@@ -781,6 +813,7 @@ function startRound() {
   killer.cooldowns = [0, 0, 0];
   killer.mainAttackCdUntil = 0;
   killer.ammo = 1; killer.reloadUntil = 0;
+  killer.abilityUses = {};
   killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
@@ -796,6 +829,7 @@ function startRound() {
     p.cooldowns = [0, 0, 0];
     p.mainAttackCdUntil = 0;
     p.ammo = 1; p.reloadUntil = 0;
+    p.abilityUses = {};
     p.effects = freshEffects();
   });
 
