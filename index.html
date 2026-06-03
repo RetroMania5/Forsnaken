@@ -45,6 +45,12 @@
     color: var(--accent); text-align: center;
     margin: 0 0 4px 0;
   }
+  .title-img {
+    display: block; margin: 0 auto 4px auto;
+    width: 80%; max-width: 360px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+  }
   .subtitle {
     color: var(--muted); text-align: center;
     font-size: 13px; margin: 0 0 20px 0; letter-spacing: 0.05em;
@@ -507,7 +513,8 @@
 
 <div id="menu" class="overlay">
   <div class="panel">
-    <h1 class="title">FORSAKEN</h1>
+    <img class="title-img" src="/images/title.png" alt="Forsnaken">
+
     <div class="subtitle">1 KILLER vs SURVIVORS</div>
     <label>Your name</label>
     <input id="name-input" type="text" maxlength="16" placeholder="Pick a name">

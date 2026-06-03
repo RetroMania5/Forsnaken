@@ -265,6 +265,18 @@ const server = http.createServer((req, res) => {
     const type = file.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
     return sendFile(res, path.join("sounds", file), type, "public, max-age=86400");
   }
+  if (url.startsWith("/images/")) {
+    const file = url.slice("/images/".length);
+    if (!/^[a-zA-Z0-9_\-]+\.(png|jpg|jpeg|gif|webp)$/.test(file)) {
+      res.writeHead(400); res.end("bad name"); return;
+    }
+    const ext = file.split(".").pop().toLowerCase();
+    const type = ext === "png"  ? "image/png"
+              : ext === "gif"   ? "image/gif"
+              : ext === "webp"  ? "image/webp"
+                                : "image/jpeg";
+    return sendFile(res, path.join("images", file), type, "public, max-age=86400");
+  }
   if (url === "/chars") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({
