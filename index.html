@@ -2251,11 +2251,27 @@ function applyLocalAbility(me, ab, aim) {
       // Test mode has no killer to stun — visual feedback comes from
       // the existing actionUntil flash. Nothing to do here.
       break;
-    case "throw_burger":
-    case "meow":
-      // Test mode: skip server-side physics/effects. Just play the action
-      // animation flash from tryFireAbility.
+    case "throw_burger": {
+      const f = facing;
+      const norm = Math.hypot(f.x, f.y) || 1;
+      const fxn = f.x / norm, fyn = f.y / norm;
+      G.burgers = G.burgers || [];
+      G.burgers.push({
+        id: ++G.localEntityId,
+        x: me.x + fxn * 22, y: me.y + fyn * 22,
+        vx: fxn * ab.speed, vy: fyn * ab.speed,
+        ownerId: me.id,
+        healAmount: ab.healAmount,
+        ttl: ab.ttl || 30,
+        bounce: ab.bounce || 0.6,
+        _local: true,
+      });
       break;
+    }
+    case "meow": {
+      G.meowPulses.push({ x: me.x, y: me.y, radius: ab.radius, until: performance.now() + 600 });
+      break;
+    }
     case "build_portal": {
       const placePortal = () => {
         if (!me.alive) return;
@@ -2814,6 +2830,51 @@ function gameTick(now) {
       // Slow fields
       for (const f of G.slowFields) f.ttl -= dt;
       G.slowFields = G.slowFields.filter(f => f.ttl > 0);
+      // Burgers (local sim for test mode)
+      if (G.burgers && G.burgers.length) {
+        const BURGER_R = 10;
+        const fric = Math.pow(0.3, dt);
+        const bounceRect = (b, rect) => {
+          const wl = rect.x - rect.w/2, wr = rect.x + rect.w/2;
+          const wt = rect.y - rect.h/2, wb = rect.y + rect.h/2;
+          if (b.x + BURGER_R <= wl || b.x - BURGER_R >= wr) return;
+          if (b.y + BURGER_R <= wt || b.y - BURGER_R >= wb) return;
+          const penX = Math.min(b.x + BURGER_R - wl, wr - (b.x - BURGER_R));
+          const penY = Math.min(b.y + BURGER_R - wt, wb - (b.y - BURGER_R));
+          if (penX < penY) {
+            if (b.x < rect.x) b.x = wl - BURGER_R; else b.x = wr + BURGER_R;
+            b.vx = -b.vx * b.bounce;
+          } else {
+            if (b.y < rect.y) b.y = wt - BURGER_R; else b.y = wb + BURGER_R;
+            b.vy = -b.vy * b.bounce;
+          }
+        };
+        G.burgers = G.burgers.filter(b => {
+          if (!b._local) return true;     // server-driven burgers (shouldn't be any in test mode)
+          b.ttl -= dt;
+          if (b.ttl <= 0) return false;
+          b.x += b.vx * dt; b.y += b.vy * dt;
+          b.vx *= fric; b.vy *= fric;
+          if (Math.abs(b.vx) < 2) b.vx = 0;
+          if (Math.abs(b.vy) < 2) b.vy = 0;
+          for (const w of WALLS) bounceRect(b, w);
+          for (const o of OBSTACLES) bounceRect(b, o);
+          if (b.x < BURGER_R) { b.x = BURGER_R; b.vx = -b.vx * b.bounce; }
+          if (b.x > MAP_W - BURGER_R) { b.x = MAP_W - BURGER_R; b.vx = -b.vx * b.bounce; }
+          if (b.y < BURGER_R) { b.y = BURGER_R; b.vy = -b.vy * b.bounce; }
+          if (b.y > MAP_H - BURGER_R) { b.y = MAP_H - BURGER_R; b.vy = -b.vy * b.bounce; }
+          // Dummy survivor (-2) eats the burger to demo the effect
+          const dummyP = G.players.get(-2);
+          if (dummyP && dummyP.alive && dummyP.id !== b.ownerId &&
+              Math.hypot(dummyP.x - b.x, dummyP.y - b.y) < 22) {
+            dummyP.hp = Math.min(G.survivorHpMax, (dummyP.hp || 0) + b.healAmount);
+            dummyP.healFlashUntil = tnow + 350;
+            G.burgerEats.push({ x: b.x, y: b.y, until: tnow + 500 });
+            return false;
+          }
+          return true;
+        });
+      }
       // Self heal
       if (meT && tnow < (meT._healUntil || 0)) {
         meT.hp = Math.min(G.survivorHpMax, (meT.hp || 0) + (meT._healRate || 0) * dt);
@@ -3349,30 +3410,63 @@ function drawSmokes() {
 function drawBurgers() {
   const now = performance.now();
   for (const b of (G.burgers || [])) {
-    // Bottom bun
+    const sx = b.x, sy = b.y;
+    const vx = b.vx || 0, vy = b.vy || 0;
+    const speed = Math.hypot(vx, vy);
+    // Motion trail (two trailing ghosts) while flying
+    if (speed > 30) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#e0a868";
+      ctx.beginPath(); ctx.arc(sx - vx * 0.06, sy - vy * 0.06, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.18;
+      ctx.beginPath(); ctx.arc(sx - vx * 0.12, sy - vy * 0.12, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    // Ground shadow under the burger
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + 12, 14, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Bottom bun (lower half-circle)
     ctx.fillStyle = "#a86c30";
-    ctx.beginPath();
-    ctx.ellipse(b.x, b.y + 4, 10, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Patty
-    ctx.fillStyle = "#4a2818";
-    ctx.fillRect(b.x - 10, b.y - 1, 20, 4);
-    // Lettuce
+    ctx.beginPath(); ctx.arc(sx, sy + 4, 14, 0, Math.PI); ctx.fill();
+    ctx.fillStyle = "#c58040";
+    ctx.fillRect(sx - 12, sy + 4, 24, 2);
+    // Lettuce frill
     ctx.fillStyle = "#7ac050";
-    ctx.fillRect(b.x - 10, b.y + 1, 20, 2);
-    // Cheese
+    ctx.fillRect(sx - 14, sy + 1, 28, 4);
+    ctx.fillStyle = "#9ad068";
+    ctx.fillRect(sx - 13, sy + 1, 5, 2);
+    ctx.fillRect(sx - 4,  sy + 1, 5, 2);
+    ctx.fillRect(sx + 5,  sy + 1, 7, 2);
+    // Cheese (yellow slab with a melted drip)
     ctx.fillStyle = "#ffd860";
-    ctx.fillRect(b.x - 9, b.y, 18, 1);
-    // Top bun
-    ctx.fillStyle = "#d49a5c";
+    ctx.fillRect(sx - 14, sy - 1, 28, 3);
+    ctx.fillStyle = "#ffb840";
+    ctx.fillRect(sx + 8, sy + 1, 5, 3);
+    ctx.fillRect(sx - 11, sy + 1, 4, 3);
+    // Patty (dark brown)
+    ctx.fillStyle = "#4a2818";
+    ctx.fillRect(sx - 14, sy - 5, 28, 5);
+    ctx.fillStyle = "#62351c";
+    ctx.fillRect(sx - 14, sy - 5, 28, 1);     // top edge highlight
+    // Top bun (upper half-circle)
+    ctx.fillStyle = "#e0a868";
+    ctx.beginPath(); ctx.arc(sx, sy - 5, 14, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = "#f0c080";
     ctx.beginPath();
-    ctx.ellipse(b.x, b.y - 2, 10, 5, 0, Math.PI, 0);
+    ctx.arc(sx, sy - 5, 14, Math.PI + 0.3, Math.PI + 1.0);
+    ctx.lineTo(sx, sy - 5);
+    ctx.closePath();
     ctx.fill();
-    // Sesame seeds
+    // Sesame seeds (5 of them, scattered across the top bun)
     ctx.fillStyle = "#fff5c0";
-    ctx.fillRect(b.x - 4, b.y - 5, 1, 1);
-    ctx.fillRect(b.x + 2, b.y - 6, 1, 1);
-    ctx.fillRect(b.x - 1, b.y - 6, 1, 1);
+    ctx.fillRect(sx - 8, sy - 11, 2, 2);
+    ctx.fillRect(sx - 2, sy - 14, 2, 2);
+    ctx.fillRect(sx + 4, sy - 12, 2, 2);
+    ctx.fillRect(sx + 8, sy - 8,  2, 2);
+    ctx.fillRect(sx - 9, sy - 8,  2, 2);
   }
   // Eat sparkles (green starburst)
   G.burgerEats = G.burgerEats.filter(e => now < e.until);

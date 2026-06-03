@@ -1111,7 +1111,11 @@ function tick() {
           id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
         })),
         portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y })),
-        burgers: state.burgers.map(b => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y) })),
+        burgers: state.burgers.map(b => ({
+          id: b.id,
+          x: Math.round(b.x), y: Math.round(b.y),
+          vx: +b.vx.toFixed(1), vy: +b.vy.toFixed(1),
+        })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
