@@ -5079,7 +5079,7 @@ function drawPlayer(p) {
   // Wind up / overshoot during action, vertical bob during walk. These
   // ride on top of the existing 4-frame sprite to give it more visible
   // motion stages without redrawing more sprite frames.
-  let actScaleX = 1, actScaleY = 1, leanPx = 0, bobPx = 0;
+  let actScaleX = 1, actScaleY = 1, leanPx = 0, bobPx = 0, swayRad = 0;
   if (p.alive && p._anim) {
     if (now < (p._anim.actionUntil || 0)) {
       // t goes 0 -> 1 across the action window. Three phases:
@@ -5110,10 +5110,18 @@ function drawPlayer(p) {
       // Sub-frame bob — a quick sine driven by walk-step accumulator.
       const phase = (p._anim.accum / WALK_FRAME_MS) * Math.PI;
       bobPx = -Math.abs(Math.sin(phase)) * 1.5;
+      // Side-to-side sway: tilt one way during walkA, the other during
+      // walkB, peaking mid-step. ~4 deg amplitude reads as a weight
+      // shift without making the body look like it's flopping over.
+      const dir = (p._anim.frame === "walkA") ? 1 : -1;
+      swayRad = dir * Math.sin(phase) * (4 * Math.PI / 180);
     }
   }
 
   ctx.translate(p.x + (flip ? -leanPx : leanPx), p.y + bobPx);
+  // Sway pivots around the player's logical position (close to the
+  // feet) so the head swings while the feet stay roughly planted.
+  if (swayRad) ctx.rotate(swayRad);
 
   if (!p.alive) {
     ctx.rotate(Math.PI / 2);
