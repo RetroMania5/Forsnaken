@@ -1092,6 +1092,7 @@ function applyAbility(p, ab, slot, msg) {
         const d = Math.hypot(k.x - p.x, k.y - p.y);
         if (d < bestD) { bestD = d; best = k; }
       }
+      const wasDucking = now < (p.effects.duckUntil || 0);
       if (best) {
         best.effects.slowMult = 0.05;
         best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
@@ -1100,10 +1101,14 @@ function applyAbility(p, ab, slot, msg) {
         // the passive is one-shot per round so there's no second life to
         // earn a second time.
         if (!p.respawned) {
-          const ducking = now < (p.effects.duckUntil || 0);
-          const gain = ducking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
+          const gain = wasDucking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
           p.malice = Math.min(100, (p.malice || 0) + gain);
         }
+      }
+      // Stab always reveals Angel — Duck ends immediately, hit or miss.
+      if (wasDucking) {
+        p.effects.duckUntil = 0;
+        p.effects.sneakUntil = 0;
       }
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
       break;

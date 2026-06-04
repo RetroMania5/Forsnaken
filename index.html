@@ -658,8 +658,8 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
-      <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you're currently ducking. CD 8s.</div>
-      <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. No reveal-on-stab, so the malice bonus stacks. CD 18s.</div>
+      <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you stabbed out of a Duck. <b>Stabbing ends your Duck immediately</b> (hit or miss). CD 8s.</div>
+      <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. Stab applies its <b>doubled malice bonus</b> if you stab from inside it, then ends the Duck. CD 18s.</div>
       <div class="gd-ab"><b>C — Spawner</b>: <b>3s rooted channel</b>, then drops a spawn pad where you stand. <b>One pad per round</b> — the ability locks once you use it.</div>
       <div class="gd-ab"><b>Passive — Wings</b>: when you die with <b>100% Malice</b> AND you've placed a Spawner pad, you respawn at the pad with <b>65 HP</b> and angelic wings. Malice is consumed by the respawn, and you <b>stop gaining Malice afterward</b> — the passive is one-shot per round. With no pad placed, you die normally.</div>
     </div>
@@ -4234,6 +4234,13 @@ function tryFireAbility(slot, me) {
   } else if (ab.type === "duck") {
     me._localSneakUntil = now + ab.duration * 1000;
     me._localDuckUntil  = now + ab.duration * 1000;
+  } else if (ab.type === "stab") {
+    // Stabbing always blows your cover — drop the local Duck prediction
+    // immediately so you reappear at full alpha on the same frame.
+    me._localSneakUntil = 0;
+    me._localDuckUntil  = 0;
+    me.sneaking = false;
+    me.ducking  = false;
   } else if (ab.type === "heal_self" && charIdFor(me) === "fencer") {
     // Brief sip animation; the actual heal continues silently.
     me.sodaUntil = now + 700;
