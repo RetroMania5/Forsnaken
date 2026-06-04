@@ -3975,6 +3975,13 @@ function render() {
     ctx.fillText(txt, g.x, g.y - 56);
   }
 
+  // Floor-level placed items render UNDER players so a survivor standing
+  // on a trap / pad / portal / field isn't hidden by it.
+  drawPortals();
+  drawTraps();
+  drawSpawnPads();
+  drawSlowFields();
+
   // players (z-sort by y)
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
   for (const p of sorted) drawPlayer(p);
@@ -3983,20 +3990,12 @@ function render() {
   drawProjectiles();
   // Teleport ghosts (fade-out trail)
   drawTeleportGhosts();
-  // Portals (Lunar) — visible to everyone
-  drawPortals();
   // Burgers and burger-eat sparkles (Kacey)
   drawBurgers();
   // MEOW! pulse ring
   drawMeowPulses();
   // Engineer robots
   drawRobots();
-  // Sly's bear traps
-  drawTraps();
-  // Angle's spawn pads + respawn flashes
-  drawSpawnPads();
-  // Slow fields (under smokes)
-  drawSlowFields();
   // Smokes (after everything else so they obscure)
   drawSmokes();
   // Scan arrow (in world space above the local player)
