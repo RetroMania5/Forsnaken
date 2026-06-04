@@ -449,6 +449,7 @@ function handle(id, ws, msg) {
     case "pos":       return onPos(id, msg);
     case "attack":    return onAttack(id);
     case "ability":   return onAbility(id, msg);
+    case "dash_wall_hit": return onDashWallHit(id);
     case "skill":     return onSkill(id, msg);
     case "leave":     return removePlayer(id);
   }
@@ -683,6 +684,24 @@ function applyDamage(target, amount, attacker) {
     broadcast({ type: "down", id: target.id, by: attacker.id, timer: state.roundTimer });
     checkRoundEnd();
   }
+}
+
+// Client reports that a dashing Lunar slammed into a wall. Stun for 2s
+// and end the dash. Only valid while dashStrikeUntil is live, so the
+// client can't trigger this outside an actual dash.
+function onDashWallHit(id) {
+  if (state.phase !== "playing") return;
+  const p = state.players.get(id);
+  if (!p || !p.alive) return;
+  const now = Date.now();
+  if (!p.effects.dashStrikeUntil || now >= p.effects.dashStrikeUntil) return;
+  const STUN = 2.0;
+  p.effects.dashStrikeUntil = 0;
+  p.effects.speedUntil = 0;
+  p.effects.speedMult  = 1;
+  p.effects.slowMult   = 0.05;
+  p.effects.slowUntil  = Math.max(p.effects.slowUntil || 0, now + STUN * 1000);
+  broadcast({ type: "stun", id: p.id, by: p.id, duration: STUN });
 }
 
 function onAbility(id, msg) {
@@ -1386,7 +1405,8 @@ function tick() {
     if (broken.length > 0) broadcast({ type: "projectile_break", projectiles: broken });
 
     // Lunar dash collision: first survivor within 30 px of a dashing
-    // killer takes hitDamage + a slow, then the dash strike is consumed.
+    // killer takes hitDamage + a slow, then the dash ends (both the
+    // strike window and the speed boost — the dash is "spent" on hit).
     for (const k of state.players.values()) {
       if (k.role !== "killer" || !k.alive) continue;
       if (!k.effects.dashStrikeUntil || now >= k.effects.dashStrikeUntil) continue;
@@ -1397,6 +1417,8 @@ function tick() {
           s.effects.slowMult = Math.min(s.effects.slowMult || 1, k.effects.dashHitSlowMult || 0.7);
           s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, now + (k.effects.dashHitSlowDuration || 3) * 1000);
           k.effects.dashStrikeUntil = 0;
+          k.effects.speedUntil = 0;     // end the dash's speed boost too
+          k.effects.speedMult  = 1;
           broadcast({ type: "dash_hit", id: s.id, by: k.id, x: s.x, y: s.y });
           break;
         }

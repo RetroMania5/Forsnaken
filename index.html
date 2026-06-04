@@ -682,7 +682,7 @@
       <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 2s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
-      <div class="gd-ab"><b>V — Dash</b>: <b>1.8× speed for 3s</b>. The first survivor you collide with takes <b>30 damage</b> and is slowed to <b>0.7× for 3s</b>. CD 20s.</div>
+      <div class="gd-ab"><b>V — Dash</b>: <b>1.8× speed for 3s</b>. The first survivor you collide with takes <b>30 damage</b> and is slowed to <b>0.7× for 3s</b>, and the dash <b>ends immediately</b> on hit. If you slam into a wall mid-dash you <b>stun yourself for 2s</b> and the dash ends. CD 20s.</div>
       <div class="gd-ab"><b>Portal alert</b>: whenever a survivor is standing on one of your portals, an orange arrow appears above you pointing toward it (with the distance).</div>
     </div>
     <div class="gd-card">
@@ -2341,6 +2341,27 @@ function onMessage(msg) {
     case "stun": {
       const v = G.players.get(msg.id);
       if (v) v.stunnedUntil = performance.now() + (msg.duration || 0) * 1000;
+      // If I'm the one stunned during a dash, drop the local dash
+      // prediction so my speed boost doesn't outlive the stun.
+      if (msg.id === G.myId) {
+        const me = G.players.get(G.myId);
+        if (me) {
+          me._localSpeedUntil = 0;
+          me._localDashUntil  = 0;
+        }
+      }
+      break;
+    }
+    case "dash_hit": {
+      // Server says a dasher (msg.by) struck a survivor — the dash is
+      // spent. Clear local dash predictions for the attacker.
+      if (msg.by === G.myId) {
+        const me = G.players.get(G.myId);
+        if (me) {
+          me._localSpeedUntil = 0;
+          me._localDashUntil  = 0;
+        }
+      }
       break;
     }
     case "projectile_break":
@@ -3857,7 +3878,25 @@ function gameTick(now) {
       if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
       // Angel Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
       if (me.ducking || (me.id === G.myId && now < (me._localDuckUntil || 0))) speed *= 0.6;
-      stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
+      const _dashIntDx = v.x * speed * dt;
+      const _dashIntDy = v.y * speed * dt;
+      const _dashStartX = me.x, _dashStartY = me.y;
+      stepWithCollision(me, _dashIntDx, _dashIntDy);
+      // Lunar dash + wall: if the dash is active locally and collision
+      // shaved most of the intended motion, tell the server (once per
+      // dash) so it can stun the dasher.
+      if (me.id === G.myId
+          && now < (me._localDashUntil || 0)
+          && !me._dashWallHitSent) {
+        const intMag = Math.hypot(_dashIntDx, _dashIntDy);
+        const actMag = Math.hypot(me.x - _dashStartX, me.y - _dashStartY);
+        if (intMag > 6 && actMag < intMag * 0.4) {
+          me._dashWallHitSent = true;
+          me._localDashUntil  = 0;
+          me._localSpeedUntil = 0;
+          if (!G.testMode) sendMsg({ type: "dash_wall_hit" });
+        }
+      }
       // Conveyors push you in their direction (you can still walk against
       // them, just slower in net). Done after movement + collision so the
       // push doesn't override your input.
@@ -4216,6 +4255,9 @@ function tryFireAbility(slot, me) {
     // Local speed prediction so the dash feels instant.
     me._localSpeedUntil = now + ab.duration * 1000;
     me._localSpeedMult = ab.speedMult;
+    // Track the dash window for wall-hit detection.
+    me._localDashUntil = now + ab.duration * 1000;
+    me._dashWallHitSent = false;
   } else if (ab.type === "shield") {
     // Local shield prediction so the slow + visual kick in instantly.
     me._localShieldUntil = now + ab.duration * 1000;
