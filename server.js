@@ -1324,6 +1324,7 @@ function startRound() {
     p.effects = freshEffects();
     p.malice = 0;
     p.respawned = false;
+    p._lastCloverX = null; p._lastCloverY = null;
   });
 
   state.phase = "playing";
@@ -1780,6 +1781,7 @@ function tick() {
       p.effects = freshEffects();
       p.malice = 0;
       p.respawned = false;
+      p._lastCloverX = null; p._lastCloverY = null;
       const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
       if (sc) p.color = sc.color;
     }

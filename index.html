@@ -4067,6 +4067,22 @@ function gameTick(now) {
           break;
         }
       }
+      // Pollen trail in test mode: server doesn't run, so simulate the
+      // clover spawn locally so the sandbox previews it.
+      if (G.testMode && me.role === "survivor" && me.survivorChar === "pollen") {
+        if (me._lastCloverX == null) {
+          me._lastCloverX = me.x; me._lastCloverY = me.y;
+          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 10 });
+        }
+        const ddist = Math.hypot(me.x - me._lastCloverX, me.y - me._lastCloverY);
+        if (ddist >= 32) {
+          me._lastCloverX = me.x; me._lastCloverY = me.y;
+          if (G.clovers.length >= 40) G.clovers.shift();
+          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 10 });
+        }
+        for (const cv of G.clovers) cv.t -= dt;
+        G.clovers = G.clovers.filter(cv => cv.t > 0);
+      }
       if (moving) facing = { x: v.x, y: v.y };
       }
 
@@ -5184,26 +5200,33 @@ function drawSpawnPads() {
 }
 
 function drawClovers() {
-  // Pollen's clover trail. Each clover is a 4-leaf cluster that fades
-  // toward the end of its TTL.
+  // Pollen's clover trail. Each clover is a chunky 4-leaf cluster that
+  // fades toward the end of its TTL. Sized to be easy to spot on the
+  // floor — the trail is the whole identity of the passive.
   for (const cv of (G.clovers || [])) {
     const ttl = (cv.t != null ? cv.t : 10);
-    const alpha = Math.max(0.25, Math.min(1, ttl / 4));
+    const alpha = Math.max(0.35, Math.min(1, ttl / 4));
     const x = cv.x | 0, y = cv.y | 0;
-    // Four heart-leaf rectangles
+    // Leaf bodies (4 lobes around a small gap)
     ctx.fillStyle = `rgba(122,192,80,${alpha.toFixed(2)})`;
-    ctx.fillRect(x - 4, y - 4, 3, 3);
-    ctx.fillRect(x + 1, y - 4, 3, 3);
-    ctx.fillRect(x - 4, y + 1, 3, 3);
-    ctx.fillRect(x + 1, y + 1, 3, 3);
-    // Darker shadow halves
+    ctx.fillRect(x - 6, y - 6, 5, 5);
+    ctx.fillRect(x + 1, y - 6, 5, 5);
+    ctx.fillRect(x - 6, y + 1, 5, 5);
+    ctx.fillRect(x + 1, y + 1, 5, 5);
+    // Darker bottom-shading on each lobe so they read as 3D
     ctx.fillStyle = `rgba(70,140,50,${alpha.toFixed(2)})`;
-    ctx.fillRect(x - 4, y - 2, 3, 1);
-    ctx.fillRect(x + 1, y - 2, 3, 1);
-    ctx.fillRect(x - 4, y + 3, 3, 1);
-    ctx.fillRect(x + 1, y + 3, 3, 1);
-    // Center stem
-    ctx.fillStyle = `rgba(180,220,140,${alpha.toFixed(2)})`;
+    ctx.fillRect(x - 6, y - 2, 5, 1);
+    ctx.fillRect(x + 1, y - 2, 5, 1);
+    ctx.fillRect(x - 6, y + 5, 5, 1);
+    ctx.fillRect(x + 1, y + 5, 5, 1);
+    // Light highlight at the top-left of each lobe
+    ctx.fillStyle = `rgba(200,235,150,${alpha.toFixed(2)})`;
+    ctx.fillRect(x - 6, y - 6, 2, 1);
+    ctx.fillRect(x + 1, y - 6, 2, 1);
+    ctx.fillRect(x - 6, y + 1, 2, 1);
+    ctx.fillRect(x + 1, y + 1, 2, 1);
+    // Center stem pixel
+    ctx.fillStyle = `rgba(255,240,180,${alpha.toFixed(2)})`;
     ctx.fillRect(x - 1, y - 1, 2, 2);
   }
 }
