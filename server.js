@@ -1096,9 +1096,14 @@ function applyAbility(p, ab, slot, msg) {
         best.effects.slowMult = 0.05;
         best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
         broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
-        const ducking = now < (p.effects.duckUntil || 0);
-        const gain = ducking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
-        p.malice = Math.min(100, (p.malice || 0) + gain);
+        // Malice stops accumulating once Angel has burned the respawn —
+        // the passive is one-shot per round so there's no second life to
+        // earn a second time.
+        if (!p.respawned) {
+          const ducking = now < (p.effects.duckUntil || 0);
+          const gain = ducking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
+          p.malice = Math.min(100, (p.malice || 0) + gain);
+        }
       }
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
       break;
