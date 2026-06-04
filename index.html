@@ -2354,18 +2354,40 @@ function saveAccount() {
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
 
-// Global click pop: any <button> that gets pressed plays the btn-pop
-// keyframe once. We re-trigger the animation on each press by removing
-// the class on animationend (or before the next press), so rapid clicks
-// still feel reactive. We use pointerdown so touch + mouse both fire.
-document.addEventListener("pointerdown", (e) => {
+// Global click pop:
+//   - Listening on "click" (not pointerdown) so spurious touches /
+//     right-clicks / hovers don't trigger the animation.
+//   - In capture phase we swallow the original click, play the pop
+//     keyframe, then re-dispatch the click 280 ms later so the
+//     animation completes before whatever the button actually does.
+//   - In-game HUD buttons (touch controls, spectator nav, portal bar)
+//     bypass the delay since they need to fire on the same frame.
+const BTN_POP_MS = 280;
+const INSTANT_BTN_CONTAINERS = ["touch-controls", "spectator-bar", "portal-bar"];
+document.addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn || btn.disabled) return;
+  if (btn.dataset.popping === "1") return;  // re-fire pass-through
+
+  // Always play the pop animation. Re-trigger by removing + reflowing.
   btn.classList.remove("btn-pop");
-  // Force reflow so the animation can re-trigger on a fast double press.
   void btn.offsetWidth;
   btn.classList.add("btn-pop");
-}, { passive: true });
+
+  // In-game buttons keep instant click behavior.
+  for (const id of INSTANT_BTN_CONTAINERS) {
+    if (btn.closest("#" + id)) return;
+  }
+
+  // UI buttons: delay the click action until the animation finishes.
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  btn.dataset.popping = "1";
+  setTimeout(() => {
+    btn.click();           // re-fires; our listener early-returns above
+    delete btn.dataset.popping;
+  }, BTN_POP_MS);
+}, true);
 document.addEventListener("animationend", (e) => {
   if (e.animationName === "btn-pop" && e.target.classList) {
     e.target.classList.remove("btn-pop");
