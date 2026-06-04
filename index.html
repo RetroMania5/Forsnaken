@@ -93,6 +93,24 @@
   #random-killer-toggle.on {
     background: rgba(233,69,96,0.25); border-color: var(--accent); color: #fff;
   }
+  #map-select {
+    display: flex; justify-content: center; gap: 6px; margin: 0 auto 10px auto;
+    flex-wrap: wrap;
+  }
+  #map-select .map-btn {
+    padding: 6px 12px; font-size: 13px;
+    background: rgba(255,255,255,0.06); color: var(--muted);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+    cursor: pointer;
+  }
+  #map-select .map-btn.selected {
+    background: rgba(108,182,255,0.25); border-color: #6cb6ff; color: #fff;
+  }
+  #map-select.readonly .map-btn { cursor: default; }
+  #map-select .map-label {
+    color: var(--muted); font-size: 12px; padding: 6px 4px;
+    letter-spacing: 0.05em;
+  }
   .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
   .tag {
     font-size: 11px; padding: 2px 6px; border-radius: 4px;
@@ -692,6 +710,7 @@
   <div class="panel">
     <h1 class="title" style="font-size: 28px;">LOBBY <span id="lobby-coins">🪙 0</span></h1>
     <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
+    <div id="map-select" class="hidden"></div>
     <div id="player-list"></div>
     <div class="section">YOUR SURVIVOR</div>
     <div class="char-grid" id="surv-grid"></div>
@@ -900,6 +919,8 @@ const G = {
   mapId: "circus",
   designatedKillerId: null,
   randomKillerEnabled: false,
+  selectedMap: "random",
+  mapIds: ["circus", "factory"],
   survivorChars: [],   // from welcome
   killerChars: [],     // from welcome
   abilities: {},       // from welcome: charId -> [ab1, ab2]
@@ -1604,6 +1625,8 @@ function onMessage(msg) {
       G.phase = msg.phase || "lobby";
       G.designatedKillerId = msg.designatedKillerId;
       G.randomKillerEnabled = !!msg.randomKillerEnabled;
+      if (typeof msg.selectedMap === "string") G.selectedMap = msg.selectedMap;
+      if (Array.isArray(msg.mapIds)) G.mapIds = msg.mapIds;
       mergeRoster(msg.players);
       // Round is over or hasn't started — stop the round mix and start
       // the lobby ambient.
@@ -3113,6 +3136,31 @@ function renderCharSelection() {
     b.classList.toggle("selected", b.dataset.id === G.myChars.killer);
 }
 
+const MAP_DISPLAY_NAMES = { random: "🎲 Random", circus: "🎪 Circus", factory: "🏭 Factory" };
+function renderMapSelect(iAmHost) {
+  const root = $("map-select");
+  if (G.phase !== "lobby") { root.classList.add("hidden"); return; }
+  root.classList.remove("hidden");
+  root.classList.toggle("readonly", !iAmHost);
+  // Build "Random" + every server-supplied map id, in that order.
+  const ids = ["random", ...(G.mapIds || [])];
+  const current = G.selectedMap || "random";
+  root.innerHTML = `<span class="map-label">MAP</span>` + ids.map(id => {
+    const sel = id === current ? " selected" : "";
+    const name = MAP_DISPLAY_NAMES[id] || id;
+    return `<button class="map-btn${sel}" data-map="${id}" type="button">${name}</button>`;
+  }).join("");
+  if (iAmHost) {
+    for (const btn of root.querySelectorAll(".map-btn")) {
+      btn.addEventListener("click", () => {
+        const m = btn.dataset.map;
+        if (m === G.selectedMap) return;
+        sendMsg({ type: "set_map", map: m });
+      });
+    }
+  }
+}
+
 function renderLobby() {
   updateCoinDisplay();
   const list = $("player-list"); list.innerHTML = "";
@@ -3129,6 +3177,7 @@ function renderLobby() {
   } else {
     tog.classList.add("hidden");
   }
+  renderMapSelect(iAmHost);
   for (const p of G.players.values()) {
     if (p.id === G.myId) me = p;
     const row = document.createElement("div");

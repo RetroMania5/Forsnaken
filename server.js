@@ -334,6 +334,7 @@ const state = {
   generators: freshGens(),
   designatedKillerId: null,
   randomKillerEnabled: false,
+  selectedMap: "random",        // "random" | "circus" | "factory"
   roundTimer: ROUND_DURATION,
   winner: null,
   resetAt: 0,
@@ -443,6 +444,7 @@ function handle(id, ws, msg) {
     case "pick_char": return onPickChar(id, msg);
     case "designate": return onDesignate(id, msg);
     case "toggle_random_killer": return onToggleRandomKiller(id, msg);
+    case "set_map":   return onSetMap(id, msg);
     case "start":     return onStart(id);
     case "pos":       return onPos(id, msg);
     case "attack":    return onAttack(id);
@@ -541,6 +543,17 @@ function onToggleRandomKiller(id, msg) {
   state.randomKillerEnabled = !!msg.enabled;
   if (state.randomKillerEnabled) state.designatedKillerId = null;
   broadcastLobby();
+}
+
+function onSetMap(id, msg) {
+  const host = state.players.get(id);
+  if (!host || !host.isHost) return;
+  if (state.phase !== "lobby") return;
+  const m = msg && msg.map;
+  if (m === "random" || MAP_IDS.includes(m)) {
+    state.selectedMap = m;
+    broadcastLobby();
+  }
 }
 
 function removePlayer(id) {
@@ -1149,7 +1162,11 @@ function onSkill(id, msg) {
 function startRound() {
   // Pick the round's map FIRST so freshGens() reads the right pool and
   // every helper using WALLS/OBSTACLES/CONVEYORS sees the right set.
-  state.currentMap = MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
+  // Host's lobby selection wins; "random" (or anything unknown) rolls.
+  const picked = state.selectedMap;
+  state.currentMap = (picked && MAP_IDS.includes(picked))
+    ? picked
+    : MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
   WALLS     = MAPS[state.currentMap].walls;
   OBSTACLES = MAPS[state.currentMap].obstacles;
   GEN_POOL  = MAPS[state.currentMap].gens;
@@ -1612,6 +1629,8 @@ function broadcastLobby() {
     players: serializePlayers(),
     designatedKillerId: state.designatedKillerId,
     randomKillerEnabled: state.randomKillerEnabled,
+    selectedMap: state.selectedMap,
+    mapIds: MAP_IDS,
   });
 }
 
