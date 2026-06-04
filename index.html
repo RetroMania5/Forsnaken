@@ -68,11 +68,29 @@
     background: var(--accent); color: #fff;
     border: none; border-radius: 8px; cursor: pointer;
     font-family: inherit; margin-top: 4px;
-    transition: transform 0.08s, opacity 0.15s;
+    /* Smooth hover/leave grow + shrink. The bouncy cubic-bezier gives a
+       tiny overshoot when the hover state is entered or left. */
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.15s,
+                background 0.18s, color 0.18s, border-color 0.18s;
+    transform-origin: center;
+    will-change: transform;
   }
   button.secondary { background: rgba(255,255,255,0.08); color: var(--text); }
-  button:active { transform: scale(0.98); }
+  button:hover:not(:disabled) { transform: scale(1.05); }
+  button:active:not(:disabled) { transform: scale(0.92); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Click "pop" keyframe — added via JS on pointerup for one play.
+     Goes shrink → overshoot bigger than original → settle back. */
+  @keyframes btn-pop {
+    0%   { transform: scale(0.92); }
+    40%  { transform: scale(1.12); }
+    70%  { transform: scale(0.98); }
+    100% { transform: scale(1.00); }
+  }
+  button.btn-pop:not(:disabled) {
+    animation: btn-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
   .row { display: flex; gap: 10px; margin-top: 8px; }
   .row > * { flex: 1; }
 
@@ -2335,6 +2353,24 @@ function saveAccount() {
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
+
+// Global click pop: any <button> that gets pressed plays the btn-pop
+// keyframe once. We re-trigger the animation on each press by removing
+// the class on animationend (or before the next press), so rapid clicks
+// still feel reactive. We use pointerdown so touch + mouse both fire.
+document.addEventListener("pointerdown", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn || btn.disabled) return;
+  btn.classList.remove("btn-pop");
+  // Force reflow so the animation can re-trigger on a fast double press.
+  void btn.offsetWidth;
+  btn.classList.add("btn-pop");
+}, { passive: true });
+document.addEventListener("animationend", (e) => {
+  if (e.animationName === "btn-pop" && e.target.classList) {
+    e.target.classList.remove("btn-pop");
+  }
+}, true);
 
 // Export the current save to a downloadable .txt file (JSON inside).
 function downloadSave() {
@@ -5016,7 +5052,46 @@ function drawPlayer(p) {
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  ctx.translate(p.x, p.y);
+
+  // ---- Animation polish ----
+  // Wind up / overshoot during action, vertical bob during walk. These
+  // ride on top of the existing 4-frame sprite to give it more visible
+  // motion stages without redrawing more sprite frames.
+  let actScaleX = 1, actScaleY = 1, leanPx = 0, bobPx = 0;
+  if (p.alive && p._anim) {
+    if (now < (p._anim.actionUntil || 0)) {
+      // t goes 0 -> 1 across the action window. Three phases:
+      //   0.00 .. 0.22  anticipation (wind-up): squash + lean back
+      //   0.22 .. 0.60  strike (overshoot):     stretch + lunge forward
+      //   0.60 .. 1.00  recovery (follow-through ease back to neutral)
+      const t = 1 - (p._anim.actionUntil - now) / ACTION_HOLD_MS;
+      if (t < 0.22) {
+        const k = t / 0.22;
+        actScaleX = 1 - 0.10 * k;
+        actScaleY = 1 + 0.08 * k;
+        leanPx = -3 * k;
+      } else if (t < 0.60) {
+        const k = (t - 0.22) / 0.38;
+        // ease-out so the overshoot peaks fast then settles
+        const ease = 1 - Math.pow(1 - k, 2);
+        actScaleX = 0.90 + 0.30 * ease;     // 0.90 -> 1.20
+        actScaleY = 1.08 - 0.20 * ease;     // 1.08 -> 0.88
+        leanPx = -3 + 8 * ease;
+      } else {
+        const k = (t - 0.60) / 0.40;
+        const ease = 1 - Math.pow(1 - k, 3);
+        actScaleX = 1.20 - 0.20 * ease;     // 1.20 -> 1.00
+        actScaleY = 0.88 + 0.12 * ease;     // 0.88 -> 1.00
+        leanPx = 5 - 5 * ease;
+      }
+    } else if (p._anim.frame === "walkA" || p._anim.frame === "walkB") {
+      // Sub-frame bob — a quick sine driven by walk-step accumulator.
+      const phase = (p._anim.accum / WALK_FRAME_MS) * Math.PI;
+      bobPx = -Math.abs(Math.sin(phase)) * 1.5;
+    }
+  }
+
+  ctx.translate(p.x + (flip ? -leanPx : leanPx), p.y + bobPx);
 
   if (!p.alive) {
     ctx.rotate(Math.PI / 2);
@@ -5026,6 +5101,8 @@ function drawPlayer(p) {
   }
   // Sly's dino form is massive — 3x its previous 1.8x = 5.4x.
   if (charId === "sly_dino") ctx.scale(5.4, 5.4);
+  // Apply the action squash/stretch on top of any other scaling.
+  if (actScaleX !== 1 || actScaleY !== 1) ctx.scale(actScaleX, actScaleY);
   // Sniper Sneak: 95% invisible while active (alpha 0.05). Self gets a
   // slightly clearer ghost so the player can still track themselves.
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
