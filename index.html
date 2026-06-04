@@ -1159,6 +1159,441 @@ function resize() {
 }
 resize();
 window.addEventListener("resize", resize);
+
+// ---------- Per-ability custom action poses ----------
+// Each drawer paints a 44x44 sprite for one (character, ability) combo.
+// They're baked into sprites[charId]["action_<abilityId>"] at startup
+// (see buildSprites). When Settings.customAnims is on AND a custom
+// frame exists for the active ability, drawPlayer swaps the standard
+// "action" sprite for the custom one. Fallback is the generic action.
+// Drawers receive (sx, v) — v is the CHAR_VISUALS entry. Coords are
+// sprite-local: cx (the horizontal center) sits at SPRITE_SIZE/2 = 22.
+
+// Small helper: head + the same hat the character normally wears. The
+// vy offset shifts the head down (e.g., for a crouched / ducked pose).
+function drawHeadAndHat(sx, v, cx, vy) {
+  vy = vy || 0;
+  // Head
+  sx.fillStyle = v.skin;
+  sx.fillRect(cx - 5, 8 + vy, 10, 10);
+  sx.fillStyle = "rgba(0,0,0,0.12)";
+  sx.fillRect(cx - 5, 17 + vy, 10, 1);
+  // Hat / hair — delegate to the existing drawCharFrame logic by
+  // calling it on a throwaway context that only paints the hat part?
+  // Simpler: handle the common hats inline here.
+  if (v.hat === "goggles") {
+    sx.fillStyle = v.hair;     sx.fillRect(cx - 5, 7 + vy, 10, 3);
+    sx.fillStyle = "#222";     sx.fillRect(cx - 5, 10 + vy, 4, 3);
+                                sx.fillRect(cx + 1, 10 + vy, 4, 3);
+    sx.fillStyle = "#7af";     sx.fillRect(cx - 4, 11 + vy, 2, 1);
+                                sx.fillRect(cx + 2, 11 + vy, 2, 1);
+    sx.fillStyle = "#222";     sx.fillRect(cx - 5, 12 + vy, 10, 1);
+  } else if (v.hat === "helmet") {
+    sx.fillStyle = "#c8c8d0";  sx.fillRect(cx - 6, 5 + vy, 12, 5);
+    sx.fillStyle = "#8a8a94";  sx.fillRect(cx - 6, 9 + vy, 12, 1);
+    sx.fillStyle = "#3a3a44";  sx.fillRect(cx - 4, 12 + vy, 8, 2);
+    sx.fillStyle = "#88e0ff";  sx.fillRect(cx - 2, 13 + vy, 1, 1);
+                                sx.fillRect(cx + 2, 13 + vy, 1, 1);
+  } else if (v.hat === "visor") {
+    sx.fillStyle = "#2a4a4a";  sx.fillRect(cx - 6, 7 + vy, 12, 2);
+    sx.fillStyle = "#4ad0c0";  sx.fillRect(cx - 5, 9 + vy, 10, 3);
+    sx.fillStyle = "#1a3030";  sx.fillRect(cx - 5, 12 + vy, 10, 1);
+    sx.fillStyle = "#7afff0";  sx.fillRect(cx - 4, 10 + vy, 2, 1);
+                                sx.fillRect(cx + 2, 10 + vy, 2, 1);
+    sx.fillStyle = v.hair;     sx.fillRect(cx - 6, 9 + vy, 1, 5);
+                                sx.fillRect(cx + 5, 9 + vy, 1, 5);
+  } else if (v.hat === "moon") {
+    sx.fillStyle = "#080010";  sx.fillRect(cx - 7, 5 + vy, 14, 11);
+    sx.fillStyle = "rgba(0,0,0,0.85)"; sx.fillRect(cx - 5, 10 + vy, 10, 6);
+    sx.fillStyle = "#ffffff";  sx.fillRect(cx - 2, 12 + vy, 1, 1);
+                                sx.fillRect(cx + 2, 12 + vy, 1, 1);
+  } else if (v.hat === "shadow") {
+    sx.fillStyle = v.hair;     sx.fillRect(cx - 6, 5 + vy, 12, 4);
+                                sx.fillRect(cx - 6, 9 + vy, 1, 4);
+                                sx.fillRect(cx + 5, 9 + vy, 1, 4);
+                                sx.fillRect(cx - 5, 8 + vy, 2, 1);
+                                sx.fillRect(cx + 3, 8 + vy, 2, 1);
+    sx.fillStyle = "rgba(0,0,0,0.4)"; sx.fillRect(cx - 3, 11 + vy, 3, 3);
+                                       sx.fillRect(cx + 1, 11 + vy, 3, 3);
+    sx.fillStyle = "#b070ff";  sx.fillRect(cx - 2, 12 + vy, 1, 1);
+                                sx.fillRect(cx + 2, 12 + vy, 1, 1);
+  } else {
+    // Generic hair + eyes (slasher / runner / scout / lunar fallback / etc.).
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 5, 7 + vy, 10, 3);
+    sx.fillRect(cx - 6, 8 + vy, 1, 4);
+    sx.fillRect(cx + 5, 8 + vy, 1, 4);
+    sx.fillStyle = "#000000";
+    sx.fillRect(cx - 2, 12 + vy, 1, 1);
+    sx.fillRect(cx + 2, 12 + vy, 1, 1);
+  }
+}
+
+const CUSTOM_ACTION_DRAWERS = {
+  // ---- Sniper: shoulders rifle and aims it forward.
+  "sniper:shoot": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 12, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Wider stance
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 6, 30, 4, 10);
+    sx.fillRect(cx + 2, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 6, 39, 4, 2);
+    sx.fillRect(cx + 2, 39, 4, 2);
+    // Torso leaning forward
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 19, 13, 11);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 13, 2);
+    // Back arm pulled back to stock
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 5, 21, 3, 6);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 5, 21, 3, 3);
+    // Rifle held horizontal
+    sx.fillStyle = "#3a3a44";
+    sx.fillRect(cx + 4, 19, 18, 3);
+    sx.fillStyle = "#5a4030";
+    sx.fillRect(cx + 2, 19, 4, 4);
+    sx.fillStyle = "#1a1a22";
+    sx.fillRect(cx + 14, 17, 2, 2);
+    sx.fillStyle = "#222";
+    sx.fillRect(cx + 22, 20, 2, 1);
+    // Front (trigger) hand grip
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 22, 3, 3);
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Sniper: reload pose, rifle pointed down, hand on chamber.
+  "sniper:reload": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 18, 14, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 7, 28, 14, 2);
+    // Both arms holding rifle low (one at chamber, one at stock)
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 22, 3, 5);
+    sx.fillRect(cx - 4, 22, 3, 5);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 6, 22, 3, 2);
+    sx.fillRect(cx - 4, 22, 3, 2);
+    // Rifle tilted (stock high, muzzle low)
+    sx.fillStyle = "#3a3a44";
+    sx.fillRect(cx - 2, 23, 14, 3);
+    sx.fillStyle = "#5a4030";
+    sx.fillRect(cx - 5, 21, 5, 3);
+    // Open chamber + ammo flying up
+    sx.fillStyle = "#a0a0b0";
+    sx.fillRect(cx + 4, 21, 3, 2);
+    sx.fillStyle = "#d4a040";
+    sx.fillRect(cx + 5, 14, 2, 4);   // bullet airborne
+    sx.fillStyle = "#a07020";
+    sx.fillRect(cx + 5, 18, 2, 1);
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Engineer: hex shield, body tucked into a defensive crouch.
+  "engineer:shield": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Compact stance
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 31, 4, 9);
+    sx.fillRect(cx + 1, 31, 4, 9);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 20, 12, 11);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 29, 12, 2);
+    // Arms crossed over chest
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 7, 22, 3, 6);
+    sx.fillRect(cx + 4, 22, 3, 6);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 22, 3, 3);
+    sx.fillRect(cx + 4, 22, 3, 3);
+    drawHeadAndHat(sx, v, cx, 0);
+    // Hex shield bubble outline (cyan)
+    sx.strokeStyle = "rgba(120,220,255,0.95)";
+    sx.lineWidth = 1.5;
+    sx.beginPath();
+    for (let i = 0; i <= 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+      const x = cx + Math.cos(a) * 17;
+      const y = 24 + Math.sin(a) * 17;
+      if (i === 0) sx.moveTo(x, y); else sx.lineTo(x, y);
+    }
+    sx.stroke();
+    sx.fillStyle = "rgba(120,220,255,0.18)";
+    sx.fill();
+  },
+  // ---- Engineer: kneeling welder, sparks at hand.
+  "engineer:robot": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 41, 13, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Kneeling: front knee bent flat, back leg tucked under
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx + 2, 33, 4, 7);   // back leg short
+    sx.fillRect(cx - 6, 35, 11, 5);  // front leg flat (knee on ground)
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 6, 38, 11, 2);
+    sx.fillRect(cx + 2, 39, 4, 2);
+    // Torso bent forward
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 5, 22, 12, 11);
+    sx.fillStyle = "rgba(0,0,0,0.2)";
+    sx.fillRect(cx - 5, 31, 12, 2);
+    // Front arm extended down to work
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 25, 3, 7);
+    sx.fillRect(cx + 9, 31, 4, 3);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 6, 25, 3, 3);
+    // Welding sparks at hand
+    sx.fillStyle = "#fff7a0";
+    sx.fillRect(cx + 13, 32, 2, 2);
+    sx.fillRect(cx + 11, 35, 2, 2);
+    sx.fillStyle = "#ffb060";
+    sx.fillRect(cx + 15, 34, 1, 2);
+    sx.fillRect(cx + 13, 30, 1, 1);
+    drawHeadAndHat(sx, v, cx, 4);   // head shifted down (bent over)
+  },
+  // ---- Fencer: huge sword lunge forward.
+  "fencer:slash": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 12, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Lunge stance: back leg straight, front leg deep
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 6, 30, 4, 10);
+    sx.fillRect(cx + 2, 28, 5, 12);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 6, 39, 4, 2);
+    sx.fillRect(cx + 2, 39, 5, 2);
+    // Torso leaning forward
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 5, 16, 13, 13);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 5, 27, 13, 2);
+    // Sword arm fully extended
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 7, 14, 3, 6);
+    sx.fillRect(cx + 10, 16, 3, 3);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 7, 14, 3, 3);
+    // Sword: long horizontal blade
+    sx.fillStyle = "#7a5524"; sx.fillRect(cx + 12, 17, 2, 3);   // grip
+    sx.fillStyle = "#c8a85c"; sx.fillRect(cx + 13, 16, 1, 5);   // crossguard
+    sx.fillStyle = "#cccccc"; sx.fillRect(cx + 14, 17, 16, 2);  // blade
+    sx.fillStyle = "#ffffff"; sx.fillRect(cx + 14, 17, 14, 1);  // highlight
+    // Motion streak trailing
+    sx.fillStyle = "rgba(255,255,255,0.55)";
+    sx.fillRect(cx + 22, 19, 8, 1);
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Scout: both arms raised, leaning back.
+  "scout:rally": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 18, 12, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 12, 2);
+    // Both arms raised straight up
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 8, 5, 3, 14);
+    sx.fillRect(cx + 5, 5, 3, 14);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 8, 14, 3, 5);
+    sx.fillRect(cx + 5, 14, 3, 5);
+    // Golden aura behind the head
+    sx.fillStyle = "rgba(255,210,90,0.45)";
+    sx.beginPath(); sx.arc(cx, 12, 14, 0, Math.PI * 2); sx.fill();
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Angel: deep dagger lunge forward.
+  "angel:stab": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 13, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Wide lunge stance
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 8, 31, 4, 9);
+    sx.fillRect(cx + 2, 28, 5, 12);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 8, 39, 4, 2);
+    sx.fillRect(cx + 2, 39, 5, 2);
+    // Torso pitched forward and stretched horizontally
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 19, 14, 12);
+    sx.fillStyle = "rgba(0,0,0,0.2)";
+    sx.fillRect(cx - 6, 29, 14, 2);
+    // Dagger arm slammed forward
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 8, 19, 3, 5);
+    sx.fillRect(cx + 11, 20, 4, 3);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 8, 19, 3, 3);
+    // Long dagger
+    sx.fillStyle = "#2a1840";
+    sx.fillRect(cx + 14, 21, 4, 2);   // grip
+    sx.fillStyle = "#b070ff";
+    sx.fillRect(cx + 14, 20, 4, 1);   // crossguard
+    sx.fillStyle = "#cccccc";
+    sx.fillRect(cx + 18, 21, 12, 2);  // blade
+    sx.fillStyle = "#ffffff";
+    sx.fillRect(cx + 18, 21, 10, 1);  // highlight
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Angel: crouched low (duck).
+  "angel:duck": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Squashed body, head much lower
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 32, 4, 8);
+    sx.fillRect(cx + 1, 32, 4, 8);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 25, 14, 8);   // compact torso
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 7, 31, 14, 2);
+    // Arms tucked low
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 8, 27, 3, 4);
+    sx.fillRect(cx + 5, 27, 3, 4);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 8, 27, 3, 2);
+    sx.fillRect(cx + 5, 27, 3, 2);
+    drawHeadAndHat(sx, v, cx, 9);   // head dropped 9 px (crouching)
+  },
+  // ---- Angel: kneeling spawn-pad summon.
+  "angel:spawner": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 41, 13, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Kneeling pose (front knee on ground)
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx + 2, 33, 4, 7);
+    sx.fillRect(cx - 6, 35, 11, 5);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 6, 38, 11, 2);
+    sx.fillRect(cx + 2, 39, 4, 2);
+    // Torso upright
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 5, 21, 11, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 5, 31, 11, 2);
+    // Both arms forward, palms down (summoning)
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx + 6, 26, 3, 6);
+    sx.fillRect(cx - 7, 26, 3, 6);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 6, 26, 3, 2);
+    sx.fillRect(cx - 7, 26, 3, 2);
+    // Purple rune glow at ground level
+    sx.fillStyle = "rgba(176,112,255,0.6)";
+    sx.beginPath(); sx.arc(cx, 39, 9, 0, Math.PI * 2); sx.fill();
+    sx.strokeStyle = "rgba(224,200,255,0.9)";
+    sx.lineWidth = 1;
+    sx.beginPath(); sx.arc(cx, 39, 9, 0, Math.PI * 2); sx.stroke();
+    drawHeadAndHat(sx, v, cx, 3);   // head slightly down (looking at ground)
+  },
+  // ---- Lunar: arms raised, casting a portal.
+  "lunar:build_portal": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 18, 12, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 12, 2);
+    // Both arms raised at 45 degrees
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 9, 12, 3, 9);
+    sx.fillRect(cx + 6, 12, 3, 9);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 9, 17, 3, 4);
+    sx.fillRect(cx + 6, 17, 3, 4);
+    // Purple swirling energy between hands
+    sx.fillStyle = "rgba(176,112,255,0.7)";
+    sx.beginPath(); sx.arc(cx, 12, 7, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = "rgba(224,180,255,0.95)";
+    sx.fillRect(cx - 1, 9, 2, 6);
+    sx.fillRect(cx - 4, 11, 8, 2);
+    drawHeadAndHat(sx, v, cx, 0);
+  },
+  // ---- Sly: mid-transform, half-human half-dino blend.
+  "sly:transform": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 12, 3, 0, 0, Math.PI * 2); sx.fill();
+    // Body half human (hooded) / half scaled
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillStyle = "#3a4a20";        // scaling leg
+    sx.fillRect(cx + 1, 30, 5, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillStyle = "#1a1208";
+    sx.fillRect(cx + 1, 39, 5, 2);
+    // Half human torso (left), half dino scales (right)
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 18, 6, 12);
+    sx.fillStyle = "#4a6030";
+    sx.fillRect(cx - 1, 16, 9, 14);
+    sx.fillStyle = "rgba(0,0,0,0.2)";
+    sx.fillRect(cx - 7, 28, 15, 2);
+    // Arms — one human, one already clawed
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 9, 20, 3, 9);
+    sx.fillStyle = "#6a9050";
+    sx.fillRect(cx + 6, 20, 3, 9);
+    sx.fillStyle = "#1a1208";
+    sx.fillRect(cx + 8, 28, 2, 2);  // claw
+    // Head: hood still partially over a scaling face
+    sx.fillStyle = "#6a9050";
+    sx.fillRect(cx - 5, 8, 10, 10);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 7, 5, 8, 11);  // hood pulled to one side
+    sx.fillStyle = "#ffd040";
+    sx.fillRect(cx + 1, 12, 2, 1);  // emerging dino eye
+    // Bright transformation pulse aura
+    sx.fillStyle = "rgba(180,255,180,0.35)";
+    sx.beginPath(); sx.arc(cx, 22, 18, 0, Math.PI * 2); sx.fill();
+  },
+};
+
 buildSprites();
 
 function buildSprites() {
@@ -1172,6 +1607,23 @@ function buildSprites() {
       drawCharFrame(sx, CHAR_VISUALS[id], frame);
       sprites[id][frame] = c;
     }
+  }
+  // Per-ability custom action poses. Each entry under CUSTOM_ACTION_DRAWERS
+  // is "charId:abilityId" -> drawer(sx, v). We bake each one into
+  // sprites[charId]["action_<abilityId>"] so drawPlayer can swap it in.
+  for (const key of Object.keys(CUSTOM_ACTION_DRAWERS || {})) {
+    const i = key.indexOf(":");
+    if (i < 0) continue;
+    const charId = key.slice(0, i);
+    const abId   = key.slice(i + 1);
+    const v = CHAR_VISUALS[charId];
+    if (!v || !sprites[charId]) continue;
+    const c = document.createElement("canvas");
+    c.width = SPRITE_SIZE; c.height = SPRITE_SIZE;
+    const sx = c.getContext("2d");
+    sx.imageSmoothingEnabled = false;
+    CUSTOM_ACTION_DRAWERS[key](sx, v);
+    sprites[charId]["action_" + abId] = c;
   }
 }
 
@@ -5232,8 +5684,17 @@ function drawPlayer(p) {
   const now = performance.now();
 
   const a = p._anim || { frame: "idle", actionUntil: 0 };
-  const frame = (now < a.actionUntil) ? "action" : a.frame;
-  const img = sheet[frame] || sheet.idle;
+  const isActionNow = now < a.actionUntil;
+  const frame = isActionNow ? "action" : a.frame;
+  // Custom per-ability action sprite (Settings toggle). If a baked
+  // "action_<abId>" canvas exists for this character + ability, use it
+  // in place of the generic "action" frame.
+  let img;
+  if (isActionNow && Settings.customAnims && a.actionAb) {
+    img = sheet["action_" + a.actionAb] || sheet[frame] || sheet.idle;
+  } else {
+    img = sheet[frame] || sheet.idle;
+  }
   const fx = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
   const flip = fx < 0;
 
