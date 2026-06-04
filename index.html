@@ -581,6 +581,13 @@
       <label for="music-vol">Music volume <span id="music-vol-val">55%</span></label>
       <input type="range" id="music-vol" min="0" max="100" value="55">
     </div>
+    <div class="section">ANIMATION</div>
+    <div class="gd-line">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="custom-anims-toggle">
+        <span>Custom ability animations — each ability gets its own VFX overlay (e.g. shield bubble, welding sparks, muzzle flash) instead of the generic squash/stretch.</span>
+      </label>
+    </div>
     <div class="row" style="margin-top:14px;">
       <button id="settings-reset" class="secondary">Reset to defaults</button>
       <button id="settings-close">Close</button>
@@ -1815,7 +1822,10 @@ function onMessage(msg) {
     }
     case "ability": {
       const p = G.players.get(msg.id);
-      if (p && p._anim) p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+      if (p && p._anim) {
+        p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+        if (typeof msg.abilityId === "string") p._anim.actionAb = msg.abilityId;
+      }
       // MEOW! visual: an expanding pink ring centered on the caster.
       if (msg.abilityType === "meow") {
         G.meowPulses.push({ x: msg.x, y: msg.y, radius: msg.radius || 600, until: performance.now() + 600 });
@@ -1845,7 +1855,10 @@ function onMessage(msg) {
       const v = G.players.get(msg.id);
       if (v) v.alive = false;
       const a = G.players.get(msg.by);
-      if (a && a._anim) a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+      if (a && a._anim) {
+        a._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
+        a._anim.actionAb = "attack";
+      }
       if (typeof msg.timer === "number") G.timer = msg.timer;
       if (msg.id === G.myId) { G.aiming = false; pickInitialSpectate(); updateSpectatorBar(); }
       {
@@ -2013,6 +2026,7 @@ function openSettings() {
   const pct = Math.round(Settings.musicVolume * 100);
   $("music-vol").value = pct;
   $("music-vol-val").textContent = pct + "%";
+  $("custom-anims-toggle").checked = !!Settings.customAnims;
 }
 function closeSettings() {
   $("settings").classList.add("hidden");
@@ -2041,6 +2055,7 @@ $("settings-close").addEventListener("click", closeSettings);
 $("settings-reset").addEventListener("click", () => {
   Settings.bindings = { ...DEFAULT_BINDINGS };
   Settings.musicVolume = 0.55;
+  Settings.customAnims = false;
   Music.master = Settings.musicVolume;
   saveSettings();
   openSettings();
@@ -2050,6 +2065,10 @@ $("music-vol").addEventListener("input", (e) => {
   Settings.musicVolume = pct / 100;
   Music.master = Settings.musicVolume;
   $("music-vol-val").textContent = pct + "%";
+  saveSettings();
+});
+$("custom-anims-toggle").addEventListener("change", (e) => {
+  Settings.customAnims = !!e.target.checked;
   saveSettings();
 });
 
@@ -2493,6 +2512,7 @@ const BINDABLE_ACTIONS = [
 const Settings = {
   bindings: { ...DEFAULT_BINDINGS },
   musicVolume: 0.55,
+  customAnims: false,
 };
 const SETTINGS_KEY = "fk:settings";
 function loadSettings() {
@@ -2507,12 +2527,16 @@ function loadSettings() {
     if (typeof saved.musicVolume === "number") {
       Settings.musicVolume = Math.max(0, Math.min(1, saved.musicVolume));
     }
+    if (typeof saved.customAnims === "boolean") {
+      Settings.customAnims = saved.customAnims;
+    }
   }
 }
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
     bindings: Settings.bindings,
     musicVolume: Settings.musicVolume,
+    customAnims: Settings.customAnims,
   }));
 }
 loadSettings();
@@ -3608,7 +3632,10 @@ function tryAttack(me) {
   const now = performance.now();
   if (now < (G.mainAttackCd || 0)) return;
   G.mainAttackCd = now + (kch.attackCooldown || 1.0) * 1000;
-  if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+  if (me._anim) {
+    me._anim.actionUntil = now + ACTION_HOLD_MS;
+    me._anim.actionAb = "attack";
+  }
   if (G.testMode) {
     localKillerAttack(me, kch);
   } else {
@@ -3674,7 +3701,10 @@ function tryFireAbility(slot, me) {
     }
     if (now < G.cooldowns[slot]) return;
     G.cooldowns[slot] = now + ab.cd * 1000;
-    if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+    if (me._anim) {
+      me._anim.actionUntil = now + ACTION_HOLD_MS;
+      me._anim.actionAb = ab.id;
+    }
     // Predict ammo consumption locally so the slot greys out instantly.
     G.ammo = 0;
     // Brief lock: ignore stale state packets that may still report am=1
@@ -3732,7 +3762,10 @@ function tryFireAbility(slot, me) {
     G.reloadDuration = ab.reloadDuration;
     G.reloadUntil = now + ab.reloadDuration * 1000;
     G.sniperPredictLockUntil = now + 400;
-    if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+    if (me._anim) {
+      me._anim.actionUntil = now + ACTION_HOLD_MS;
+      me._anim.actionAb = ab.id;
+    }
     if (G.testMode) {
       applyLocalAbility(me, ab);
     } else {
@@ -3746,7 +3779,10 @@ function tryFireAbility(slot, me) {
   if (ab.maxUses && (G.localAbilityUses[slot] || 0) >= ab.maxUses) return;
   G.cooldowns[slot] = now + ab.cd * 1000;
   if (ab.maxUses) G.localAbilityUses[slot] = (G.localAbilityUses[slot] || 0) + 1;
-  if (me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+  if (me._anim) {
+    me._anim.actionUntil = now + ACTION_HOLD_MS;
+    me._anim.actionAb = ab.id;
+  }
   // Local prediction for self-applied buffs so they feel instant.
   if (ab.type === "speed_self" || ab.type === "speed_team") {
     me._localSpeedUntil = now + ab.duration * 1000;
@@ -3810,7 +3846,7 @@ function tryFireAbility(slot, me) {
 }
 
 function updatePlayerAnim(p, dt) {
-  if (!p._anim) p._anim = { frame: "idle", accum: 0, actionUntil: 0, lastX: p.x, lastY: p.y };
+  if (!p._anim) p._anim = { frame: "idle", accum: 0, actionUntil: 0, actionAb: null, lastX: p.x, lastY: p.y };
   const a = p._anim;
   const now = performance.now();
   const dx = p.x - a.lastX, dy = p.y - a.lastY;
@@ -4883,6 +4919,344 @@ function drawScanArrow() {
   ctx.fillText(lbl, me.x, me.y - 74);
 }
 
+// ---------- Custom ability animations ----------
+// Toggleable via Settings.customAnims. The registry is keyed by
+// "charId:abilityId" so abilities that share an id across characters
+// (runner:dash vs lunar:dash) stay distinct. Each entry may define:
+//   transform(t) -> {actScaleX, actScaleY, leanPx, bobPx, swayRad}
+//     Custom override for the squash/stretch transform. Omit for default.
+//   pre(ctx, p, t, dir)  Drawn BEFORE the sprite (ground/back effects).
+//   post(ctx, p, t, dir) Drawn AFTER the sprite (foreground effects).
+// t is 0..1 across the action window; dir is +1 (facing right) or -1.
+const ABILITY_FX = {
+  // -------- Survivor abilities --------
+  "runner:dash": {
+    transform: (t) => ({ actScaleX: 1.15, actScaleY: 0.90, leanPx: 8 * t }),
+    pre: (ctx, p, t, dir) => {
+      const fade = 1 - t;
+      for (let i = 0; i < 5; i++) {
+        const off = -10 * dir - i * 8 * dir;
+        ctx.fillStyle = `rgba(255,128,180,${(fade * (1 - i * 0.18)).toFixed(2)})`;
+        ctx.fillRect(p.x + off, p.y - 8 + i, 6, 2);
+        ctx.fillRect(p.x + off, p.y + 4 - i, 6, 2);
+      }
+    },
+  },
+  "runner:smoke": {
+    transform: (t) => ({ actScaleX: 1.05, leanPx: 4 * t }),
+    post: (ctx, p, t, dir) => {
+      // Hand-thrown canister flying forward.
+      const cx = p.x + dir * (12 + 30 * t);
+      const cy = p.y - 8 - 6 * Math.sin(t * Math.PI);
+      ctx.fillStyle = "#a0a0b4"; ctx.fillRect(cx - 3, cy - 2, 6, 4);
+      ctx.fillStyle = "#5a5a6a"; ctx.fillRect(cx - 3, cy + 1, 6, 1);
+      ctx.fillStyle = `rgba(220,220,230,${(0.6 * (1 - t)).toFixed(2)})`;
+      ctx.fillRect(cx - dir * 6, cy - 1, 4, 3);
+    },
+  },
+  "engineer:shield": {
+    transform: () => ({}),
+    post: (ctx, p, t, dir) => {
+      // Hex-shape cyan shield bubble pulses around the body.
+      const r = 26 + Math.sin(t * Math.PI * 3) * 1.5;
+      ctx.save();
+      ctx.strokeStyle = `rgba(120,220,255,${(0.85 * (1 - t * 0.4)).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+        const x = p.x + Math.cos(a) * r;
+        const y = p.y + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = `rgba(120,220,255,${(0.12 * (1 - t)).toFixed(2)})`;
+      ctx.fill();
+      ctx.restore();
+    },
+  },
+  "engineer:robot": {
+    // Bent-over build pose during the channel intro.
+    transform: () => ({ actScaleX: 1.08, actScaleY: 0.82, leanPx: 0, bobPx: 3 }),
+    post: (ctx, p, t, dir) => {
+      // Yellow welding sparks at the hand position.
+      const hx = p.x + dir * 12, hy = p.y + 6;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI - Math.PI / 2;
+        const r = 4 + (i % 2) * 4 + Math.sin(t * 12 + i) * 2;
+        ctx.fillStyle = (i % 2) ? "#fff7a0" : "#ffb060";
+        ctx.fillRect(hx + Math.cos(a) * r - 1, hy + Math.sin(a) * r - 1, 2, 2);
+      }
+      ctx.fillStyle = `rgba(255,200,80,${(0.9 - t).toFixed(2)})`;
+      ctx.fillRect(hx - 2, hy - 2, 4, 4);
+    },
+  },
+  "scout:rally": {
+    transform: (t) => ({ actScaleY: 1 + 0.06 * Math.sin(t * Math.PI * 2), leanPx: 0 }),
+    pre: (ctx, p, t) => {
+      const r = 8 + t * 60;
+      ctx.strokeStyle = `rgba(255,210,90,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 6, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,160,40,${(0.6 * (1 - t)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 6, r * 0.55, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  "scout:scan": {
+    transform: () => ({}),
+    post: (ctx, p, t) => {
+      // Blue radar ping concentric pulses.
+      for (let i = 0; i < 3; i++) {
+        const tt = (t + i * 0.33) % 1;
+        ctx.strokeStyle = `rgba(120,200,255,${(1 - tt).toFixed(2)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 8 + tt * 40, 0, Math.PI * 2); ctx.stroke();
+      }
+    },
+  },
+  "sentinel:burst": {
+    transform: (t) => ({ actScaleX: 1 - 0.1 * Math.sin(t * Math.PI) }),
+    pre: (ctx, p, t) => {
+      // Frost shards exploding outward.
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const r = 10 + t * 60;
+        const fx = p.x + Math.cos(a) * r;
+        const fy = p.y + Math.sin(a) * r;
+        ctx.fillStyle = `rgba(180,230,255,${(1 - t).toFixed(2)})`;
+        ctx.fillRect(fx - 2, fy - 2, 4, 4);
+        ctx.fillStyle = `rgba(220,240,255,${(0.7 * (1 - t)).toFixed(2)})`;
+        ctx.fillRect(fx - 1, fy - 1, 2, 2);
+      }
+    },
+  },
+  "sentinel:field": {
+    transform: () => ({ actScaleY: 0.96 }),
+    pre: (ctx, p, t) => {
+      // Ice mist swirling around the feet.
+      for (let i = 0; i < 5; i++) {
+        const a = t * Math.PI * 2 + i * (Math.PI * 2 / 5);
+        const fx = p.x + Math.cos(a) * 14;
+        const fy = p.y + 12 + Math.sin(a) * 4;
+        ctx.fillStyle = `rgba(170,220,250,${(0.65 - t * 0.4).toFixed(2)})`;
+        ctx.fillRect(fx - 2, fy - 2, 4, 4);
+      }
+    },
+  },
+  "fencer:slash": {
+    transform: (t) => ({ actScaleX: 1 + 0.20 * Math.sin(t * Math.PI), leanPx: 8 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // Long white slash arc in the facing direction.
+      const cx = p.x + dir * 20, cy = p.y - 4;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,255,255,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 24, -Math.PI * 0.4 - t * 0.4, Math.PI * 0.4 + t * 0.4);
+      ctx.stroke();
+      ctx.restore();
+    },
+  },
+  "kacey:burger": {
+    transform: (t) => ({ leanPx: 4 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // Trail of crumbs flying forward.
+      for (let i = 0; i < 4; i++) {
+        const off = dir * (15 + i * 8 + t * 16);
+        ctx.fillStyle = `rgba(255,200,120,${(0.9 - i * 0.18 - t).toFixed(2)})`;
+        ctx.fillRect(p.x + off, p.y - 6 + (i % 2) * 4, 3, 3);
+      }
+    },
+  },
+  "sniper:shoot": {
+    transform: (t) => ({ actScaleX: 0.94, leanPx: -3 + 8 * t }),
+    post: (ctx, p, t, dir) => {
+      // Bright muzzle flash + smoke at the rifle tip.
+      const mx = p.x + dir * 22, my = p.y - 2;
+      const flash = 1 - t;
+      ctx.fillStyle = `rgba(255,240,160,${flash.toFixed(2)})`;
+      ctx.fillRect(mx - 2, my - 4, 4, 8);
+      ctx.fillRect(mx + dir * 2, my - 2, 6, 4);
+      ctx.fillStyle = `rgba(255,180,80,${(flash * 0.8).toFixed(2)})`;
+      ctx.fillRect(mx + dir * 4, my - 1, 4, 2);
+      ctx.fillStyle = `rgba(220,220,220,${(t * 0.6).toFixed(2)})`;
+      ctx.fillRect(mx + dir * (6 + t * 8), my - 2, 4, 4);
+    },
+  },
+  "sniper:sneak": {
+    transform: () => ({}),
+    post: (ctx, p, t) => {
+      // Purple ghost ripple radiating out.
+      const r = 8 + t * 24;
+      ctx.strokeStyle = `rgba(160,80,220,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  "angle:stab": {
+    // Forward lunge + extended dagger thrust.
+    transform: (t) => ({ actScaleX: 1.25, actScaleY: 0.88, leanPx: 12 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      const ext = 14 + 16 * Math.sin(t * Math.PI);
+      const dx = p.x + dir * ext, dy = p.y - 2;
+      ctx.fillStyle = "#cccccc"; ctx.fillRect(dx - 2, dy - 1, 4, 3);
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(dx - 2, dy - 1, 4, 1);
+      // Trailing motion streak.
+      ctx.fillStyle = `rgba(176,112,255,${(0.7 * (1 - t)).toFixed(2)})`;
+      ctx.fillRect(p.x + dir * 8, dy, dir * (ext - 8), 1);
+    },
+  },
+  "angle:spawner": {
+    transform: () => ({ actScaleY: 0.85, bobPx: 4 }),
+    pre: (ctx, p, t) => {
+      const r = 6 + t * 22;
+      ctx.fillStyle = `rgba(176,112,255,${(0.6 * (1 - t)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 14, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(224,200,255,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y + 14, r, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  // -------- Killer abilities --------
+  "slasher:throw": {
+    transform: (t) => ({ leanPx: 6 * Math.sin(t * Math.PI), actScaleX: 1.1 }),
+    post: (ctx, p, t, dir) => {
+      // Spinning knife forward.
+      const ox = p.x + dir * (16 + 24 * t);
+      ctx.save();
+      ctx.translate(ox, p.y - 4);
+      ctx.rotate(t * Math.PI * 4 * dir);
+      ctx.fillStyle = "#dddddd"; ctx.fillRect(-1, -6, 2, 8);
+      ctx.fillStyle = "#7a5524"; ctx.fillRect(-2, 2, 4, 2);
+      ctx.restore();
+    },
+  },
+  "slasher:frenzy": {
+    transform: (t) => ({ actScaleX: 1.06, leanPx: 4 }),
+    pre: (ctx, p, t) => {
+      // Red speed aura.
+      const r = 22 + Math.sin(t * 12) * 3;
+      ctx.fillStyle = `rgba(233,69,96,${(0.35 * (1 - t * 0.5)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+    },
+  },
+  "stalker:step": {
+    transform: () => ({}),
+    pre: (ctx, p, t, dir) => {
+      // Black ghost trail behind.
+      for (let i = 0; i < 4; i++) {
+        const ox = -dir * (8 + i * 10);
+        ctx.fillStyle = `rgba(20,10,30,${(0.6 * (1 - i * 0.22) * (1 - t)).toFixed(2)})`;
+        ctx.fillRect(p.x + ox - 6, p.y - 14, 12, 28);
+      }
+    },
+  },
+  "stalker:stalk": {
+    transform: () => ({}),
+    pre: (ctx, p, t) => {
+      // Dark purple aura buildup around the killer.
+      const r = 18 + t * 14;
+      ctx.fillStyle = `rgba(80,20,120,${(0.45 * (1 - t)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(180,80,220,${(0.8 * (1 - t)).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  "lunar:build_portal": {
+    transform: () => ({ actScaleY: 0.94, bobPx: 2 }),
+    post: (ctx, p, t) => {
+      // Two counter-rotating purple swirls above the killer.
+      for (let s = 0; s < 2; s++) {
+        const dirS = s ? 1 : -1;
+        for (let i = 0; i < 6; i++) {
+          const a = t * Math.PI * 4 * dirS + i * (Math.PI / 3);
+          const r = 14 + i * 1.5;
+          const fx = p.x + Math.cos(a) * r;
+          const fy = p.y - 14 + Math.sin(a) * r * 0.6;
+          ctx.fillStyle = `rgba(160,100,240,${(0.8 - i * 0.1).toFixed(2)})`;
+          ctx.fillRect(fx - 1, fy - 1, 2, 2);
+        }
+      }
+    },
+  },
+  "lunar:dash": {
+    transform: (t) => ({ actScaleX: 1.15, leanPx: 10 * t }),
+    pre: (ctx, p, t, dir) => {
+      for (let i = 0; i < 5; i++) {
+        const off = -dir * (10 + i * 10);
+        ctx.fillStyle = `rgba(160,100,240,${(0.85 * (1 - t) * (1 - i * 0.18)).toFixed(2)})`;
+        ctx.fillRect(p.x + off, p.y - 6 + i * 2, 8, 2);
+      }
+    },
+  },
+  "sly:transform": {
+    transform: (t) => ({ actScaleX: 1 + 0.15 * Math.sin(t * Math.PI * 4),
+                          actScaleY: 1 + 0.15 * Math.sin(t * Math.PI * 4 + 1) }),
+    post: (ctx, p, t) => {
+      // Bright pulsing transformation aura.
+      const r = 12 + Math.sin(t * Math.PI * 6) * 6 + t * 16;
+      ctx.fillStyle = `rgba(120,255,140,${(0.55 * (1 - t)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(220,255,200,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  // -------- Killer basic attacks --------
+  "slasher:attack": {
+    transform: (t) => ({ actScaleX: 1.1, leanPx: 6 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // White slash arc.
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,255,255,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x + dir * 14, p.y - 2, 16, -Math.PI * 0.5, Math.PI * 0.5);
+      ctx.stroke();
+      ctx.restore();
+    },
+  },
+  "stalker:attack": {
+    transform: (t) => ({ actScaleX: 1.1, leanPx: 6 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // Three claw rake marks in red.
+      for (let i = 0; i < 3; i++) {
+        const off = -8 + i * 8;
+        ctx.fillStyle = `rgba(233,69,96,${(0.9 - i * 0.1 - t).toFixed(2)})`;
+        ctx.fillRect(p.x + dir * (16 + i * 4), p.y + off, dir * 14, 2);
+      }
+    },
+  },
+  "lunar:attack": {
+    transform: (t) => ({ actScaleX: 1.12, leanPx: 8 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // Purple punch shockwave.
+      const fx = p.x + dir * 22, fy = p.y - 2;
+      const r = 8 + t * 12;
+      ctx.fillStyle = `rgba(160,100,240,${(0.7 * (1 - t)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(fx, fy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(220,180,255,${(1 - t).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(fx, fy, r, 0, Math.PI * 2); ctx.stroke();
+    },
+  },
+  "sly_dino:attack": {
+    transform: (t) => ({ actScaleX: 1.18, actScaleY: 0.9, leanPx: 14 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t, dir) => {
+      // Big chomp jaws — pair of triangular flashes.
+      const fx = p.x + dir * 40, fy = p.y - 10;
+      const open = Math.sin(t * Math.PI) * 16;
+      ctx.fillStyle = `rgba(255,255,255,${(1 - t * 0.4).toFixed(2)})`;
+      ctx.fillRect(fx, fy - open / 2, 18, 3);
+      ctx.fillRect(fx, fy + open / 2, 18, 3);
+    },
+  },
+};
+function fxFor(charId, actionAb) {
+  return ABILITY_FX[charId + ":" + actionAb] || null;
+}
+
 function drawPlayer(p) {
   if (p.hiddenFromMe) return; // killer can't see survivors inside a smoke cloud
   const charId = spriteIdFor(p);
@@ -5072,6 +5446,18 @@ function drawPlayer(p) {
     ctx.restore();
   }
 
+  // Custom ability FX "pre" pass (drawn under the sprite in world coords).
+  if (Settings.customAnims && p.alive && p._anim && now < (p._anim.actionUntil || 0)) {
+    const preFx = fxFor(charId, p._anim.actionAb);
+    if (preFx && preFx.pre) {
+      const t = 1 - (p._anim.actionUntil - now) / ACTION_HOLD_MS;
+      const dir = (((p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1)) < 0) ? -1 : 1;
+      ctx.save();
+      preFx.pre(ctx, p, t, dir);
+      ctx.restore();
+    }
+  }
+
   ctx.save();
   ctx.imageSmoothingEnabled = false;
 
@@ -5080,31 +5466,45 @@ function drawPlayer(p) {
   // ride on top of the existing 4-frame sprite to give it more visible
   // motion stages without redrawing more sprite frames.
   let actScaleX = 1, actScaleY = 1, leanPx = 0, bobPx = 0, swayRad = 0;
+  let customFx = null, customFxT = 0;
   if (p.alive && p._anim) {
     if (now < (p._anim.actionUntil || 0)) {
-      // t goes 0 -> 1 across the action window. Three phases:
-      //   0.00 .. 0.22  anticipation (wind-up): squash + lean back
-      //   0.22 .. 0.60  strike (overshoot):     stretch + lunge forward
-      //   0.60 .. 1.00  recovery (follow-through ease back to neutral)
+      // t goes 0 -> 1 across the action window.
       const t = 1 - (p._anim.actionUntil - now) / ACTION_HOLD_MS;
-      if (t < 0.22) {
-        const k = t / 0.22;
-        actScaleX = 1 - 0.10 * k;
-        actScaleY = 1 + 0.08 * k;
-        leanPx = -3 * k;
-      } else if (t < 0.60) {
-        const k = (t - 0.22) / 0.38;
-        // ease-out so the overshoot peaks fast then settles
-        const ease = 1 - Math.pow(1 - k, 2);
-        actScaleX = 0.90 + 0.30 * ease;     // 0.90 -> 1.20
-        actScaleY = 1.08 - 0.20 * ease;     // 1.08 -> 0.88
-        leanPx = -3 + 8 * ease;
+      const fx = Settings.customAnims ? fxFor(charId, p._anim.actionAb) : null;
+      if (fx) {
+        // Custom variant: use the registered transform (if any), otherwise
+        // leave the default rest pose. Overlays render in drawPlayer below.
+        customFx = fx;
+        customFxT = t;
+        if (fx.transform) {
+          const tr = fx.transform(t) || {};
+          if (tr.actScaleX != null) actScaleX = tr.actScaleX;
+          if (tr.actScaleY != null) actScaleY = tr.actScaleY;
+          if (tr.leanPx   != null) leanPx   = tr.leanPx;
+          if (tr.bobPx    != null) bobPx    = tr.bobPx;
+          if (tr.swayRad  != null) swayRad  = tr.swayRad;
+        }
       } else {
-        const k = (t - 0.60) / 0.40;
-        const ease = 1 - Math.pow(1 - k, 3);
-        actScaleX = 1.20 - 0.20 * ease;     // 1.20 -> 1.00
-        actScaleY = 0.88 + 0.12 * ease;     // 0.88 -> 1.00
-        leanPx = 5 - 5 * ease;
+        // Default: 3-phase squash/stretch (anticipation + overshoot + recovery)
+        if (t < 0.22) {
+          const k = t / 0.22;
+          actScaleX = 1 - 0.10 * k;
+          actScaleY = 1 + 0.08 * k;
+          leanPx = -3 * k;
+        } else if (t < 0.60) {
+          const k = (t - 0.22) / 0.38;
+          const ease = 1 - Math.pow(1 - k, 2);
+          actScaleX = 0.90 + 0.30 * ease;
+          actScaleY = 1.08 - 0.20 * ease;
+          leanPx = -3 + 8 * ease;
+        } else {
+          const k = (t - 0.60) / 0.40;
+          const ease = 1 - Math.pow(1 - k, 3);
+          actScaleX = 1.20 - 0.20 * ease;
+          actScaleY = 0.88 + 0.12 * ease;
+          leanPx = 5 - 5 * ease;
+        }
       }
     } else if (p._anim.frame === "walkA" || p._anim.frame === "walkB") {
       // Sub-frame bob — a quick sine driven by walk-step accumulator.
@@ -5155,6 +5555,14 @@ function drawPlayer(p) {
     ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
   }
   ctx.restore();
+
+  // Custom ability FX "post" pass (drawn over the sprite in world coords).
+  if (customFx && customFx.post) {
+    const dir = flip ? -1 : 1;
+    ctx.save();
+    customFx.post(ctx, p, customFxT, dir);
+    ctx.restore();
+  }
 
   // Sneak also fades the HP bar + name so the sniper doesn't get given away.
   const sneakAlpha = (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0))))
