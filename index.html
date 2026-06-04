@@ -657,6 +657,13 @@
       <div class="gd-ab"><b>X — MEOW!</b>: every survivor within 600 px heals <b>20 HP</b> instantly; any killer in range is <b>slowed to 0.9× speed for 4s</b>. CD 35s.</div>
     </div>
     <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#4a8c40"></span><b>Pollen</b><span class="gd-muted">trail of clovers + healing / defence fountains</span></div>
+      <div class="gd-ab"><b>Passive — Clover Trail</b>: a short trail of clovers drops behind you as you walk. Each clover lasts about <b>10s</b> and fades. Any <b>other survivor</b> standing on the trail heals <b>0.5 HP/sec</b> (you can't heal off your own trail).</div>
+      <div class="gd-ab"><b>Z — Breathe</b>: take a quick breath of fresh air — heal yourself <b>10 HP</b>. CD 20s.</div>
+      <div class="gd-ab"><b>X — Heal Station</b>: <b>5s rooted channel</b>, blood lifts from your body as you raise your arms to the sky. Costs <b>15 HP</b> up front. When the channel finishes, a fountain drops at your feet and <b>heals every survivor in range 2 HP/sec</b>. It stays up <b>forever</b> until the killer melee-strikes it. Only one Heal Station at a time. CD 30s.</div>
+      <div class="gd-ab"><b>C — Defence Station</b>: same 5s rooted channel + 15 HP cost as Heal Station, but instead it gives every survivor in range an <b>8s shield</b> (refreshed while they stay inside the radius). Killer melee strike breaks it. One Defence Station at a time. CD 30s.</div>
+    </div>
+    <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
       <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you stabbed out of a Duck. <b>Stabbing ends your Duck immediately</b> (hit or miss). CD 8s.</div>
       <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. Stab applies its <b>doubled malice bonus</b> if you stab from inside it, then ends the Duck. CD 18s.</div>
@@ -889,6 +896,7 @@ const CHAR_VISUALS = {
   fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
   kacey:    { skin: "#ff9050", shirt: "#ffffff", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null, decoration: "burger" },
   angel:    { skin: "#888894", shirt: "#2a1840", pants: "#0a0612", hair: "#1a1828", hat: "shadow",  weapon: "dagger" },
+  pollen:   { skin: "#f4d0a0", shirt: "#4a8c40", pants: "#2a4a20", hair: "#c8a040", hat: "flower",  weapon: null },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -929,6 +937,9 @@ const G = {
   trapBreaks: [],          // VFX when a trap snaps shut or is evicted
   spawnPads: [],           // Angel's spawn pads (from server)
   respawnFlashes: [],      // VFX when Angel respawns at a pad
+  clovers: [],             // Pollen's clover trail (from server)
+  stations: [],            // Pollen's heal + defence stations (from server)
+  stationBreaks: [],       // VFX when a Pollen station is shattered
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   mapId: "circus",
@@ -1206,6 +1217,22 @@ function drawHeadAndHat(sx, v, cx, vy) {
     sx.fillStyle = "#080010";  sx.fillRect(cx - 7, 5 + vy, 14, 11);
     sx.fillStyle = "rgba(0,0,0,0.85)"; sx.fillRect(cx - 5, 10 + vy, 10, 6);
     sx.fillStyle = "#ffffff";  sx.fillRect(cx - 2, 12 + vy, 1, 1);
+                                sx.fillRect(cx + 2, 12 + vy, 1, 1);
+  } else if (v.hat === "flower") {
+    sx.fillStyle = v.hair;     sx.fillRect(cx - 5, 7 + vy, 10, 4);
+                                sx.fillRect(cx - 6, 8 + vy, 1, 5);
+                                sx.fillRect(cx + 5, 8 + vy, 1, 5);
+    const _ps = [[-5,5],[-2,4],[1,4],[4,5],[-3,6]];
+    for (const [px, py] of _ps) {
+      const x = cx + px, y = py + vy;
+      sx.fillStyle = "#fff5c0"; sx.fillRect(x, y, 2, 1);
+      sx.fillRect(x - 1, y + 1, 1, 1);
+      sx.fillRect(x + 2, y + 1, 1, 1);
+      sx.fillStyle = "#ffd060"; sx.fillRect(x, y + 1, 2, 1);
+    }
+    sx.fillStyle = "#7ac050";  sx.fillRect(cx - 1, 3 + vy, 3, 2);
+                                sx.fillRect(cx, 5 + vy, 1, 2);
+    sx.fillStyle = "#1a1208";  sx.fillRect(cx - 2, 12 + vy, 1, 1);
                                 sx.fillRect(cx + 2, 12 + vy, 1, 1);
   } else if (v.hat === "shadow") {
     sx.fillStyle = v.hair;     sx.fillRect(cx - 6, 5 + vy, 12, 4);
@@ -1522,6 +1549,86 @@ const CUSTOM_ACTION_DRAWERS = {
     sx.lineWidth = 1;
     sx.beginPath(); sx.arc(cx, 39, 9, 0, Math.PI * 2); sx.stroke();
     drawHeadAndHat(sx, v, cx, 3);   // head slightly down (looking at ground)
+  },
+  // ---- Pollen: short breath inhale — head tipped slightly back.
+  "pollen:breathe": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 18, 12, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 12, 2);
+    // Both hands at chest (taking the breath)
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 8, 21, 3, 6);
+    sx.fillRect(cx + 5, 21, 3, 6);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 8, 21, 3, 3);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx + 5, 21, 3, 3);
+    drawHeadAndHat(sx, v, cx, -1);   // head a touch up (looking skyward)
+  },
+  // ---- Pollen: arms wide open to the sky for the station sacrifice.
+  "pollen:heal_station": (sx, v) => {
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 18, 12, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 12, 2);
+    // Arms wide open in a "V" toward the sky.
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 13, 5, 3, 14);
+    sx.fillRect(cx + 10, 5, 3, 14);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 13, 14, 3, 5);
+    sx.fillRect(cx + 10, 14, 3, 5);
+    // Open-palm sparkles at fingertips
+    sx.fillStyle = "rgba(255,255,255,0.85)";
+    sx.fillRect(cx - 14, 4, 2, 2);
+    sx.fillRect(cx + 12, 4, 2, 2);
+    drawHeadAndHat(sx, v, cx, -2);   // head tilted upward
+  },
+  "pollen:defence_station": (sx, v) => {
+    // Same arms-to-sky pose as heal_station; the channel theme is what
+    // makes them feel different (red blood drops + blue sigils vs green).
+    const cx = SPRITE_SIZE / 2;
+    sx.fillStyle = "rgba(0,0,0,0.45)";
+    sx.beginPath(); sx.ellipse(cx, 40, 11, 3, 0, 0, Math.PI * 2); sx.fill();
+    sx.fillStyle = v.pants;
+    sx.fillRect(cx - 5, 30, 4, 10);
+    sx.fillRect(cx + 1, 30, 4, 10);
+    sx.fillStyle = "#2a1a10";
+    sx.fillRect(cx - 5, 39, 4, 2);
+    sx.fillRect(cx + 1, 39, 4, 2);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 6, 18, 12, 12);
+    sx.fillStyle = "rgba(0,0,0,0.18)";
+    sx.fillRect(cx - 6, 28, 12, 2);
+    sx.fillStyle = v.skin;
+    sx.fillRect(cx - 13, 5, 3, 14);
+    sx.fillRect(cx + 10, 5, 3, 14);
+    sx.fillStyle = v.shirt;
+    sx.fillRect(cx - 13, 14, 3, 5);
+    sx.fillRect(cx + 10, 14, 3, 5);
+    sx.fillStyle = "rgba(160,200,255,0.9)";
+    sx.fillRect(cx - 14, 4, 2, 2);
+    sx.fillRect(cx + 12, 4, 2, 2);
+    drawHeadAndHat(sx, v, cx, -2);
   },
   // ---- Lunar: arms raised, casting a portal.
   "lunar:build_portal": (sx, v) => {
@@ -1956,6 +2063,30 @@ function drawCharFrame(sx, v, frame) {
     sx.fillRect(cx + 5, 14, 2, 1);
     sx.fillRect(cx - 7, 15, 1, 1);
     sx.fillRect(cx + 6, 15, 1, 1);
+  } else if (v.hat === "flower") {
+    // Pollen: blonde hair with a small clover crown — five tiny petal
+    // clusters in a ring on the head + one big clover leaf at the top.
+    sx.fillStyle = v.hair;
+    sx.fillRect(cx - 5, 7, 10, 4);
+    sx.fillRect(cx - 6, 8, 1, 5);
+    sx.fillRect(cx + 5, 8, 1, 5);
+    const petalSpots = [[-5,5],[-2,4],[1,4],[4,5],[-3,6]];
+    for (const [px, py] of petalSpots) {
+      const x = cx + px, y = py;
+      sx.fillStyle = "#fff5c0"; sx.fillRect(x, y, 2, 1);
+      sx.fillRect(x - 1, y + 1, 1, 1);
+      sx.fillRect(x + 2, y + 1, 1, 1);
+      sx.fillStyle = "#ffd060"; sx.fillRect(x, y + 1, 2, 1);
+    }
+    sx.fillStyle = "#7ac050";
+    sx.fillRect(cx - 1, 3, 3, 2);
+    sx.fillRect(cx, 5, 1, 2);
+    sx.fillStyle = "#1a1208";
+    sx.fillRect(cx - 2, 12, 1, 1);
+    sx.fillRect(cx + 2, 12, 1, 1);
+    sx.fillStyle = "#f0a890";
+    sx.fillRect(cx - 4, 13, 1, 1);
+    sx.fillRect(cx + 3, 13, 1, 1);
   } else if (v.hat === "shadow") {
     // Angel: grey-skinned face left mostly bare (no hood). Messy dark hair
     // on top + sides; faint purple eye glints in the eye sockets.
@@ -2218,6 +2349,8 @@ function onMessage(msg) {
       G.robots = msg.robots || [];
       G.traps  = msg.traps  || [];
       G.spawnPads = msg.spawnPads || [];
+      G.clovers   = msg.clovers   || [];
+      G.stations  = msg.stations  || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -2245,6 +2378,11 @@ function onMessage(msg) {
       break;
     case "trap_break":
       G.trapBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 450, evicted: !!msg.evicted });
+      break;
+    case "station_break":
+      for (const st of (msg.stations || [])) {
+        G.stationBreaks.push({ x: st.x, y: st.y, kind: st.kind, until: performance.now() + 600 });
+      }
       break;
     case "form": {
       const v = G.players.get(msg.id);
@@ -2782,7 +2920,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angel: 80 };
+const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angel: 80, pollen: 225 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
@@ -2797,7 +2935,7 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
 };
 const ACCOUNT_KEY = "fk:account";
-const ACCOUNT_VERSION = 5;
+const ACCOUNT_VERSION = 6;
 // Each entry is either an array of char ids to strip from old saves
 // (used when a free default becomes priced), or an object with
 // optional { strip: [...], rename: { oldId: newId } } for renames.
@@ -2806,6 +2944,7 @@ const ACCOUNT_MIGRATIONS = {
   3: ["engineer", "runner"],  // Engineer (115) and Runner (100) became priced in v3.
   4: ["angle"],               // Angle (80) — make sure no save grants it free.
   5: { rename: { angle: "angel" } }, // Angle was renamed to Angel.
+  6: ["pollen"],              // Pollen (225) — make sure no save grants it free.
 };
 function applyMigration(unlocks, entry) {
   if (!entry) return unlocks;
@@ -3350,6 +3489,28 @@ function applyLocalAbility(me, ab, aim) {
       // No killer in the sandbox = no hit = no malice. The server only
       // grants malice on a real connect, which mirrors the live rule.
       break;
+    case "heal_self_instant":
+      me.hp = Math.min(G.survivorHpMax, (me.hp || 0) + (ab.amount || 0));
+      me.healFlashUntil = now + 350;
+      break;
+    case "build_station": {
+      const dropStation = () => {
+        if (!me.alive) return;
+        G.stations = G.stations || [];
+        G.stations = G.stations.filter(st => !(st.ownerId === me.id && st.kind === ab.stationKind));
+        G.stations.push({
+          id: ++G.localEntityId, x: me.x, y: me.y, ownerId: me.id,
+          kind: ab.stationKind, radius: ab.radius || 140,
+        });
+      };
+      if (ab.hpCost) {
+        me.hp = Math.max(0, (me.hp || 0) - ab.hpCost);
+        me.hitFlashUntil = now + 250;
+      }
+      if (ab.channelDuration) setTimeout(dropStation, ab.channelDuration * 1000);
+      else dropStation();
+      break;
+    }
     case "duck":
       me.sneaking = true;
       me.ducking = true;
@@ -4273,6 +4434,10 @@ function tryFireAbility(slot, me) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
     me.channelType = ab.type;
+  } else if (ab.type === "build_station" && ab.channelDuration) {
+    me.channelUntil = now + ab.channelDuration * 1000;
+    me.channelDuration = ab.channelDuration * 1000;
+    me.channelType = ab.type;
   } else if (ab.type === "duck") {
     me._localSneakUntil = now + ab.duration * 1000;
     me._localDuckUntil  = now + ab.duration * 1000;
@@ -4588,9 +4753,11 @@ function render() {
 
   // Floor-level placed items render UNDER players so a survivor standing
   // on a trap / pad / portal / field isn't hidden by it.
+  drawClovers();
   drawPortals();
   drawTraps();
   drawSpawnPads();
+  drawStations();
   drawSlowFields();
 
   // players (z-sort by y)
@@ -5013,6 +5180,93 @@ function drawSpawnPads() {
     const sxc = Math.round(b.x), syc = Math.round(b.y);
     ctx.fillRect(sxc - 1, syc - r, 2, r * 2);
     ctx.fillRect(sxc - r, syc - 1, r * 2, 2);
+  }
+}
+
+function drawClovers() {
+  // Pollen's clover trail. Each clover is a 4-leaf cluster that fades
+  // toward the end of its TTL.
+  for (const cv of (G.clovers || [])) {
+    const ttl = (cv.t != null ? cv.t : 10);
+    const alpha = Math.max(0.25, Math.min(1, ttl / 4));
+    const x = cv.x | 0, y = cv.y | 0;
+    // Four heart-leaf rectangles
+    ctx.fillStyle = `rgba(122,192,80,${alpha.toFixed(2)})`;
+    ctx.fillRect(x - 4, y - 4, 3, 3);
+    ctx.fillRect(x + 1, y - 4, 3, 3);
+    ctx.fillRect(x - 4, y + 1, 3, 3);
+    ctx.fillRect(x + 1, y + 1, 3, 3);
+    // Darker shadow halves
+    ctx.fillStyle = `rgba(70,140,50,${alpha.toFixed(2)})`;
+    ctx.fillRect(x - 4, y - 2, 3, 1);
+    ctx.fillRect(x + 1, y - 2, 3, 1);
+    ctx.fillRect(x - 4, y + 3, 3, 1);
+    ctx.fillRect(x + 1, y + 3, 3, 1);
+    // Center stem
+    ctx.fillStyle = `rgba(180,220,140,${alpha.toFixed(2)})`;
+    ctx.fillRect(x - 1, y - 1, 2, 2);
+  }
+}
+
+function drawStations() {
+  const now = performance.now();
+  for (const st of (G.stations || [])) {
+    const x = Math.round(st.x), y = Math.round(st.y);
+    // Faint radius ring on the ground
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = st.kind === "heal" ? "#7ac050" : "#80b0ff";
+    ctx.beginPath(); ctx.arc(x, y, st.radius || 140, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    if (st.kind === "heal") {
+      // Stone fountain base
+      ctx.fillStyle = "#5a5a64"; ctx.fillRect(x - 12, y + 2, 24, 6);
+      ctx.fillStyle = "#7a7a86"; ctx.fillRect(x - 10, y - 2, 20, 4);
+      ctx.fillStyle = "#a0a8b4"; ctx.fillRect(x - 8, y - 6, 16, 4);
+      // Animated water plume
+      const wob = Math.sin(now * 0.006) * 1.5;
+      ctx.fillStyle = "#a0d4ff"; ctx.fillRect(x - 2, y - 14 + wob, 4, 8);
+      ctx.fillStyle = "#d0e8ff"; ctx.fillRect(x - 1, y - 14 + wob, 2, 8);
+      // Falling drops
+      ctx.fillStyle = "#a0d4ff";
+      for (let i = 0; i < 4; i++) {
+        const a = (now * 0.002 + i * (Math.PI / 2)) % (Math.PI * 2);
+        const dx = Math.cos(a) * 9, dy = Math.sin(a) * 3;
+        ctx.fillRect(x + dx - 1, y - 4 + dy, 2, 2);
+      }
+    } else {
+      // Defence: blue obelisk + spinning shield emblem
+      ctx.fillStyle = "#2a3a6a"; ctx.fillRect(x - 8, y - 2, 16, 10);
+      ctx.fillStyle = "#3a5090"; ctx.fillRect(x - 8, y - 2, 16, 2);
+      ctx.fillStyle = "#80b0ff"; ctx.fillRect(x - 6, y, 12, 6);
+      // Shield sigil floating above
+      const wob = Math.sin(now * 0.005) * 2;
+      const sx0 = x, sy0 = y - 14 + wob;
+      ctx.strokeStyle = "rgba(140,200,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx0, sy0 - 6);
+      ctx.lineTo(sx0 + 5, sy0 - 3);
+      ctx.lineTo(sx0 + 5, sy0 + 2);
+      ctx.lineTo(sx0,     sy0 + 6);
+      ctx.lineTo(sx0 - 5, sy0 + 2);
+      ctx.lineTo(sx0 - 5, sy0 - 3);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(120,180,255,0.4)"; ctx.fill();
+    }
+  }
+  // Station-break VFX: quick burst of fragments + ring.
+  G.stationBreaks = (G.stationBreaks || []).filter(b => now < b.until);
+  for (const b of G.stationBreaks) {
+    const t = (b.until - now) / 600;
+    const r = Math.round(8 + (1 - t) * 28);
+    const col = b.kind === "heal" ? `rgba(122,192,80,${t.toFixed(2)})` : `rgba(128,176,255,${t.toFixed(2)})`;
+    ctx.fillStyle = col;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.fillRect(b.x + Math.cos(a) * r - 2, b.y + Math.sin(a) * r - 2, 4, 4);
+    }
   }
 }
 
@@ -5561,6 +5815,70 @@ const ABILITY_FX = {
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
     },
   },
+  "pollen:breathe": {
+    transform: (t) => ({ actScaleY: 1 + 0.08 * Math.sin(t * Math.PI), actScaleX: 1 - 0.04 * Math.sin(t * Math.PI) }),
+    post: (ctx, p, t) => {
+      // Green leaf-puff curling up around Pollen as she breathes in.
+      for (let i = 0; i < 8; i++) {
+        const a = t * Math.PI * 2 + i * (Math.PI / 4);
+        const r = 12 + t * 14;
+        const fx = p.x + Math.cos(a) * r;
+        const fy = p.y - 4 + Math.sin(a) * r * 0.7;
+        ctx.fillStyle = `rgba(122,192,80,${(0.9 - t).toFixed(2)})`;
+        ctx.fillRect(fx - 2, fy - 2, 4, 4);
+        ctx.fillStyle = `rgba(220,240,180,${(0.7 - t).toFixed(2)})`;
+        ctx.fillRect(fx - 1, fy - 1, 2, 2);
+      }
+    },
+  },
+  "pollen:heal_station": {
+    // Arms wide open, head tilted up — handled visually by the channel
+    // overlay below + the custom action sprite. Here we just keep the
+    // sprite still and let the overlay carry the moment.
+    transform: () => ({ actScaleX: 1, actScaleY: 1, leanPx: 0, bobPx: 0 }),
+    post: (ctx, p, t) => {
+      // Blood drops rising from Pollen's body up into the sky.
+      for (let i = 0; i < 6; i++) {
+        const phase = ((t * 1.5) + i / 6) % 1;
+        const rise = phase * 40;
+        const dx = Math.sin(phase * Math.PI * 2 + i) * 6;
+        ctx.fillStyle = `rgba(180,30,40,${(1 - phase).toFixed(2)})`;
+        ctx.fillRect(p.x + dx - 1, p.y - rise, 2, 3);
+        ctx.fillStyle = `rgba(255,120,120,${(0.6 - phase * 0.6).toFixed(2)})`;
+        ctx.fillRect(p.x + dx, p.y - rise, 1, 2);
+      }
+      // Green-magic motes circling overhead near the end of the channel.
+      const overheadFade = Math.max(0, t - 0.3) / 0.7;
+      for (let i = 0; i < 5; i++) {
+        const a = t * Math.PI * 4 + i * (Math.PI * 2 / 5);
+        const fx = p.x + Math.cos(a) * 14;
+        const fy = p.y - 22 + Math.sin(a) * 6;
+        ctx.fillStyle = `rgba(122,192,80,${(overheadFade * 0.9).toFixed(2)})`;
+        ctx.fillRect(fx - 1, fy - 1, 2, 2);
+      }
+    },
+  },
+  "pollen:defence_station": {
+    transform: () => ({ actScaleX: 1, actScaleY: 1, leanPx: 0, bobPx: 0 }),
+    post: (ctx, p, t) => {
+      // Same blood-rising sacrifice motif but blue motes overhead.
+      for (let i = 0; i < 6; i++) {
+        const phase = ((t * 1.5) + i / 6) % 1;
+        const rise = phase * 40;
+        const dx = Math.sin(phase * Math.PI * 2 + i) * 6;
+        ctx.fillStyle = `rgba(180,30,40,${(1 - phase).toFixed(2)})`;
+        ctx.fillRect(p.x + dx - 1, p.y - rise, 2, 3);
+      }
+      const overheadFade = Math.max(0, t - 0.3) / 0.7;
+      for (let i = 0; i < 5; i++) {
+        const a = t * Math.PI * 4 + i * (Math.PI * 2 / 5);
+        const fx = p.x + Math.cos(a) * 14;
+        const fy = p.y - 22 + Math.sin(a) * 6;
+        ctx.fillStyle = `rgba(120,180,255,${(overheadFade * 0.9).toFixed(2)})`;
+        ctx.fillRect(fx - 1, fy - 1, 2, 2);
+      }
+    },
+  },
   "angel:stab": {
     // Forward lunge + extended dagger thrust.
     transform: (t) => ({ actScaleX: 1.25, actScaleY: 0.88, leanPx: 12 * Math.sin(t * Math.PI) }),
@@ -5791,16 +6109,21 @@ function drawPlayer(p) {
       const ct = p.channelType;
       const isLunar = ct === "build_portal" || ct === "teleport_portal";
       const isEngineer = ct === "spawn_robot";
+      const isPollenSacrifice = ct === "build_station";
       const halo = isLunar
         ? ["rgba(220,180,255,0.18)", "rgba(160,90,220,0.55)", "rgba(80,40,160,0)"]
         : isEngineer
         ? ["rgba(255,230,140,0.20)", "rgba(220,160,40,0.55)", "rgba(140,90,20,0)"]
+        : isPollenSacrifice
+        ? ["rgba(180,30,40,0.18)", "rgba(140,30,40,0.55)", "rgba(60,10,15,0)"]
         : ["rgba(140,230,250,0.15)", "rgba(80,180,220,0.45)", "rgba(50,140,200,0)"];
       const runeCol = isLunar ? "rgba(230,200,255,0.95)"
                     : isEngineer ? "rgba(255,235,170,0.95)"
+                    : isPollenSacrifice ? "rgba(255,180,180,0.95)"
                     : "rgba(200,245,255,0.95)";
       const arcCol  = isLunar ? "rgba(210,170,255,0.95)"
                     : isEngineer ? "rgba(255,210,90,0.95)"
+                    : isPollenSacrifice ? "rgba(255,80,80,0.95)"
                     : "rgba(150,230,255,0.95)";
       const grad = ctx.createRadialGradient(p.x, p.y + 6, 0, p.x, p.y + 6, r);
       grad.addColorStop(0, halo[0]);
@@ -5820,6 +6143,29 @@ function drawPlayer(p) {
       ctx.arc(p.x, p.y + 6, 32, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI);
       ctx.stroke();
       ctx.restore();
+      // Pollen sacrifice: blood drops rising from her body for the
+      // entire channel, with green/blue motes overhead near the end.
+      if (isPollenSacrifice) {
+        ctx.save();
+        for (let i = 0; i < 6; i++) {
+          const phase = ((progress * 1.5) + i / 6) % 1;
+          const rise = phase * 40;
+          const dx = Math.sin(phase * Math.PI * 2 + i) * 6;
+          ctx.fillStyle = `rgba(180,30,40,${(1 - phase).toFixed(2)})`;
+          ctx.fillRect(p.x + dx - 1, p.y - rise, 2, 3);
+          ctx.fillStyle = `rgba(255,120,120,${(0.6 - phase * 0.6).toFixed(2)})`;
+          ctx.fillRect(p.x + dx, p.y - rise, 1, 2);
+        }
+        const moteFade = Math.max(0, progress - 0.4) / 0.6;
+        for (let i = 0; i < 5; i++) {
+          const a = now * 0.005 + i * (Math.PI * 2 / 5);
+          const fx = p.x + Math.cos(a) * 16;
+          const fy = p.y - 26 + Math.sin(a) * 6;
+          ctx.fillStyle = `rgba(122,192,80,${(moteFade * 0.9).toFixed(2)})`;
+          ctx.fillRect(fx - 1, fy - 1, 2, 2);
+        }
+        ctx.restore();
+      }
     }
     if (p.speedBuff || (p.id === G.myId && now < (p._localSpeedUntil || 0))) {
       ctx.save();

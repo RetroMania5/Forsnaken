@@ -202,6 +202,7 @@ const SURVIVOR_CHARS = [
   { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
   { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
   { id: "angel",    name: "Angel",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },
+  { id: "pollen",   name: "Pollen",   color: "#4a8c40", speedMult: 1.00, repairMult: 1.00, blurb: "clover trail + healing / defence fountains" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -281,6 +282,20 @@ const ABILITIES = {
     // (handled via maxUses). The pad is what the passive respawns on.
     { id: "spawner", name: "Spawner", cd: 60, type: "spawn_pad", channelDuration: 3.0, maxUses: 1 },
   ],
+  pollen: [
+    // Breathe: instant self-heal.
+    { id: "breathe", name: "Breathe", cd: 20, type: "heal_self_instant", amount: 10 },
+    // Heal Station: 5s channel, costs 15 HP up front, drops a fountain
+    // that heals nearby survivors 2 HP/sec until a killer melee breaks it.
+    { id: "heal_station", name: "Heal Station", cd: 30, type: "build_station",
+      stationKind: "heal", channelDuration: 5.0, hpCost: 15, radius: 140,
+      healPerSec: 2 },
+    // Defence Station: 5s channel + 15 HP cost like Heal Station, but
+    // refreshes a short shield on any survivor inside the radius.
+    { id: "defence_station", name: "Defence Station", cd: 30, type: "build_station",
+      stationKind: "defence", channelDuration: 5.0, hpCost: 15, radius: 140,
+      shieldDuration: 8 },
+  ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
     { id: "frenzy", name: "Frenzy",      cd: 14, type: "speed_self", mult: 1.30, duration: 4.0 },
@@ -347,6 +362,8 @@ const state = {
   robots: [],
   traps: [],
   spawnPads: [],
+  clovers: [],     // Pollen's clover trail
+  stations: [],    // Pollen's heal + defence stations
   nextEntityId: 1,
 };
 
@@ -644,6 +661,18 @@ function onAttack(id) {
   });
   if (brokenFields.length > 0) {
     broadcast({ type: "field_break", fields: brokenFields, by: a.id });
+  }
+  // Killer attack also smashes any Pollen station whose center is in reach.
+  const brokenStations = [];
+  state.stations = state.stations.filter(st => {
+    if (Math.hypot(a.x - st.x, a.y - st.y) <= reach) {
+      brokenStations.push({ id: st.id, x: st.x, y: st.y, kind: st.kind });
+      return false;
+    }
+    return true;
+  });
+  if (brokenStations.length > 0) {
+    broadcast({ type: "station_break", stations: brokenStations, by: a.id });
   }
 }
 
@@ -1139,6 +1168,46 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.duckUntil  = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration, speedMult: ab.speedMult });
       break;
+    case "heal_self_instant": {
+      // Pollen's Breathe — top up HP immediately.
+      p.hp = Math.min(SURVIVOR_HP_MAX, p.hp + (ab.amount || 0));
+      broadcast({ type: "heal", id: p.id, hp: Math.round(p.hp), by: p.id, amount: ab.amount });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
+      break;
+    }
+    case "build_station": {
+      // 5s rooted channel. HP cost is paid up front so a cancelled / killed
+      // channel still spends it (commitment). At channel end, drop a station
+      // at the caster's position. Cap: one station per kind per caster —
+      // re-casting replaces the old one.
+      const ownerId = p.id;
+      const cost = ab.hpCost || 0;
+      if (cost) {
+        applyDamage(p, cost, p);
+        if (!p.alive) return; // sacrifice killed her — no station drops
+      }
+      const channelMs = (ab.channelDuration || 0) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        // Drop one of this kind per owner.
+        state.stations = state.stations.filter(st => !(st.ownerId === ownerId && st.kind === ab.stationKind));
+        const st = {
+          id: state.nextEntityId++,
+          x: owner.x, y: owner.y,
+          ownerId,
+          kind: ab.stationKind,
+          radius: ab.radius || 140,
+          healPerSec:   ab.healPerSec   || 0,
+          shieldDuration: ab.shieldDuration || 0,
+        };
+        state.stations.push(st);
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, x: st.x, y: st.y, stationId: st.id, kind: st.kind });
+      }, channelMs);
+      break;
+    }
     case "spawn_pad": {
       // 3s rooted channel, then a spawn pad drops at Angel's position. One
       // pad per Angel — slot also has maxUses: 1 so it locks after firing.
@@ -1214,6 +1283,8 @@ function startRound() {
   state.robots = [];
   state.traps = [];
   state.spawnPads = [];
+  state.clovers = [];
+  state.stations = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1491,6 +1562,64 @@ function tick() {
       return true;
     });
 
+    // Pollen passive: drop a clover every CLOVER_SPACING px traveled
+    // since the last drop. Clovers live for CLOVER_TTL seconds and heal
+    // 0.5 HP/s to any OTHER survivor standing on them.
+    const CLOVER_SPACING = 32;
+    const CLOVER_TTL = 10;
+    const CLOVER_R = 16;
+    const CLOVER_HEAL_PER_SEC = 0.5;
+    const CLOVER_MAX_PER_OWNER = 40;
+    for (const p of state.players.values()) {
+      if (p.survivorChar !== "pollen" || p.role !== "survivor" || !p.alive) continue;
+      if (p._lastCloverX == null) {
+        p._lastCloverX = p.x; p._lastCloverY = p.y;
+        state.clovers.push({ id: state.nextEntityId++, x: p.x, y: p.y, ownerId: p.id, ttl: CLOVER_TTL });
+      }
+      const dist = Math.hypot(p.x - p._lastCloverX, p.y - p._lastCloverY);
+      if (dist >= CLOVER_SPACING) {
+        p._lastCloverX = p.x; p._lastCloverY = p.y;
+        // Cap so the trail stays "short" — drop oldest if over budget.
+        const mine = state.clovers.filter(cv => cv.ownerId === p.id);
+        if (mine.length >= CLOVER_MAX_PER_OWNER) {
+          const oldest = mine[0];
+          state.clovers = state.clovers.filter(cv => cv.id !== oldest.id);
+        }
+        state.clovers.push({ id: state.nextEntityId++, x: p.x, y: p.y, ownerId: p.id, ttl: CLOVER_TTL });
+      }
+    }
+    // Decay clovers + heal other survivors standing on at least one.
+    for (const cv of state.clovers) cv.ttl -= dt;
+    state.clovers = state.clovers.filter(cv => cv.ttl > 0);
+    for (const s of state.players.values()) {
+      if (s.role !== "survivor" || !s.alive) continue;
+      if (s.hp >= SURVIVOR_HP_MAX) continue;
+      let onClover = false;
+      for (const cv of state.clovers) {
+        if (cv.ownerId === s.id) continue; // can't heal off your own trail
+        if (Math.hypot(s.x - cv.x, s.y - cv.y) < CLOVER_R) { onClover = true; break; }
+      }
+      if (onClover) {
+        s.hp = Math.min(SURVIVOR_HP_MAX, s.hp + CLOVER_HEAL_PER_SEC * dt);
+      }
+    }
+
+    // Pollen stations: heal or refresh shields on nearby survivors.
+    for (const st of state.stations) {
+      for (const s of state.players.values()) {
+        if (s.role !== "survivor" || !s.alive) continue;
+        if (Math.hypot(s.x - st.x, s.y - st.y) > st.radius) continue;
+        if (st.kind === "heal") {
+          if (s.hp < SURVIVOR_HP_MAX) {
+            s.hp = Math.min(SURVIVOR_HP_MAX, s.hp + (st.healPerSec || 0) * dt);
+          }
+        } else if (st.kind === "defence") {
+          const want = Date.now() + (st.shieldDuration || 0) * 1000;
+          if ((s.effects.shieldUntil || 0) < want) s.effects.shieldUntil = want;
+        }
+      }
+    }
+
     // Sly form auto-revert: when formUntil expires, drop back to "human".
     for (const p of state.players.values()) {
       if (p.role !== "killer") continue;
@@ -1625,6 +1754,8 @@ function tick() {
         robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y) })),
         traps:  state.traps.map(t  => ({ id: t.id, x: Math.round(t.x), y: Math.round(t.y) })),
         spawnPads: state.spawnPads.map(sp => ({ id: sp.id, x: sp.x, y: sp.y, ownerId: sp.ownerId })),
+        clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
+        stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -1639,6 +1770,8 @@ function tick() {
     state.robots = [];
     state.traps = [];
     state.spawnPads = [];
+    state.clovers = [];
+    state.stations = [];
     for (const p of state.players.values()) {
       p.role = "unassigned";
       p.alive = true;
