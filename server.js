@@ -201,7 +201,7 @@ const SURVIVOR_CHARS = [
   { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
   { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
   { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
-  { id: "angle",    name: "Angle",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },
+  { id: "angel",    name: "Angel",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -270,11 +270,11 @@ const ABILITIES = {
     { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
     { id: "scan",  name: "Scan",  cd: 12, type: "reveal",     duration: 2.0 },
   ],
-  angle: [
+  angel: [
     // Stab: short-range dagger. Stuns the killer 3s on hit (no damage),
     // grants 20% malice (40% if currently ducking).
     { id: "stab",    name: "Stab",    cd: 8,  type: "stab", range: 80, stunDuration: 3, maliceGain: 20, maliceGainDuck: 40 },
-    // Duck: 95% invis + 0.6x speed for 7s. No reveal-on-attack — Angle can
+    // Duck: 95% invis + 0.6x speed for 7s. No reveal-on-attack — Angel can
     // stab from inside the duck for the malice bonus.
     { id: "duck",    name: "Duck",    cd: 18, type: "duck", duration: 7.0, speedMult: 0.6 },
     // Spawner: 3s channel, places one spawn pad. Locked after first use
@@ -662,10 +662,10 @@ function applyDamage(target, amount, attacker) {
     amount,
   });
   if (target.hp <= 0) {
-    // Angle passive: at 100% malice with a spawn pad, the next lethal hit
-    // sends Angle back to the pad at 65% HP with wings instead of going down.
-    // Malice is consumed; pad stays. If no pad was placed, Angle dies normally.
-    if (target.role === "survivor" && target.survivorChar === "angle"
+    // Angel passive: at 100% malice with a spawn pad, the next lethal hit
+    // sends Angel back to the pad at 65% HP with wings instead of going down.
+    // Malice is consumed; pad stays. If no pad was placed, Angel dies normally.
+    if (target.role === "survivor" && target.survivorChar === "angel"
         && (target.malice || 0) >= 100) {
       const pad = state.spawnPads.find(sp => sp.ownerId === target.id);
       if (pad) {
@@ -1084,8 +1084,8 @@ function applyAbility(p, ab, slot, msg) {
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.reloadDuration });
       break;
     case "stab": {
-      // Angle's dagger: closest alive killer within range gets stunned, no
-      // damage. Malice gain is doubled if Angle is currently ducking.
+      // Angel's dagger: closest alive killer within range gets stunned, no
+      // damage. Malice gain is doubled if Angel is currently ducking.
       let best = null, bestD = ab.range;
       for (const k of state.players.values()) {
         if (k.role !== "killer" || !k.alive) continue;
@@ -1104,15 +1104,15 @@ function applyAbility(p, ab, slot, msg) {
       break;
     }
     case "duck":
-      // 95% invisible (shares the sneak visibility path) + flag that Angle is
+      // 95% invisible (shares the sneak visibility path) + flag that Angel is
       // ducking so the next Stab counts double. Self-slow is applied client-side.
       p.effects.sneakUntil = now + ab.duration * 1000;
       p.effects.duckUntil  = now + ab.duration * 1000;
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration, speedMult: ab.speedMult });
       break;
     case "spawn_pad": {
-      // 3s rooted channel, then a spawn pad drops at Angle's position. One
-      // pad per Angle — slot also has maxUses: 1 so it locks after firing.
+      // 3s rooted channel, then a spawn pad drops at Angel's position. One
+      // pad per Angel — slot also has maxUses: 1 so it locks after firing.
       const ownerId = p.id;
       const channelMs = (ab.channelDuration || 0) * 1000;
       broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
@@ -1120,7 +1120,7 @@ function applyAbility(p, ab, slot, msg) {
         if (state.phase !== "playing") return;
         const owner = state.players.get(ownerId);
         if (!owner || !owner.alive) return;
-        // Replace any existing pad for this Angle.
+        // Replace any existing pad for this Angel.
         state.spawnPads = state.spawnPads.filter(sp => sp.ownerId !== ownerId);
         const pad = { id: state.nextEntityId++, x: owner.x, y: owner.y, ownerId };
         state.spawnPads.push(pad);
@@ -1566,7 +1566,7 @@ function tick() {
           sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
           fm: p.form === "dino" ? 1 : 0,
           du: now < (p.effects.duckUntil || 0) ? 1 : 0,
-          ml: p.role === "survivor" && p.survivorChar === "angle" ? Math.round(p.malice || 0) : 0,
+          ml: p.role === "survivor" && p.survivorChar === "angel" ? Math.round(p.malice || 0) : 0,
           wg: p.respawned ? 1 : 0,
           am: p.ammo || 0,
           rl: p.reloadUntil || 0,

@@ -68,28 +68,19 @@
     background: var(--accent); color: #fff;
     border: none; border-radius: 8px; cursor: pointer;
     font-family: inherit; margin-top: 4px;
-    /* Smooth hover/leave grow + shrink. The bouncy cubic-bezier gives a
-       tiny overshoot when the hover state is entered or left. */
-    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    /* One smooth ease for hover-in, hover-out, AND the click shrink so
+       there are no competing curves and no visible jump when the click
+       animation starts/ends on a hovered button. */
+    transition: transform 0.16s ease-out,
                 opacity 0.15s,
                 background 0.18s, color 0.18s, border-color 0.18s;
     transform-origin: center;
+    transform: scale(1);
     will-change: transform;
   }
   button.secondary { background: rgba(255,255,255,0.08); color: var(--text); }
-  button:hover:not(:disabled) { transform: scale(1.05); }
-  button:active:not(:disabled) { transform: scale(0.92); }
+  button:hover:not(:disabled) { transform: scale(1.03); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
-  /* Click "pop" keyframe — added via JS on click for one play.
-     Shrink-only: scale down then ease smoothly back to original. */
-  @keyframes btn-pop {
-    0%   { transform: scale(1.00); }
-    40%  { transform: scale(0.88); }
-    100% { transform: scale(1.00); }
-  }
-  button.btn-pop:not(:disabled) {
-    animation: btn-pop 0.28s ease-out both;
-  }
   .row { display: flex; gap: 10px; margin-top: 8px; }
   .row > * { flex: 1; }
 
@@ -666,7 +657,7 @@
       <div class="gd-ab"><b>X — MEOW!</b>: every survivor within 600 px heals <b>20 HP</b> instantly; any killer in range is <b>slowed to 0.9× speed for 4s</b>. CD 35s.</div>
     </div>
     <div class="gd-card">
-      <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angle</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
+      <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
       <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you're currently ducking. CD 8s.</div>
       <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. No reveal-on-stab, so the malice bonus stacks. CD 18s.</div>
       <div class="gd-ab"><b>C — Spawner</b>: <b>3s rooted channel</b>, then drops a spawn pad where you stand. <b>One pad per round</b> — the ability locks once you use it.</div>
@@ -897,7 +888,7 @@ const CHAR_VISUALS = {
   sniper:   { skin: "#e8c8a8", shirt: "#a070f0", pants: "#2a1f4a", hair: "#3a2820", hat: "goggles", weapon: "rifle" },
   fencer:   { skin: "#f0c8a0", shirt: "#d04050", pants: "#3a1a30", hair: "#3a1a08", hat: null,      weapon: "sword" },
   kacey:    { skin: "#ff9050", shirt: "#ffffff", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null, decoration: "burger" },
-  angle:    { skin: "#888894", shirt: "#2a1840", pants: "#0a0612", hair: "#1a1828", hat: "shadow",  weapon: "dagger" },
+  angel:    { skin: "#888894", shirt: "#2a1840", pants: "#0a0612", hair: "#1a1828", hat: "shadow",  weapon: "dagger" },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -936,8 +927,8 @@ const G = {
   shieldBlocks: [],        // VFX flash when a shield blocks damage
   traps: [],               // Sly's bear traps (from server)
   trapBreaks: [],          // VFX when a trap snaps shut or is evicted
-  spawnPads: [],           // Angle's spawn pads (from server)
-  respawnFlashes: [],      // VFX when Angle respawns at a pad
+  spawnPads: [],           // Angel's spawn pads (from server)
+  respawnFlashes: [],      // VFX when Angel respawns at a pad
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
   mapId: "circus",
@@ -1365,7 +1356,7 @@ function drawCharFrame(sx, v, frame) {
     sx.fillStyle = "#7a5524";
     sx.fillRect(cx + 13, 20, 4, 3);
   } else if (isAction && v.weapon === "dagger") {
-    // Angle's dagger: short dark blade with a faint purple gleam.
+    // Angel's dagger: short dark blade with a faint purple gleam.
     sx.fillStyle = "#2a1840";
     sx.fillRect(cx + 13, 21, 4, 2);    // grip
     sx.fillStyle = "#b070ff";
@@ -1514,7 +1505,7 @@ function drawCharFrame(sx, v, frame) {
     sx.fillRect(cx - 7, 15, 1, 1);
     sx.fillRect(cx + 6, 15, 1, 1);
   } else if (v.hat === "shadow") {
-    // Angle: grey-skinned face left mostly bare (no hood). Messy dark hair
+    // Angel: grey-skinned face left mostly bare (no hood). Messy dark hair
     // on top + sides; faint purple eye glints in the eye sockets.
     sx.fillStyle = v.hair;
     sx.fillRect(cx - 6, 5, 12, 4);           // hair crown
@@ -1867,7 +1858,7 @@ function onMessage(msg) {
       break;
     }
     case "respawn": {
-      // Angle passive: teleport home with new HP and the wings flag set.
+      // Angel passive: teleport home with new HP and the wings flag set.
       const v = G.players.get(msg.id);
       if (v) {
         v.x = msg.x; v.y = msg.y;
@@ -2318,7 +2309,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angle: 80 };
+const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angel: 80 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
@@ -2333,14 +2324,32 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
 };
 const ACCOUNT_KEY = "fk:account";
-const ACCOUNT_VERSION = 4;
-// Each entry removes character ids from older saves' unlocks list — used
-// when a character that used to be a default unlock is now priced.
+const ACCOUNT_VERSION = 5;
+// Each entry is either an array of char ids to strip from old saves
+// (used when a free default becomes priced), or an object with
+// optional { strip: [...], rename: { oldId: newId } } for renames.
 const ACCOUNT_MIGRATIONS = {
   2: ["sentinel"],            // Frost Knight was free in v1, costs 100 in v2.
   3: ["engineer", "runner"],  // Engineer (115) and Runner (100) became priced in v3.
   4: ["angle"],               // Angle (80) — make sure no save grants it free.
+  5: { rename: { angle: "angel" } }, // Angle was renamed to Angel.
 };
+function applyMigration(unlocks, entry) {
+  if (!entry) return unlocks;
+  // Legacy array form: strip these ids.
+  if (Array.isArray(entry)) {
+    return unlocks.filter(id => !entry.includes(id));
+  }
+  // Object form: { strip?: [...], rename?: { oldId: newId } }
+  let next = unlocks;
+  if (entry.strip && entry.strip.length) {
+    next = next.filter(id => !entry.strip.includes(id));
+  }
+  if (entry.rename) {
+    next = next.map(id => entry.rename[id] || id);
+  }
+  return next;
+}
 function loadAccount() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || "null"); } catch {}
@@ -2349,8 +2358,7 @@ function loadAccount() {
     let unlocks = saved.unlocks.slice();
     const fromVersion = saved.version || 1;
     for (let v = fromVersion + 1; v <= ACCOUNT_VERSION; v++) {
-      const strip = ACCOUNT_MIGRATIONS[v] || [];
-      if (strip.length) unlocks = unlocks.filter(id => !strip.includes(id));
+      unlocks = applyMigration(unlocks, ACCOUNT_MIGRATIONS[v]);
     }
     // Ensure current defaults stay unlocked regardless of migrations.
     const set = new Set([...DEFAULT_UNLOCKS, ...unlocks]);
@@ -2372,45 +2380,6 @@ function saveAccount() {
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
 
-// Global click pop:
-//   - Listening on "click" (not pointerdown) so spurious touches /
-//     right-clicks / hovers don't trigger the animation.
-//   - In capture phase we swallow the original click, play the pop
-//     keyframe, then re-dispatch the click 280 ms later so the
-//     animation completes before whatever the button actually does.
-//   - In-game HUD buttons (touch controls, spectator nav, portal bar)
-//     bypass the delay since they need to fire on the same frame.
-const BTN_POP_MS = 280;
-const INSTANT_BTN_CONTAINERS = ["touch-controls", "spectator-bar", "portal-bar"];
-document.addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
-  if (!btn || btn.disabled) return;
-  if (btn.dataset.popping === "1") return;  // re-fire pass-through
-
-  // Always play the pop animation. Re-trigger by removing + reflowing.
-  btn.classList.remove("btn-pop");
-  void btn.offsetWidth;
-  btn.classList.add("btn-pop");
-
-  // In-game buttons keep instant click behavior.
-  for (const id of INSTANT_BTN_CONTAINERS) {
-    if (btn.closest("#" + id)) return;
-  }
-
-  // UI buttons: delay the click action until the animation finishes.
-  e.stopImmediatePropagation();
-  e.preventDefault();
-  btn.dataset.popping = "1";
-  setTimeout(() => {
-    btn.click();           // re-fires; our listener early-returns above
-    delete btn.dataset.popping;
-  }, BTN_POP_MS);
-}, true);
-document.addEventListener("animationend", (e) => {
-  if (e.animationName === "btn-pop" && e.target.classList) {
-    e.target.classList.remove("btn-pop");
-  }
-}, true);
 
 // Export the current save to a downloadable .txt file (JSON inside).
 function downloadSave() {
@@ -2455,8 +2424,7 @@ function loadSaveFromFile(file) {
     // re-grant characters that are now priced.
     const fromVersion = data.version || 1;
     for (let v = fromVersion + 1; v <= ACCOUNT_VERSION; v++) {
-      const strip = ACCOUNT_MIGRATIONS[v] || [];
-      if (strip.length) valid = valid.filter(id => !strip.includes(id));
+      valid = applyMigration(valid, ACCOUNT_MIGRATIONS[v]);
     }
     Account.unlocks = [...new Set([...DEFAULT_UNLOCKS, ...valid])];
     saveAccount();
@@ -3435,7 +3403,7 @@ function gameTick(now) {
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
       // Engineer Shield slows the holder while it's up.
       if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
-      // Angle Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
+      // Angel Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
       if (me.ducking || (me.id === G.myId && now < (me._localDuckUntil || 0))) speed *= 0.6;
       stepWithCollision(me, v.x * speed * dt, v.y * speed * dt);
       // Conveyors push you in their direction (you can still walk against
@@ -5092,7 +5060,7 @@ const ABILITY_FX = {
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
     },
   },
-  "angle:stab": {
+  "angel:stab": {
     // Forward lunge + extended dagger thrust.
     transform: (t) => ({ actScaleX: 1.25, actScaleY: 0.88, leanPx: 12 * Math.sin(t * Math.PI) }),
     post: (ctx, p, t, dir) => {
@@ -5105,7 +5073,7 @@ const ABILITY_FX = {
       ctx.fillRect(p.x + dir * 8, dy, dir * (ext - 8), 1);
     },
   },
-  "angle:spawner": {
+  "angel:spawner": {
     transform: () => ({ actScaleY: 0.85, bobPx: 4 }),
     pre: (ctx, p, t) => {
       const r = 6 + t * 22;
@@ -5424,9 +5392,9 @@ function drawPlayer(p) {
     }
   }
 
-  // Angle wings: drawn behind the sprite when Angle has respawned this round.
+  // Angel wings: drawn behind the sprite when Angel has respawned this round.
   // Faint pixel-feather pair flapping with a slow sine.
-  if (p.role === "survivor" && p.survivorChar === "angle" && p.respawned && p.alive) {
+  if (p.role === "survivor" && p.survivorChar === "angel" && p.respawned && p.alive) {
     ctx.save();
     const wf = Math.sin(now * 0.005) * 1.5;
     const wx = Math.round(p.x), wy = Math.round(p.y - 6);
@@ -5580,8 +5548,8 @@ function drawPlayer(p) {
     const ratio = (p.hp != null ? p.hp : G.survivorHpMax) / G.survivorHpMax;
     ctx.fillStyle = ratio > 0.5 ? "#66e08a" : ratio > 0.25 ? "#ffd84a" : "#e94560";
     ctx.fillRect(bx, by, bw * ratio, bh);
-    // Angle malice bar — directly under HP. Purple fill, 0..100.
-    if (p.survivorChar === "angle") {
+    // Angel malice bar — directly under HP. Purple fill, 0..100.
+    if (p.survivorChar === "angel") {
       const my = by + bh + 1;
       ctx.fillStyle = "rgba(0,0,0,0.7)";
       ctx.fillRect(bx, my, bw, 3);
