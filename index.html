@@ -658,7 +658,7 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#4a8c40"></span><b>Pollen</b><span class="gd-muted">trail of clovers + healing / defence fountains</span></div>
-      <div class="gd-ab"><b>Passive — Clover Trail</b>: a short trail of clovers drops behind you as you walk. Each clover lasts about <b>10s</b> and fades. Any <b>other survivor</b> standing on the trail heals <b>0.5 HP/sec</b> (you can't heal off your own trail).</div>
+      <div class="gd-ab"><b>Passive — Clover Trail</b>: a short trail of clovers drops behind you as you walk. Each clover lasts about <b>2.5s</b> and fades quickly. Any <b>other survivor</b> standing on the trail heals <b>0.5 HP/sec</b> (you can't heal off your own trail).</div>
       <div class="gd-ab"><b>Z — Breathe</b>: take a quick breath of fresh air — heal yourself <b>10 HP</b>. CD 20s.</div>
       <div class="gd-ab"><b>X — Heal Station</b>: <b>5s rooted channel</b>, blood lifts from your body as you raise your arms to the sky. Costs <b>15 HP</b> up front. When the channel finishes, a fountain drops at your feet and <b>heals every survivor in range 2 HP/sec</b>. It stays up <b>forever</b> until the killer melee-strikes it. Only one Heal Station at a time. CD 30s.</div>
       <div class="gd-ab"><b>C — Defence Station</b>: same 5s rooted channel + 15 HP cost as Heal Station, but instead it gives every survivor in range an <b>8s shield</b> (refreshed while they stay inside the radius). Killer melee strike breaks it. One Defence Station at a time. CD 30s.</div>
@@ -4072,13 +4072,13 @@ function gameTick(now) {
       if (G.testMode && me.role === "survivor" && me.survivorChar === "pollen") {
         if (me._lastCloverX == null) {
           me._lastCloverX = me.x; me._lastCloverY = me.y;
-          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 10 });
+          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 2.5 });
         }
         const ddist = Math.hypot(me.x - me._lastCloverX, me.y - me._lastCloverY);
         if (ddist >= 32) {
           me._lastCloverX = me.x; me._lastCloverY = me.y;
           if (G.clovers.length >= 40) G.clovers.shift();
-          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 10 });
+          G.clovers.push({ id: ++G.localEntityId, x: me.x, y: me.y, o: me.id, t: 2.5 });
         }
         for (const cv of G.clovers) cv.t -= dt;
         G.clovers = G.clovers.filter(cv => cv.t > 0);
@@ -5204,8 +5204,9 @@ function drawClovers() {
   // fades toward the end of its TTL. Sized to be easy to spot on the
   // floor — the trail is the whole identity of the passive.
   for (const cv of (G.clovers || [])) {
-    const ttl = (cv.t != null ? cv.t : 10);
-    const alpha = Math.max(0.35, Math.min(1, ttl / 4));
+    const ttl = (cv.t != null ? cv.t : 2.5);
+    // Quick fade: full alpha for the first ~0.6s, then ease to 0.
+    const alpha = Math.max(0, Math.min(1, ttl / 1.2));
     const x = cv.x | 0, y = cv.y | 0;
     // Leaf bodies (4 lobes around a small gap)
     ctx.fillStyle = `rgba(122,192,80,${alpha.toFixed(2)})`;

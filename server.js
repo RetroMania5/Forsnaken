@@ -1567,7 +1567,7 @@ function tick() {
     // since the last drop. Clovers live for CLOVER_TTL seconds and heal
     // 0.5 HP/s to any OTHER survivor standing on them.
     const CLOVER_SPACING = 32;
-    const CLOVER_TTL = 10;
+    const CLOVER_TTL = 2.5;     // short trail — fades quickly
     const CLOVER_R = 16;
     const CLOVER_HEAL_PER_SEC = 0.5;
     const CLOVER_MAX_PER_OWNER = 40;
