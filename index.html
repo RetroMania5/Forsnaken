@@ -80,16 +80,15 @@
   button:hover:not(:disabled) { transform: scale(1.05); }
   button:active:not(:disabled) { transform: scale(0.92); }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
-  /* Click "pop" keyframe — added via JS on pointerup for one play.
-     Goes shrink → overshoot bigger than original → settle back. */
+  /* Click "pop" keyframe — added via JS on click for one play.
+     Shrink-only: scale down then ease smoothly back to original. */
   @keyframes btn-pop {
-    0%   { transform: scale(0.92); }
-    40%  { transform: scale(1.12); }
-    70%  { transform: scale(0.98); }
+    0%   { transform: scale(1.00); }
+    40%  { transform: scale(0.88); }
     100% { transform: scale(1.00); }
   }
   button.btn-pop:not(:disabled) {
-    animation: btn-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: btn-pop 0.28s ease-out both;
   }
   .row { display: flex; gap: 10px; margin-top: 8px; }
   .row > * { flex: 1; }
