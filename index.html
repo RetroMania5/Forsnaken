@@ -540,7 +540,7 @@
 
 <div id="menu" class="overlay">
   <div class="panel">
-    <img class="title-img" src="/images/title.png" alt="Forsnaken">
+    <img class="title-img" src="images/title.png" alt="Forsnaken">
 
     <div class="subtitle">1 KILLER vs SURVIVORS</div>
     <label>Your name</label>
@@ -2187,8 +2187,18 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${proto}//${location.host}`;
   $("menu-status").textContent = "Connecting…";
+  let opened = false, wentSolo = false;
   G.ws = new WebSocket(url);
+  // No server reachable → fall back to single-player after a short grace period.
+  const soloTimer = setTimeout(() => { if (!opened) goSolo(); }, 1600);
+  function goSolo() {
+    if (opened || wentSolo) return;
+    wentSolo = true; clearTimeout(soloTimer);
+    try { G.ws.close(); } catch {}
+    startSoloMode();
+  }
   G.ws.addEventListener("open", () => {
+    opened = true; clearTimeout(soloTimer);
     $("menu-status").textContent = "";
     G.ws.send(JSON.stringify({ type: "join", name: G.name }));
   });
@@ -2197,12 +2207,29 @@ function connect() {
     onMessage(msg);
   });
   G.ws.addEventListener("close", () => {
+    if (!opened) { goSolo(); return; }             // never connected → solo
     $("menu-status").innerHTML = '<span class="error">Disconnected. Reload to try again.</span>';
     G.phase = "menu"; showOnly(menuEl);
   });
-  G.ws.addEventListener("error", () => {
-    $("menu-status").innerHTML = '<span class="error">Connection failed.</span>';
-  });
+  G.ws.addEventListener("error", () => { if (!opened) goSolo(); });
+}
+
+// Load solo-engine.js (server.js in the browser) + solo.js, then start a
+// single-player game with bots. Only used when no real server answers.
+let __soloStarting = false;
+function startSoloMode() {
+  if (__soloStarting) return; __soloStarting = true;
+  $("menu-status").textContent = "No server found — starting solo mode…";
+  const load = (src, cb) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = cb;
+    s.onerror = () => { $("menu-status").innerHTML = '<span class="error">Solo mode failed to load.</span>'; };
+    document.head.appendChild(s);
+  };
+  load("solo-engine.js", () => load("solo.js", () => {
+    $("menu-status").textContent = "";
+    window.ForsakenSolo.start({ G, onMessage, name: G.name });
+  }));
 }
 function sendMsg(m) { if (G.ws && G.ws.readyState === 1) G.ws.send(JSON.stringify(m)); }
 
@@ -3125,7 +3152,7 @@ const SFX = {
   meow: null,
 };
 function loadSFX() {
-  SFX.meow = new Audio("/sounds/Meow.wav");
+  SFX.meow = new Audio("sounds/Meow.wav");
   SFX.meow.preload = "auto";
 }
 function playSFX(name) {
@@ -3177,16 +3204,16 @@ function primeAudio() {
 const KILLER_MUSIC_EXT = { lunar: "wav", sly: "wav" };
 // Each map's base ambient track.
 const MAP_BASE_MUSIC = {
-  circus:  "/music/base_map.mp3",
-  factory: "/music/factory.mp3",
+  circus:  "music/base_map.mp3",
+  factory: "music/factory.mp3",
 };
 function killerMusicUrl(killerChar, i) {
   const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
-  return `/music/${killerChar}_${i}.${ext}`;
+  return `music/${killerChar}_${i}.${ext}`;
 }
 function killerLmsUrl(killerChar) {
   const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
-  return `/music/${killerChar}_lms.${ext}`;
+  return `music/${killerChar}_lms.${ext}`;
 }
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "circus";
@@ -3225,7 +3252,7 @@ function stopMusic() {
 // lobby phase. Stopped before round music starts.
 function startLobbyMusic() {
   if (!Music.lobby) {
-    Music.lobby = new Audio("/music/lobby.mp3");
+    Music.lobby = new Audio("music/lobby.mp3");
     Music.lobby.loop = true;
     Music.lobby.volume = 0;
     Music.lobby.preload = "auto";
@@ -3549,7 +3576,7 @@ function applyLocalAbility(me, ab, aim) {
 }
 
 // Fetch char/ability data so test mode works without joining a lobby.
-fetch("/chars").then(r => r.json()).then(data => {
+fetch("chars").then(r => r.json()).then(data => {
   G.survivorChars = data.survivorChars || [];
   G.killerChars = data.killerChars || [];
   G.abilities = data.abilities || {};
@@ -3582,7 +3609,7 @@ async function preflightMusic() {
   const killers = (G.killerChars && G.killerChars.length)
     ? G.killerChars.map(c => c.id)
     : ["slasher", "stalker", "lunar"];
-  const urls = ["/music/base_map.mp3", "/music/factory.mp3", "/music/lobby.mp3"];
+  const urls = ["music/base_map.mp3", "music/factory.mp3", "music/lobby.mp3"];
   for (const k of killers) {
     for (let i = 1; i <= 4; i++) urls.push(killerMusicUrl(k, i));
     urls.push(killerLmsUrl(k));
