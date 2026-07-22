@@ -58,7 +58,9 @@
   .drop.empty { border:2px dashed var(--line); margin:10px; border-radius:10px; aspect-ratio:1/1; }
   .drop.empty:hover, .drop.over { border-color:var(--accent); background:var(--panel2); }
   .drop .plus { color:var(--dim); font-size:13px; text-align:center; pointer-events:none; }
-  .drop img { max-width:100%; max-height:100%; display:block; image-rendering:auto; }
+  /* Crisp (nearest-neighbor) scaling so small pixel-art previews aren't blurry */
+  .drop img { max-width:100%; max-height:100%; display:block;
+    image-rendering:pixelated; image-rendering:crisp-edges; }
   .drop.over { outline:2px solid var(--accent); outline-offset:-4px; }
   .meta { display:flex; align-items:center; justify-content:space-between; padding:7px 11px; font-size:11px; color:var(--dim); border-top:1px solid var(--line); }
   .meta .fn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
