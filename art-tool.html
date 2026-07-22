@@ -331,7 +331,11 @@ function stepAnim(dt, now) {
 
 function drawTest(now) {
   const c = byId[selected], cv = $("testCanvas"), ctx = cv.getContext("2d");
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  // Draw in a 100-unit "game space" mapped to the canvas's real pixel size, so
+  // there's no tiny-canvas-then-CSS-upscale blockiness. The sprite (44 units) is
+  // rendered straight from your full-resolution art.
+  const F = cv.width / 100;
+  ctx.setTransform(F, 0, 0, F, 0, 0); ctx.clearRect(0, 0, 100, 100);
   ctx.imageSmoothingEnabled = false;
 
   const inAction = now < anim.actionUntil;
@@ -388,7 +392,13 @@ function loopTest(ts) {
   stepAnim(dt, ts); drawTest(ts);
   testRAF = requestAnimationFrame(loopTest);
 }
-function applyZoom() { const cv = $("testCanvas"); cv.style.width = cv.style.height = (testZoom * 26) + "px"; }
+function sizeCanvas() {
+  const disp = testZoom * 30;                          // on-screen size in CSS px
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const cv = $("testCanvas");
+  cv.width = Math.round(disp * dpr); cv.height = Math.round(disp * dpr);  // real backing pixels (retina-aware)
+  cv.style.width = disp + "px"; cv.style.height = disp + "px";
+}
 function renderTest() {
   const c = byId[selected];
   $("testName").textContent = "Test: " + c.name;
@@ -401,7 +411,7 @@ function renderTest() {
 }
 function openTest() {
   if (!AN) { toast("Animation file (anim-fx.js) didn't load."); return; }
-  $("test").hidden = false; resetAnim(); renderTest(); applyZoom();
+  $("test").hidden = false; resetAnim(); renderTest(); sizeCanvas();
   cancelAnimationFrame(testRAF); testRAF = requestAnimationFrame(loopTest);
 }
 function closeTest() { $("test").hidden = true; cancelAnimationFrame(testRAF); testRAF = null; }
@@ -409,7 +419,7 @@ $("testBtn").onclick = openTest;
 $("testClose").onclick = closeTest;
 $("test").onclick = e => { if (e.target.id === "test") closeTest(); };
 $("testFace").onclick = () => { testDir = -testDir; $("testFace").textContent = testDir < 0 ? "Face ◀" : "Face ▶"; };
-$("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textContent = testZoom + "×"; applyZoom(); };
+$("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textContent = testZoom + "×"; sizeCanvas(); };
 
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
