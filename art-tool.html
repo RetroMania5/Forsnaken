@@ -142,12 +142,14 @@ const ITEMS = [
   { id: "clover",      name: "Clover",          role: "item", color: "#6cc04a", slots: [{ id: "sprite", label: "Clover", tag: "item" }] },
   { id: "portal",      name: "Portal",          role: "item", color: "#9070ff", slots: [{ id: "sprite", label: "Portal", tag: "item" }] },
   { id: "trap",        name: "Trap",            role: "item", color: "#c05050", slots: [{ id: "sprite", label: "Trap", tag: "item" }] },
+  { id: "fireball",    name: "Fireball",        role: "item", color: "#ff6a2a", slots: [{ id: "sprite", label: "Fireball", tag: "item" }] },
 ];
 
 const ENTITIES = [...ALL, ...ITEMS];
 const byId = Object.fromEntries(ENTITIES.map(c => [c.id, c]));
 
-// Slots for an entity: items carry their own; characters get idle/walk-1/walk-2 + one per ability.
+// Slots for an entity: items carry their own; characters get idle/walk-1/walk-2,
+// killers also get Attack, plus one slot per ability. Sly also gets dino frames.
 function slotsFor(c) {
   if (c.slots) return c.slots;
   const base = [
@@ -155,8 +157,16 @@ function slotsFor(c) {
     { id: "walk-1", label: "Walk 1", tag: "pose" },
     { id: "walk-2", label: "Walk 2", tag: "pose" },
   ];
+  if (c.role === "killer") base.push({ id: "attack", label: "Attack", tag: "attack" });
   const abs = c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name, tag: "ability" }));
-  return base.concat(abs);
+  let slots = base.concat(abs);
+  if (c.id === "sly") slots = slots.concat([        // Sly's dino form is its own sprite set
+    { id: "dino-idle",   label: "Dino Idle",   tag: "dino" },
+    { id: "dino-walk-1", label: "Dino Walk 1", tag: "dino" },
+    { id: "dino-walk-2", label: "Dino Walk 2", tag: "dino" },
+    { id: "dino-fire",   label: "Dino Fire",   tag: "dino" },
+  ]);
+  return slots;
 }
 const TOTAL = ENTITIES.reduce((n, c) => n + slotsFor(c).length, 0);
 
@@ -336,19 +346,39 @@ const slotImg = (cid, slot) => { const it = (store[cid] || {})[slot]; return it 
 
 function resetAnim() { anim.frame = "idle"; anim.accum = 0; anim.actionUntil = 0; anim.actionAb = null; gapUntil = 0; lastTS = 0; }
 
+// The preview modes for an entity: static (idle), walk (2-frame cycle), or
+// action (320ms squash + FX). Killers get Attack; Sly gets dino idle/walk/fire.
+function modesFor(c) {
+  if (c.role === "item") return slotsFor(c).map(s => ({ id: s.id, label: s.label, kind: "static", slot: s.id, base: s.id }));
+  const m = [
+    { id: "idle", label: "Idle", kind: "static", slot: "idle", base: "idle" },
+    { id: "walk", label: "Walk", kind: "walk", slots: ["walk-1", "walk-2"], base: "idle" },
+  ];
+  if (c.role === "killer") m.push({ id: "attack", label: "Attack", kind: "action", ab: "attack", slot: "attack", base: "idle" });
+  c.abilities.forEach(a => m.push({ id: "ability-" + a.id, label: a.name, kind: "action", ab: a.id, slot: "ability-" + a.id, base: "idle" }));
+  if (c.id === "sly") {
+    m.push({ id: "dino-idle", label: "Dino Idle", kind: "static", slot: "dino-idle", base: "dino-idle" });
+    m.push({ id: "dino-walk", label: "Dino Walk", kind: "walk", slots: ["dino-walk-1", "dino-walk-2"], base: "dino-idle" });
+    m.push({ id: "dino-fire", label: "Dino Fire", kind: "action", ab: "dino_fire", slot: "dino-fire", base: "dino-idle" });
+  }
+  return m;
+}
+const curMode = () => modesFor(byId[selected]).find(m => m.id === testMode);
+
 function stepAnim(dt, now) {
-  if (byId[selected].role === "item") return;         // items are static
-  if (testMode === "walk") {
+  const m = curMode();
+  if (!m) return;
+  if (m.kind === "walk") {
     anim.accum += dt * 1000;
     if (anim.frame !== "walkA" && anim.frame !== "walkB") { anim.frame = "walkA"; anim.accum = 0; }
     else if (anim.accum >= AN.WALK_FRAME_MS) { anim.accum -= AN.WALK_FRAME_MS; anim.frame = anim.frame === "walkA" ? "walkB" : "walkA"; }
-  } else if (testMode.startsWith("ability-")) {
+  } else if (m.kind === "action") {
     if (now >= anim.actionUntil && now >= gapUntil) {   // replay: 320ms action, then a short gap
-      anim.actionAb = testMode.slice("ability-".length);
+      anim.actionAb = m.ab;
       anim.actionUntil = now + AN.ACTION_HOLD_MS;
       gapUntil = anim.actionUntil + 420;
     }
-  } else { anim.frame = "idle"; }
+  }
 }
 
 function drawTest(now) {
@@ -375,34 +405,35 @@ function drawTest(now) {
     return;
   }
 
-  const inAction = now < anim.actionUntil;
+  const m = curMode() || { kind: "static", slot: "idle", base: "idle" };
   const flip = testDir < 0, dir = flip ? -1 : 1;
-  let sx = 1, sy = 1, lean = 0, bob = 0, sway = 0, fx = null, t = 0;
+  let sx = 1, sy = 1, lean = 0, bob = 0, sway = 0, fx = null, t = 0, slot = m.base, inAction = false;
 
-  if (inAction) {                                    // squash/stretch transform (custom or default)
-    t = 1 - (anim.actionUntil - now) / AN.ACTION_HOLD_MS;
-    fx = AN.fxFor(c.id, anim.actionAb);
-    const tr = (fx && fx.transform) ? (fx.transform(t) || {}) : AN.defaultTransform(t);
-    if (tr.actScaleX != null) sx = tr.actScaleX;
-    if (tr.actScaleY != null) sy = tr.actScaleY;
-    if (tr.leanPx != null) lean = tr.leanPx;
-    if (tr.bobPx != null) bob = tr.bobPx;
-    if (tr.swayRad != null) sway = tr.swayRad;
-  } else if (anim.frame === "walkA" || anim.frame === "walkB") {   // walk bob + sway
+  if (m.kind === "action") {                          // 320ms action: squash/stretch + FX
+    inAction = now < anim.actionUntil;
+    if (inAction) {
+      t = 1 - (anim.actionUntil - now) / AN.ACTION_HOLD_MS;
+      fx = AN.fxFor(c.id, anim.actionAb);
+      const tr = (fx && fx.transform) ? (fx.transform(t) || {}) : AN.defaultTransform(t);
+      if (tr.actScaleX != null) sx = tr.actScaleX;
+      if (tr.actScaleY != null) sy = tr.actScaleY;
+      if (tr.leanPx != null) lean = tr.leanPx;
+      if (tr.bobPx != null) bob = tr.bobPx;
+      if (tr.swayRad != null) sway = tr.swayRad;
+      const it = (store[c.id] || {})[m.slot];
+      slot = (it && !it.noCostume) ? m.slot : m.base;  // "no costume" → base look
+    }
+  } else if (m.kind === "walk") {                     // walk bob + sway
     const phase = (anim.accum / AN.WALK_FRAME_MS) * Math.PI;
     bob = -Math.abs(Math.sin(phase)) * 1.5;
     sway = (anim.frame === "walkA" ? 1 : -1) * Math.sin(phase) * (4 * Math.PI / 180);
+    slot = anim.frame === "walkB" ? m.slots[1] : m.slots[0];
+  } else {
+    slot = m.slot;
   }
 
-  // pick the frame image (falls back to idle where art is missing / "no costume")
-  let img;
-  if (inAction) {
-    const it = (store[c.id] || {})["ability-" + anim.actionAb];
-    img = (it && !it.noCostume) ? slotImg(c.id, "ability-" + anim.actionAb) : slotImg(c.id, "idle");
-    if (!img) img = slotImg(c.id, "idle");
-  } else if (anim.frame === "walkA") img = slotImg(c.id, "walk-1") || slotImg(c.id, "idle");
-  else if (anim.frame === "walkB") img = slotImg(c.id, "walk-2") || slotImg(c.id, "idle");
-  else img = slotImg(c.id, "idle");
+  // falls back to the mode's base pose (idle / dino-idle) where art is missing
+  let img = slotImg(c.id, slot) || slotImg(c.id, m.base) || slotImg(c.id, "idle");
 
   const stage = $("testStage");
   if (!img) { stage.classList.add("missing"); return; }
@@ -441,9 +472,7 @@ function sizeCanvas() {
 function renderTest() {
   const c = byId[selected];
   $("testName").textContent = "Test: " + c.name;
-  const modes = c.role === "item"
-    ? slotsFor(c).map(s => ({ id: s.id, label: s.label }))
-    : [{ id: "idle", label: "Idle" }, { id: "walk", label: "Walk" }].concat(c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name })));
+  const modes = modesFor(c);
   if (!modes.some(m => m.id === testMode)) testMode = modes[0].id;
   $("testModes").innerHTML = modes.map(m => `<button class="tmode ${m.id === testMode ? "on" : ""}" data-mode="${m.id}">${m.label}</button>`).join("");
   $("testModes").querySelectorAll("[data-mode]").forEach(b =>
