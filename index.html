@@ -546,6 +546,7 @@
     <label>Your name</label>
     <input id="name-input" type="text" maxlength="16" placeholder="Pick a name">
     <button id="join-btn">Enter Lobby</button>
+    <button id="solo-btn" class="secondary">🤖 Solo Play (vs bots)</button>
     <div id="menu-status" class="status"></div>
     <div class="hint">Your coins and unlocks are saved automatically in this browser.</div>
     <div class="save-row">
@@ -2187,18 +2188,19 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${proto}//${location.host}`;
   $("menu-status").textContent = "Connecting…";
-  let opened = false, wentSolo = false;
+  let opened = false, failed = false;
   G.ws = new WebSocket(url);
-  // No server reachable → fall back to single-player after a short grace period.
-  const soloTimer = setTimeout(() => { if (!opened) goSolo(); }, 1600);
-  function goSolo() {
-    if (opened || wentSolo) return;
-    wentSolo = true; clearTimeout(soloTimer);
+  // No auto-solo: if we can't reach a server, just show an error. Bots are
+  // only ever spawned by the Solo Play button.
+  const failTimer = setTimeout(() => fail(), 5000);
+  function fail() {
+    if (opened || failed) return;
+    failed = true; clearTimeout(failTimer);
     try { G.ws.close(); } catch {}
-    startSoloMode();
+    $("menu-status").innerHTML = '<span class="error">No server connection. Try again, or use <b>Solo Play</b> to play offline vs bots.</span>';
   }
   G.ws.addEventListener("open", () => {
-    opened = true; clearTimeout(soloTimer);
+    opened = true; clearTimeout(failTimer);
     $("menu-status").textContent = "";
     G.ws.send(JSON.stringify({ type: "join", name: G.name }));
   });
@@ -2207,11 +2209,11 @@ function connect() {
     onMessage(msg);
   });
   G.ws.addEventListener("close", () => {
-    if (!opened) { goSolo(); return; }             // never connected → solo
+    if (!opened) { fail(); return; }               // never connected → error
     $("menu-status").innerHTML = '<span class="error">Disconnected. Reload to try again.</span>';
     G.phase = "menu"; showOnly(menuEl);
   });
-  G.ws.addEventListener("error", () => { if (!opened) goSolo(); });
+  G.ws.addEventListener("error", () => { if (!opened) fail(); });
 }
 
 // Load solo-engine.js (server.js in the browser) + solo.js, then start a
@@ -2219,7 +2221,7 @@ function connect() {
 let __soloStarting = false;
 function startSoloMode() {
   if (__soloStarting) return; __soloStarting = true;
-  $("menu-status").textContent = "No server found — starting solo mode…";
+  $("menu-status").textContent = "Starting solo game vs bots…";
   const load = (src, cb) => {
     const s = document.createElement("script");
     s.src = src; s.onload = cb;
@@ -2599,6 +2601,11 @@ $("join-btn").addEventListener("click", () => {
   primeAudio();
   const n = $("name-input").value.trim() || randomName();
   G.name = n; connect();
+});
+$("solo-btn").addEventListener("click", () => {
+  primeAudio();
+  const n = $("name-input").value.trim() || randomName();
+  G.name = n; startSoloMode();
 });
 $("name-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("join-btn").click();
