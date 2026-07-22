@@ -29,10 +29,9 @@ window.ForsakenSolo = (function () {
   const blocked = (x, y) => (SOLO && SOLO.blocked ? SOLO.blocked(x, y, BOT_R) : false);
 
   // ── Navigation grid + A* (so bots route around walls, not into them) ──────
-  const CELL = 22;      // grid resolution
-  const GRID_R = 9;     // clearance used to build the graph; smaller than BOT_R so
-                        // real (human-passable) doorways aren't falsely walled off —
-                        // move()'s BOT_R collision still handles the actual squeeze.
+  const CELL = 22;         // grid resolution
+  const GRID_R = BOT_R;    // build the graph with the bot's real radius so A* never
+                           // plans a route through a gap the body can't fit through.
   let nav = null, navMapId = null;
   function ensureNav(mapId, mapW, mapH) {
     if (nav && navMapId === mapId) return;
@@ -54,35 +53,49 @@ window.ForsakenSolo = (function () {
     return null;
   }
   const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  // Tiny binary min-heap so A* completes on long detours (no iteration cap).
+  function Heap() { this.a = []; }
+  Heap.prototype.push = function (item, pri) {
+    const a = this.a; a.push({ item, pri }); let i = a.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (a[p].pri <= a[i].pri) break; const t = a[p]; a[p] = a[i]; a[i] = t; i = p; }
+  };
+  Heap.prototype.pop = function () {
+    const a = this.a; if (!a.length) return null; const top = a[0], last = a.pop();
+    if (a.length) { a[0] = last; let i = 0; const n = a.length;
+      for (;;) { let l = 2 * i + 1, r = l + 1, s = i;
+        if (l < n && a[l].pri < a[s].pri) s = l; if (r < n && a[r].pri < a[s].pri) s = r;
+        if (s === i) break; const t = a[s]; a[s] = a[i]; a[i] = t; i = s; } }
+    return top.item;
+  };
+  Heap.prototype.size = function () { return this.a.length; };
   function findPath(sx, sy, tx, ty) {
     if (!nav) return null;
     const clampi = (v, hi) => (v < 0 ? 0 : v >= hi ? hi - 1 : v);
-    let s = nearestFreeCell(clampi(Math.floor(sx / CELL), nav.cols), clampi(Math.floor(sy / CELL), nav.rows));
-    let t = nearestFreeCell(clampi(Math.floor(tx / CELL), nav.cols), clampi(Math.floor(ty / CELL), nav.rows));
+    const s = nearestFreeCell(clampi(Math.floor(sx / CELL), nav.cols), clampi(Math.floor(sy / CELL), nav.rows));
+    const t = nearestFreeCell(clampi(Math.floor(tx / CELL), nav.cols), clampi(Math.floor(ty / CELL), nav.rows));
     if (!s || !t) return null;
-    const g = new Map(), came = new Map(), open = new Map();
+    const sk = cIdx(s.i, s.j), tk = cIdx(t.i, t.j);
+    const g = new Map(), came = new Map(), closed = new Set();
     const h = (i, j) => Math.hypot(i - t.i, j - t.j);
-    const sk = cIdx(s.i, s.j);
-    g.set(sk, 0); open.set(sk, { i: s.i, j: s.j, f: h(s.i, s.j) });
-    let guard = 0;
-    while (open.size) {
-      if (++guard > 5000) break;
-      let bk = null, bf = Infinity;
-      for (const [k, v] of open) if (v.f < bf) { bf = v.f; bk = k; }
-      const cur = open.get(bk); open.delete(bk);
-      const ck = cIdx(cur.i, cur.j);
-      if (cur.i === t.i && cur.j === t.j) {
+    const open = new Heap();
+    g.set(sk, 0); open.push(sk, h(s.i, s.j));
+    while (open.size()) {
+      const ck = open.pop();
+      if (ck === tk) {
         const path = []; let k = ck;
         while (k !== undefined) { const i = k % nav.cols, j = (k - i) / nav.cols; path.push({ x: i * CELL + CELL / 2, y: j * CELL + CELL / 2 }); k = came.get(k); }
         return path.reverse();
       }
+      if (closed.has(ck)) continue; closed.add(ck);
+      const ci = ck % nav.cols, cj = (ck - ci) / nav.cols, cg = g.get(ck);
       for (const [di, dj] of DIRS) {
-        const ni = cur.i + di, nj = cur.j + dj;
+        const ni = ci + di, nj = cj + dj;
         if (!cFree(ni, nj)) continue;
-        if (di && dj && (!cFree(cur.i + di, cur.j) || !cFree(cur.i, cur.j + dj))) continue; // no corner cut
+        if (di && dj && (!cFree(ci + di, cj) || !cFree(ci, cj + dj))) continue; // no corner cut
         const nk = cIdx(ni, nj);
-        const ng = g.get(ck) + (di && dj ? 1.414 : 1);
-        if (!g.has(nk) || ng < g.get(nk)) { g.set(nk, ng); came.set(nk, ck); open.set(nk, { i: ni, j: nj, f: ng + h(ni, nj) }); }
+        if (closed.has(nk)) continue;
+        const ng = cg + (di && dj ? 1.414 : 1);
+        if (!g.has(nk) || ng < g.get(nk)) { g.set(nk, ng); came.set(nk, ck); open.push(nk, ng + h(ni, nj)); }
       }
     }
     return null;
