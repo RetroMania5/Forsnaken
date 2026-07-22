@@ -57,6 +57,10 @@
       var(--panel2); }
   .drop.empty { border:2px dashed var(--line); margin:10px; border-radius:10px; aspect-ratio:1/1; }
   .drop.empty:hover, .drop.over { border-color:var(--accent); background:var(--panel2); }
+  .drop.nocos { border:2px dashed var(--line); margin:10px; border-radius:10px; aspect-ratio:1/1; opacity:.55; cursor:default; }
+  .nocosbtn { font-size:10px; padding:3px 8px; border-radius:6px; letter-spacing:.3px; color:var(--dim); }
+  .nocosbtn:hover { border-color:#c98a3a; color:#ffcf8f; }
+  .nocosbtn.on { background:#3a2a17; border-color:#c98a3a; color:#ffcf8f; }
   .drop .plus { color:var(--dim); font-size:13px; text-align:center; pointer-events:none; }
   /* Crisp (nearest-neighbor) scaling so small pixel-art previews aren't blurry */
   .drop img { max-width:100%; max-height:100%; display:block;
@@ -148,13 +152,24 @@ function renderMain() {
   const c = byId[selected], slots = slotsFor(c), cs = store[c.id] || {};
   const cards = slots.map(s => {
     const it = cs[s.id];
-    const body = it
-      ? `<div class="drop" data-slot="${s.id}"><img src="${it.dataURL}" alt=""></div>
+    const isAbility = s.tag === "ability";
+    const isNo = it && it.noCostume;
+    let body;
+    if (isNo) {
+      body = `<div class="drop nocos"><span class="plus">🚫<br>No costume<br><small>uses default look</small></span></div>`;
+    } else if (it) {
+      body = `<div class="drop" data-slot="${s.id}"><img src="${it.dataURL}" alt=""></div>
          <div class="meta"><span class="fn" title="${it.filename}">${it.filename}</span>
-           <span>${it.w}×${it.h}</span><span class="x" data-clear="${s.id}" title="Remove">✕</span></div>`
-      : `<div class="drop empty" data-slot="${s.id}"><span class="plus">＋<br>drop / click<br>to add image</span></div>`;
+           <span>${it.w}×${it.h}</span><span class="x" data-clear="${s.id}" title="Remove">✕</span></div>`;
+    } else {
+      body = `<div class="drop empty" data-slot="${s.id}"><span class="plus">＋<br>drop / click<br>to add image</span></div>`;
+    }
+    // Ability slots get a "no costume" toggle (that ability doesn't need its own art).
+    const capRight = isAbility
+      ? `<button class="nocosbtn ${isNo ? "on" : ""}" data-nocos="${s.id}" title="This ability doesn't need its own art">${isNo ? "no costume ✓" : "no costume"}</button>`
+      : `<span class="tag">${s.tag}</span>`;
     return `<div class="slot">
-      <div class="cap"><span class="lbl">${s.label}</span><span class="tag">${s.tag}</span></div>
+      <div class="cap"><span class="lbl">${s.label}</span>${capRight}</div>
       ${body}
     </div>`;
   }).join("");
@@ -162,7 +177,8 @@ function renderMain() {
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
        <h2>${c.name}</h2><span class="role">${c.role}</span></div>
      <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
-       Anything you add autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
+       If an ability doesn't need its own look, hit <b>no costume</b> on that card.
+       Everything autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
        When finished, click <b>Export file</b> and send it to me.</div>
      <div class="grid">${cards}</div>`;
   // wire uploads / drops / clears
@@ -175,6 +191,17 @@ function renderMain() {
   });
   $("main").querySelectorAll("[data-clear]").forEach(x =>
     x.onclick = e => { e.stopPropagation(); clearSlot(x.dataset.clear); });
+  $("main").querySelectorAll("[data-nocos]").forEach(b =>
+    b.onclick = e => { e.stopPropagation(); toggleNoCostume(b.dataset.nocos); });
+}
+
+// Mark an ability slot as "no costume" (uses the default look) — or unmark it.
+function toggleNoCostume(slot) {
+  const cs = (store[selected] ||= {});
+  if (cs[slot] && cs[slot].noCostume) delete cs[slot];   // turn off → back to empty
+  else cs[slot] = { noCostume: true };                    // turn on (drops any image)
+  if (!Object.keys(store[selected]).length) delete store[selected];
+  save(); renderSidebar(); renderMain();
 }
 
 // ── Slot editing ─────────────────────────────────────────────────────────────
@@ -208,13 +235,16 @@ function clearSlot(slot) {
 function exportFile() {
   const characters = ALL.map(c => {
     const slots = slotsFor(c), cs = store[c.id] || {};
-    const filled = slots.filter(s => cs[s.id]).map(s =>
-      ({ slot: s.id, label: s.label, kind: s.tag, filename: cs[s.id].filename,
-         w: cs[s.id].w, h: cs[s.id].h, image: cs[s.id].dataURL }));
+    const entries = slots.filter(s => cs[s.id]).map(s => {
+      const v = cs[s.id];
+      return v.noCostume
+        ? { slot: s.id, label: s.label, kind: s.tag, noCostume: true }
+        : { slot: s.id, label: s.label, kind: s.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
+    });
     return { id: c.id, name: c.name, role: c.role,
-             filled: filled.map(f => f.slot),
+             resolved: entries.map(e => e.slot),
              missing: slots.filter(s => !cs[s.id]).map(s => s.id),
-             slots: filled };
+             slots: entries };
   });
   const out = { app: "forsnaken-art", version: 1, totalSlots: TOTAL,
                 filledSlots: totalFilled(), characters };
@@ -230,7 +260,9 @@ function importFile(file) {
     let d; try { d = JSON.parse(fr.result); } catch { return toast("Not a valid export file."); }
     if (!d.characters) return toast("Unrecognized file.");
     for (const c of d.characters) for (const s of (c.slots || []))
-      (store[c.id] ||= {})[s.slot] = { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
+      (store[c.id] ||= {})[s.slot] = s.noCostume
+        ? { noCostume: true }
+        : { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
     save(); renderSidebar(); renderMain(); toast("Imported.");
   };
   fr.readAsText(file);
