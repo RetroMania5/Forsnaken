@@ -125,10 +125,31 @@
 const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
 
 const ALL = [...DATA.survivors, ...DATA.killers];
-const byId = Object.fromEntries(ALL.map(c => [c.id, c]));
 
-// The pose slots every character has: idle, walk-1, walk-2, then one per ability.
+// In-game items (ability-spawned objects + the generator). Each has its own slots.
+const ITEMS = [
+  { id: "gen",         name: "Generator",       role: "item", color: "#c9b24a",
+    slots: [{ id: "working", label: "Working", tag: "item" }, { id: "done", label: "Completed", tag: "item" }] },
+  { id: "knife",       name: "Throw Knife",     role: "item", color: "#c0c4cc", slots: [{ id: "sprite", label: "Knife", tag: "item" }] },
+  { id: "bullet",      name: "Sniper Bullet",   role: "item", color: "#a070f0", slots: [{ id: "sprite", label: "Bullet", tag: "item" }] },
+  { id: "smoke",       name: "Smoke Cloud",     role: "item", color: "#9aa0ad", slots: [{ id: "sprite", label: "Smoke", tag: "item" }] },
+  { id: "snowfield",   name: "Snow Field",      role: "item", color: "#7fd6e0", slots: [{ id: "sprite", label: "Field", tag: "item" }] },
+  { id: "robot",       name: "Robot",           role: "item", color: "#ffd84a", slots: [{ id: "sprite", label: "Robot", tag: "item" }] },
+  { id: "burger",      name: "Burger",          role: "item", color: "#ff9050", slots: [{ id: "sprite", label: "Burger", tag: "item" }] },
+  { id: "spawnpad",    name: "Spawn Pad",       role: "item", color: "#3a1860", slots: [{ id: "sprite", label: "Pad", tag: "item" }] },
+  { id: "healstation", name: "Heal Station",    role: "item", color: "#4a8c40", slots: [{ id: "sprite", label: "Station", tag: "item" }] },
+  { id: "defstation",  name: "Defence Station", role: "item", color: "#5a9cd0", slots: [{ id: "sprite", label: "Station", tag: "item" }] },
+  { id: "clover",      name: "Clover",          role: "item", color: "#6cc04a", slots: [{ id: "sprite", label: "Clover", tag: "item" }] },
+  { id: "portal",      name: "Portal",          role: "item", color: "#9070ff", slots: [{ id: "sprite", label: "Portal", tag: "item" }] },
+  { id: "trap",        name: "Trap",            role: "item", color: "#c05050", slots: [{ id: "sprite", label: "Trap", tag: "item" }] },
+];
+
+const ENTITIES = [...ALL, ...ITEMS];
+const byId = Object.fromEntries(ENTITIES.map(c => [c.id, c]));
+
+// Slots for an entity: items carry their own; characters get idle/walk-1/walk-2 + one per ability.
 function slotsFor(c) {
+  if (c.slots) return c.slots;
   const base = [
     { id: "idle",   label: "Idle",   tag: "pose" },
     { id: "walk-1", label: "Walk 1", tag: "pose" },
@@ -137,7 +158,7 @@ function slotsFor(c) {
   const abs = c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name, tag: "ability" }));
   return base.concat(abs);
 }
-const TOTAL = ALL.reduce((n, c) => n + slotsFor(c).length, 0);
+const TOTAL = ENTITIES.reduce((n, c) => n + slotsFor(c).length, 0);
 
 // ── Persistence (IndexedDB — handles many images; falls back to memory) ──────
 let store = {};                      // store[charId][slotId] = {filename,w,h,dataURL}
@@ -161,7 +182,7 @@ async function load() { const v = await idb("readonly", os => os.get("store")); 
 // ── Rendering ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const filledCount = cid => Object.keys(store[cid] || {}).length;
-const totalFilled = () => ALL.reduce((n, c) => n + filledCount(c.id), 0);
+const totalFilled = () => ENTITIES.reduce((n, c) => n + filledCount(c.id), 0);
 
 function renderSidebar() {
   const group = (title, list) => `<div class="grouphead">${title}</div>` + list.map(c => {
@@ -172,7 +193,7 @@ function renderSidebar() {
       <span class="cnt ${f === t ? "full" : ""}">${f}/${t}</span>
     </button>`;
   }).join("");
-  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers);
+  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers) + group("Items", ITEMS);
   $("sidebar").querySelectorAll(".charbtn").forEach(b =>
     b.onclick = () => { selected = b.dataset.char; renderSidebar(); renderMain(); });
   $("prog").innerHTML = `<b>${totalFilled()}</b> / ${TOTAL} slots`;
@@ -263,7 +284,7 @@ function clearSlot(slot) {
 
 // ── Export / import / clear ──────────────────────────────────────────────────
 function exportFile() {
-  const characters = ALL.map(c => {
+  const characters = ENTITIES.map(c => {
     const slots = slotsFor(c), cs = store[c.id] || {};
     const entries = slots.filter(s => cs[s.id]).map(s => {
       const v = cs[s.id];
@@ -316,6 +337,7 @@ const slotImg = (cid, slot) => { const it = (store[cid] || {})[slot]; return it 
 function resetAnim() { anim.frame = "idle"; anim.accum = 0; anim.actionUntil = 0; anim.actionAb = null; gapUntil = 0; lastTS = 0; }
 
 function stepAnim(dt, now) {
+  if (byId[selected].role === "item") return;         // items are static
   if (testMode === "walk") {
     anim.accum += dt * 1000;
     if (anim.frame !== "walkA" && anim.frame !== "walkB") { anim.frame = "walkA"; anim.accum = 0; }
@@ -337,6 +359,21 @@ function drawTest(now) {
   const F = cv.width / 100;
   ctx.setTransform(F, 0, 0, F, 0, 0); ctx.clearRect(0, 0, 100, 100);
   ctx.imageSmoothingEnabled = false;
+
+  // Items: static preview of the selected slot (no walk/ability animation).
+  if (c.role === "item") {
+    const img = slotImg(c.id, testMode) || slotImg(c.id, slotsFor(c)[0].id);
+    const stage = $("testStage");
+    if (!img) { stage.classList.add("missing"); return; }
+    stage.classList.remove("missing");
+    ctx.save();
+    ctx.translate(P.x, P.y);
+    if (testDir < 0) ctx.scale(-1, 1);
+    const S = 64, sc = Math.min(S / img.naturalWidth, S / img.naturalHeight);
+    ctx.drawImage(img, -img.naturalWidth * sc / 2, -img.naturalHeight * sc / 2, img.naturalWidth * sc, img.naturalHeight * sc);
+    ctx.restore();
+    return;
+  }
 
   const inAction = now < anim.actionUntil;
   const flip = testDir < 0, dir = flip ? -1 : 1;
@@ -402,9 +439,10 @@ function sizeCanvas() {
 function renderTest() {
   const c = byId[selected];
   $("testName").textContent = "Test: " + c.name;
-  const modes = [{ id: "idle", label: "Idle" }, { id: "walk", label: "Walk" }]
-    .concat(c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name })));
-  if (!modes.some(m => m.id === testMode)) testMode = "idle";
+  const modes = c.role === "item"
+    ? slotsFor(c).map(s => ({ id: s.id, label: s.label }))
+    : [{ id: "idle", label: "Idle" }, { id: "walk", label: "Walk" }].concat(c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name })));
+  if (!modes.some(m => m.id === testMode)) testMode = modes[0].id;
   $("testModes").innerHTML = modes.map(m => `<button class="tmode ${m.id === testMode ? "on" : ""}" data-mode="${m.id}">${m.label}</button>`).join("");
   $("testModes").querySelectorAll("[data-mode]").forEach(b =>
     b.onclick = () => { testMode = b.dataset.mode; resetAnim(); renderTest(); });
