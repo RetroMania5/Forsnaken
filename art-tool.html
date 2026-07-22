@@ -82,9 +82,7 @@
   .stage { height:340px; display:grid; place-items:center; overflow:hidden;
     background:linear-gradient(160deg,#20364a,#141d28); border-bottom:1px solid var(--line); }
   .stage.missing::after { content:"no art in this slot yet"; color:var(--dim); font-size:13px; }
-  #testImg { image-rendering:pixelated; image-rendering:crisp-edges; }
-  #testImg.bob { animation:bob 1.2s ease-in-out infinite; }
-  @keyframes bob { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-5px);} }
+  #testCanvas { image-rendering:pixelated; image-rendering:crisp-edges; }
   .testctrls { display:flex; flex-wrap:wrap; gap:8px; padding:14px 16px 6px; }
   .tmode.on { background:linear-gradient(160deg,#4f8fe0,#2f6fc0); border-color:#2f6fc0; color:#fff; }
   .testzoom { display:flex; align-items:center; gap:10px; padding:8px 16px 16px; color:var(--dim); font-size:13px; }
@@ -113,12 +111,16 @@
 <div class="overlay" id="test" hidden>
   <div class="testcard">
     <div class="testhead"><b id="testName">Test</b><button id="testClose">✕ Close</button></div>
-    <div class="stage" id="testStage"><img id="testImg" alt=""></div>
+    <div class="stage" id="testStage"><canvas id="testCanvas" width="100" height="100"></canvas></div>
     <div class="testctrls" id="testModes"></div>
-    <div class="testzoom">Zoom <input type="range" id="testZoom" min="1" max="10" value="5"><span id="testZoomV">5×</span></div>
+    <div class="testzoom">
+      <button id="testFace">Face ▶</button>
+      Zoom <input type="range" id="testZoom" min="1" max="10" value="5"><span id="testZoomV">5×</span>
+    </div>
   </div>
 </div>
 
+<script src="anim-fx.js"></script>
 <script>
 const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
 
@@ -298,28 +300,95 @@ function importFile(file) {
 function toast(msg) { const n = $("note"); n.textContent = msg; n.style.display = "block";
   clearTimeout(toast._t); toast._t = setTimeout(() => n.style.display = "none", 3200); }
 
-// ── Test / preview ───────────────────────────────────────────────────────────
-let testMode = "idle", testFlip = false, testTimer = null, testZoom = 5;
-const frameURL = (cid, slot) => { const it = (store[cid] || {})[slot]; return it && it.dataURL ? it.dataURL : null; };
-function testSrc(c) {
-  if (testMode === "walk") {                       // alternate walk-1 / walk-2
-    const a = frameURL(c.id, "walk-1"), b = frameURL(c.id, "walk-2");
-    return (testFlip ? (b || a) : (a || b)) || frameURL(c.id, "idle");
-  }
-  if (testMode.startsWith("ability-")) {           // ability costume (or idle if "no costume")
-    const it = (store[c.id] || {})[testMode];
-    if (it && it.noCostume) return frameURL(c.id, "idle");
-    return frameURL(c.id, testMode) || frameURL(c.id, "idle");
-  }
-  return frameURL(c.id, "idle");
+// ── Test / preview — canvas driven by the game's real animation code ─────────
+const AN = window.ForsakenAnim;   // from anim-fx.js (timing, transforms, FX)
+let testMode = "idle", testZoom = 5, testDir = 1, testRAF = null, lastTS = 0, gapUntil = 0;
+const anim = { frame: "idle", accum: 0, actionUntil: 0, actionAb: null };
+const P = { x: 50, y: 50, alive: true };            // simulated player at canvas center
+const imgCache = {};
+function getImg(url) {
+  if (!url) return null;
+  let im = imgCache[url]; if (!im) { im = new Image(); im.src = url; imgCache[url] = im; }
+  return (im.complete && im.naturalWidth) ? im : null;
 }
-function updateTestFrame() {
-  const c = byId[selected], src = testSrc(c), img = $("testImg");
-  if (src) { img.src = src; img.style.display = "block"; $("testStage").classList.remove("missing"); }
-  else { img.removeAttribute("src"); img.style.display = "none"; $("testStage").classList.add("missing"); }
-  img.style.height = (testZoom * 32) + "px"; img.style.width = "auto";
-  img.classList.toggle("bob", testMode === "idle");
+const slotImg = (cid, slot) => { const it = (store[cid] || {})[slot]; return it && it.dataURL ? getImg(it.dataURL) : null; };
+
+function resetAnim() { anim.frame = "idle"; anim.accum = 0; anim.actionUntil = 0; anim.actionAb = null; gapUntil = 0; lastTS = 0; }
+
+function stepAnim(dt, now) {
+  if (testMode === "walk") {
+    anim.accum += dt * 1000;
+    if (anim.frame !== "walkA" && anim.frame !== "walkB") { anim.frame = "walkA"; anim.accum = 0; }
+    else if (anim.accum >= AN.WALK_FRAME_MS) { anim.accum -= AN.WALK_FRAME_MS; anim.frame = anim.frame === "walkA" ? "walkB" : "walkA"; }
+  } else if (testMode.startsWith("ability-")) {
+    if (now >= anim.actionUntil && now >= gapUntil) {   // replay: 320ms action, then a short gap
+      anim.actionAb = testMode.slice("ability-".length);
+      anim.actionUntil = now + AN.ACTION_HOLD_MS;
+      gapUntil = anim.actionUntil + 420;
+    }
+  } else { anim.frame = "idle"; }
 }
+
+function drawTest(now) {
+  const c = byId[selected], cv = $("testCanvas"), ctx = cv.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.imageSmoothingEnabled = false;
+
+  const inAction = now < anim.actionUntil;
+  const flip = testDir < 0, dir = flip ? -1 : 1;
+  let sx = 1, sy = 1, lean = 0, bob = 0, sway = 0, fx = null, t = 0;
+
+  if (inAction) {                                    // squash/stretch transform (custom or default)
+    t = 1 - (anim.actionUntil - now) / AN.ACTION_HOLD_MS;
+    fx = AN.fxFor(c.id, anim.actionAb);
+    const tr = (fx && fx.transform) ? (fx.transform(t) || {}) : AN.defaultTransform(t);
+    if (tr.actScaleX != null) sx = tr.actScaleX;
+    if (tr.actScaleY != null) sy = tr.actScaleY;
+    if (tr.leanPx != null) lean = tr.leanPx;
+    if (tr.bobPx != null) bob = tr.bobPx;
+    if (tr.swayRad != null) sway = tr.swayRad;
+  } else if (anim.frame === "walkA" || anim.frame === "walkB") {   // walk bob + sway
+    const phase = (anim.accum / AN.WALK_FRAME_MS) * Math.PI;
+    bob = -Math.abs(Math.sin(phase)) * 1.5;
+    sway = (anim.frame === "walkA" ? 1 : -1) * Math.sin(phase) * (4 * Math.PI / 180);
+  }
+
+  // pick the frame image (falls back to idle where art is missing / "no costume")
+  let img;
+  if (inAction) {
+    const it = (store[c.id] || {})["ability-" + anim.actionAb];
+    img = (it && !it.noCostume) ? slotImg(c.id, "ability-" + anim.actionAb) : slotImg(c.id, "idle");
+    if (!img) img = slotImg(c.id, "idle");
+  } else if (anim.frame === "walkA") img = slotImg(c.id, "walk-1") || slotImg(c.id, "idle");
+  else if (anim.frame === "walkB") img = slotImg(c.id, "walk-2") || slotImg(c.id, "idle");
+  else img = slotImg(c.id, "idle");
+
+  const stage = $("testStage");
+  if (!img) { stage.classList.add("missing"); return; }
+  stage.classList.remove("missing");
+
+  if (inAction && fx && fx.pre) { ctx.save(); try { fx.pre(ctx, P, t, dir); } catch (e) {} ctx.restore(); }
+
+  ctx.save();
+  ctx.translate(P.x + (flip ? -lean : lean), P.y + bob);
+  if (sway) ctx.rotate(sway);
+  if (flip) ctx.scale(-1, 1);
+  if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
+  const S = AN.SPRITE_SIZE, sc = Math.min(S / img.naturalWidth, S / img.naturalHeight);
+  const w = img.naturalWidth * sc, h = img.naturalHeight * sc;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  ctx.restore();
+
+  if (inAction && fx && fx.post) { ctx.save(); try { fx.post(ctx, P, t, dir); } catch (e) {} ctx.restore(); }
+}
+
+function loopTest(ts) {
+  const dt = lastTS ? Math.min(0.05, (ts - lastTS) / 1000) : 0; lastTS = ts;
+  stepAnim(dt, ts); drawTest(ts);
+  testRAF = requestAnimationFrame(loopTest);
+}
+function applyZoom() { const cv = $("testCanvas"); cv.style.width = cv.style.height = (testZoom * 26) + "px"; }
 function renderTest() {
   const c = byId[selected];
   $("testName").textContent = "Test: " + c.name;
@@ -327,19 +396,20 @@ function renderTest() {
     .concat(c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name })));
   if (!modes.some(m => m.id === testMode)) testMode = "idle";
   $("testModes").innerHTML = modes.map(m => `<button class="tmode ${m.id === testMode ? "on" : ""}" data-mode="${m.id}">${m.label}</button>`).join("");
-  $("testModes").querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { testMode = b.dataset.mode; renderTest(); });
-  updateTestFrame();
+  $("testModes").querySelectorAll("[data-mode]").forEach(b =>
+    b.onclick = () => { testMode = b.dataset.mode; resetAnim(); renderTest(); });
 }
 function openTest() {
-  $("test").hidden = false; renderTest();
-  clearInterval(testTimer);
-  testTimer = setInterval(() => { if (testMode === "walk") { testFlip = !testFlip; updateTestFrame(); } }, 180);
+  if (!AN) { toast("Animation file (anim-fx.js) didn't load."); return; }
+  $("test").hidden = false; resetAnim(); renderTest(); applyZoom();
+  cancelAnimationFrame(testRAF); testRAF = requestAnimationFrame(loopTest);
 }
-function closeTest() { $("test").hidden = true; clearInterval(testTimer); testTimer = null; }
+function closeTest() { $("test").hidden = true; cancelAnimationFrame(testRAF); testRAF = null; }
 $("testBtn").onclick = openTest;
 $("testClose").onclick = closeTest;
 $("test").onclick = e => { if (e.target.id === "test") closeTest(); };
-$("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textContent = testZoom + "×"; updateTestFrame(); };
+$("testFace").onclick = () => { testDir = -testDir; $("testFace").textContent = testDir < 0 ? "Face ◀" : "Face ▶"; };
+$("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textContent = testZoom + "×"; applyZoom(); };
 
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
