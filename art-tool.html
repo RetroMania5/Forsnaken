@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forsnaken Art Tool</title>
+<style>
+  :root { --bg:#12131a; --panel:#1c1e2a; --panel2:#242738; --line:#33374d; --ink:#e7e9f3; --dim:#9aa0bd; --accent:#7db4ff; --good:#5fd08a; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 18px;
+    background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { margin:0; font-size:18px; letter-spacing:.3px; }
+  header h1 span { color:var(--accent); }
+  .grow { flex:1; }
+  .prog { font-size:13px; color:var(--dim); white-space:nowrap; }
+  .prog b { color:var(--good); }
+  button { font-family:inherit; font-weight:600; font-size:13px; color:var(--ink);
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:8px 14px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:linear-gradient(160deg,#4f8fe0,#2f6fc0); border-color:#2f6fc0; }
+  button.danger:hover { border-color:#e0576f; color:#ffb9c4; }
+
+  .wrap { display:flex; height:calc(100% - 57px); }
+  /* Sidebar */
+  aside { width:230px; flex:none; overflow-y:auto; border-right:1px solid var(--line); background:var(--panel); padding:10px; }
+  .grouphead { font-size:11px; letter-spacing:1.5px; color:var(--dim); text-transform:uppercase; margin:14px 6px 6px; }
+  .grouphead:first-child { margin-top:4px; }
+  .charbtn { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+    background:transparent; border:1px solid transparent; border-radius:8px; padding:8px 10px; margin-bottom:3px; }
+  .charbtn:hover { background:var(--panel2); }
+  .charbtn.sel { background:var(--panel2); border-color:var(--accent); }
+  .dot { width:14px; height:14px; border-radius:50%; flex:none; box-shadow:0 0 0 1px #0006 inset; }
+  .charbtn .nm { flex:1; font-weight:600; font-size:14px; }
+  .charbtn .cnt { font-size:11px; color:var(--dim); }
+  .charbtn .cnt.full { color:var(--good); }
+
+  /* Main */
+  main { flex:1; overflow-y:auto; padding:20px 24px 60px; }
+  .maintitle { display:flex; align-items:center; gap:12px; margin:0 0 4px; }
+  .maintitle .dot { width:20px; height:20px; }
+  .maintitle h2 { margin:0; font-size:22px; }
+  .maintitle .role { font-size:12px; color:var(--dim); border:1px solid var(--line); padding:2px 8px; border-radius:99px; text-transform:capitalize; }
+  .hint { color:var(--dim); font-size:13px; margin:2px 0 18px; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; }
+  .slot { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .slot .cap { display:flex; align-items:center; justify-content:space-between; padding:9px 11px; border-bottom:1px solid var(--line); }
+  .slot .cap .lbl { font-weight:700; font-size:13px; }
+  .slot .cap .tag { font-size:10px; color:var(--dim); letter-spacing:.5px; text-transform:uppercase; }
+  .drop { position:relative; aspect-ratio:1/1; display:grid; place-items:center; cursor:pointer;
+    background:
+      linear-gradient(45deg,#0000 75%,#ffffff08 0) 0 0/20px 20px,
+      linear-gradient(45deg,#ffffff08 25%,#0000 0) 10px 10px/20px 20px,
+      var(--panel2); }
+  .drop.empty { border:2px dashed var(--line); margin:10px; border-radius:10px; aspect-ratio:1/1; }
+  .drop.empty:hover, .drop.over { border-color:var(--accent); background:var(--panel2); }
+  .drop .plus { color:var(--dim); font-size:13px; text-align:center; pointer-events:none; }
+  .drop img { max-width:100%; max-height:100%; display:block; image-rendering:auto; }
+  .drop.over { outline:2px solid var(--accent); outline-offset:-4px; }
+  .meta { display:flex; align-items:center; justify-content:space-between; padding:7px 11px; font-size:11px; color:var(--dim); border-top:1px solid var(--line); }
+  .meta .fn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
+  .meta .x { color:var(--dim); cursor:pointer; padding:0 4px; }
+  .meta .x:hover { color:#ff9db0; }
+  .note { position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+    background:#000c; border:1px solid var(--line); border-radius:10px; padding:10px 16px; font-size:13px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🦆 <span>Forsnaken</span> Art Tool</h1>
+  <div class="grow"></div>
+  <div class="prog" id="prog">0 / 0 slots</div>
+  <button id="importBtn">Import…</button>
+  <button id="clearBtn" class="danger">Clear all</button>
+  <button id="exportBtn" class="primary">⬇ Export file</button>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+</header>
+
+<div class="wrap">
+  <aside id="sidebar"></aside>
+  <main id="main"></main>
+</div>
+<div class="note" id="note"></div>
+
+<script>
+const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
+
+const ALL = [...DATA.survivors, ...DATA.killers];
+const byId = Object.fromEntries(ALL.map(c => [c.id, c]));
+
+// The pose slots every character has: idle, walk-1, walk-2, then one per ability.
+function slotsFor(c) {
+  const base = [
+    { id: "idle",   label: "Idle",   tag: "pose" },
+    { id: "walk-1", label: "Walk 1", tag: "pose" },
+    { id: "walk-2", label: "Walk 2", tag: "pose" },
+  ];
+  const abs = c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name, tag: "ability" }));
+  return base.concat(abs);
+}
+const TOTAL = ALL.reduce((n, c) => n + slotsFor(c).length, 0);
+
+// ── Persistence (IndexedDB — handles many images; falls back to memory) ──────
+let store = {};                      // store[charId][slotId] = {filename,w,h,dataURL}
+let selected = ALL[0].id;
+let dbOK = true;
+function idb(mode, fn) {
+  return new Promise((res) => {
+    let r;
+    try { r = indexedDB.open("forsnaken-art", 1); } catch { dbOK = false; return res(null); }
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onerror = () => { dbOK = false; res(null); };
+    r.onsuccess = () => { try {
+      const os = r.result.transaction("kv", mode).objectStore("kv");
+      const q = fn(os); q.onsuccess = () => res(q.result); q.onerror = () => res(null);
+    } catch { dbOK = false; res(null); } };
+  });
+}
+const save = () => idb("readwrite", os => os.put(store, "store"));
+async function load() { const v = await idb("readonly", os => os.get("store")); if (v) store = v; }
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const filledCount = cid => Object.keys(store[cid] || {}).length;
+const totalFilled = () => ALL.reduce((n, c) => n + filledCount(c.id), 0);
+
+function renderSidebar() {
+  const group = (title, list) => `<div class="grouphead">${title}</div>` + list.map(c => {
+    const f = filledCount(c.id), t = slotsFor(c).length;
+    return `<button class="charbtn ${c.id === selected ? "sel" : ""}" data-char="${c.id}">
+      <span class="dot" style="background:${c.color}"></span>
+      <span class="nm">${c.name}</span>
+      <span class="cnt ${f === t ? "full" : ""}">${f}/${t}</span>
+    </button>`;
+  }).join("");
+  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers);
+  $("sidebar").querySelectorAll(".charbtn").forEach(b =>
+    b.onclick = () => { selected = b.dataset.char; renderSidebar(); renderMain(); });
+  $("prog").innerHTML = `<b>${totalFilled()}</b> / ${TOTAL} slots`;
+}
+
+function renderMain() {
+  const c = byId[selected], slots = slotsFor(c), cs = store[c.id] || {};
+  const cards = slots.map(s => {
+    const it = cs[s.id];
+    const body = it
+      ? `<div class="drop" data-slot="${s.id}"><img src="${it.dataURL}" alt=""></div>
+         <div class="meta"><span class="fn" title="${it.filename}">${it.filename}</span>
+           <span>${it.w}×${it.h}</span><span class="x" data-clear="${s.id}" title="Remove">✕</span></div>`
+      : `<div class="drop empty" data-slot="${s.id}"><span class="plus">＋<br>drop / click<br>to add image</span></div>`;
+    return `<div class="slot">
+      <div class="cap"><span class="lbl">${s.label}</span><span class="tag">${s.tag}</span></div>
+      ${body}
+    </div>`;
+  }).join("");
+  $("main").innerHTML =
+    `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
+       <h2>${c.name}</h2><span class="role">${c.role}</span></div>
+     <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
+       Anything you add autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
+       When finished, click <b>Export file</b> and send it to me.</div>
+     <div class="grid">${cards}</div>`;
+  // wire uploads / drops / clears
+  $("main").querySelectorAll(".drop").forEach(d => {
+    d.onclick = () => pickFile(d.dataset.slot);
+    d.ondragover = e => { e.preventDefault(); d.classList.add("over"); };
+    d.ondragleave = () => d.classList.remove("over");
+    d.ondrop = e => { e.preventDefault(); d.classList.remove("over");
+      const f = e.dataTransfer.files[0]; if (f) setImage(d.dataset.slot, f); };
+  });
+  $("main").querySelectorAll("[data-clear]").forEach(x =>
+    x.onclick = e => { e.stopPropagation(); clearSlot(x.dataset.clear); });
+}
+
+// ── Slot editing ─────────────────────────────────────────────────────────────
+function pickFile(slot) {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = () => { if (inp.files[0]) setImage(slot, inp.files[0]); };
+  inp.click();
+}
+function setImage(slot, file) {
+  if (!file.type.startsWith("image/")) { toast("That's not an image file."); return; }
+  const fr = new FileReader();
+  fr.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      (store[selected] ||= {})[slot] =
+        { filename: file.name, w: img.naturalWidth, h: img.naturalHeight, dataURL: fr.result };
+      save(); renderSidebar(); renderMain();
+    };
+    img.onerror = () => toast("Couldn't read that image.");
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(file);
+}
+function clearSlot(slot) {
+  if (store[selected]) { delete store[selected][slot]; if (!Object.keys(store[selected]).length) delete store[selected]; }
+  save(); renderSidebar(); renderMain();
+}
+
+// ── Export / import / clear ──────────────────────────────────────────────────
+function exportFile() {
+  const characters = ALL.map(c => {
+    const slots = slotsFor(c), cs = store[c.id] || {};
+    const filled = slots.filter(s => cs[s.id]).map(s =>
+      ({ slot: s.id, label: s.label, kind: s.tag, filename: cs[s.id].filename,
+         w: cs[s.id].w, h: cs[s.id].h, image: cs[s.id].dataURL }));
+    return { id: c.id, name: c.name, role: c.role,
+             filled: filled.map(f => f.slot),
+             missing: slots.filter(s => !cs[s.id]).map(s => s.id),
+             slots: filled };
+  });
+  const out = { app: "forsnaken-art", version: 1, totalSlots: TOTAL,
+                filledSlots: totalFilled(), characters };
+  const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "forsnaken-art.json"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`Exported ${totalFilled()} images. Send me forsnaken-art.json`);
+}
+function importFile(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    let d; try { d = JSON.parse(fr.result); } catch { return toast("Not a valid export file."); }
+    if (!d.characters) return toast("Unrecognized file.");
+    for (const c of d.characters) for (const s of (c.slots || []))
+      (store[c.id] ||= {})[s.slot] = { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
+    save(); renderSidebar(); renderMain(); toast("Imported.");
+  };
+  fr.readAsText(file);
+}
+function toast(msg) { const n = $("note"); n.textContent = msg; n.style.display = "block";
+  clearTimeout(toast._t); toast._t = setTimeout(() => n.style.display = "none", 3200); }
+
+$("exportBtn").onclick = exportFile;
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
+$("clearBtn").onclick = () => { if (confirm("Remove ALL added art? (Export first if you want to keep it.)"))
+  { store = {}; save(); renderSidebar(); renderMain(); } };
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+load().then(() => { renderSidebar(); renderMain(); });
+</script>
+</body>
+</html>
