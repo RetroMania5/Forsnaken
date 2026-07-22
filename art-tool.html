@@ -72,6 +72,23 @@
   .meta .x:hover { color:#ff9db0; }
   .note { position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
     background:#000c; border:1px solid var(--line); border-radius:10px; padding:10px 16px; font-size:13px; display:none; }
+
+  /* Test / preview overlay */
+  .overlay { position:fixed; inset:0; background:#000c; display:grid; place-items:center; z-index:20; padding:20px; }
+  .overlay[hidden] { display:none; }
+  .testcard { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:min(560px,94vw); max-height:92vh; overflow:auto; }
+  .testhead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); }
+  .testhead b { font-size:16px; }
+  .stage { height:340px; display:grid; place-items:center; overflow:hidden;
+    background:linear-gradient(160deg,#20364a,#141d28); border-bottom:1px solid var(--line); }
+  .stage.missing::after { content:"no art in this slot yet"; color:var(--dim); font-size:13px; }
+  #testImg { image-rendering:pixelated; image-rendering:crisp-edges; }
+  #testImg.bob { animation:bob 1.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-5px);} }
+  .testctrls { display:flex; flex-wrap:wrap; gap:8px; padding:14px 16px 6px; }
+  .tmode.on { background:linear-gradient(160deg,#4f8fe0,#2f6fc0); border-color:#2f6fc0; color:#fff; }
+  .testzoom { display:flex; align-items:center; gap:10px; padding:8px 16px 16px; color:var(--dim); font-size:13px; }
+  .testzoom input { flex:1; }
 </style>
 </head>
 <body>
@@ -79,6 +96,7 @@
   <h1>🦆 <span>Forsnaken</span> Art Tool</h1>
   <div class="grow"></div>
   <div class="prog" id="prog">0 / 0 slots</div>
+  <button id="testBtn">▶ Test</button>
   <button id="importBtn">Import…</button>
   <button id="clearBtn" class="danger">Clear all</button>
   <button id="exportBtn" class="primary">⬇ Export file</button>
@@ -90,6 +108,16 @@
   <main id="main"></main>
 </div>
 <div class="note" id="note"></div>
+
+<!-- Test / preview overlay -->
+<div class="overlay" id="test" hidden>
+  <div class="testcard">
+    <div class="testhead"><b id="testName">Test</b><button id="testClose">✕ Close</button></div>
+    <div class="stage" id="testStage"><img id="testImg" alt=""></div>
+    <div class="testctrls" id="testModes"></div>
+    <div class="testzoom">Zoom <input type="range" id="testZoom" min="1" max="10" value="5"><span id="testZoomV">5×</span></div>
+  </div>
+</div>
 
 <script>
 const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
@@ -269,6 +297,49 @@ function importFile(file) {
 }
 function toast(msg) { const n = $("note"); n.textContent = msg; n.style.display = "block";
   clearTimeout(toast._t); toast._t = setTimeout(() => n.style.display = "none", 3200); }
+
+// ── Test / preview ───────────────────────────────────────────────────────────
+let testMode = "idle", testFlip = false, testTimer = null, testZoom = 5;
+const frameURL = (cid, slot) => { const it = (store[cid] || {})[slot]; return it && it.dataURL ? it.dataURL : null; };
+function testSrc(c) {
+  if (testMode === "walk") {                       // alternate walk-1 / walk-2
+    const a = frameURL(c.id, "walk-1"), b = frameURL(c.id, "walk-2");
+    return (testFlip ? (b || a) : (a || b)) || frameURL(c.id, "idle");
+  }
+  if (testMode.startsWith("ability-")) {           // ability costume (or idle if "no costume")
+    const it = (store[c.id] || {})[testMode];
+    if (it && it.noCostume) return frameURL(c.id, "idle");
+    return frameURL(c.id, testMode) || frameURL(c.id, "idle");
+  }
+  return frameURL(c.id, "idle");
+}
+function updateTestFrame() {
+  const c = byId[selected], src = testSrc(c), img = $("testImg");
+  if (src) { img.src = src; img.style.display = "block"; $("testStage").classList.remove("missing"); }
+  else { img.removeAttribute("src"); img.style.display = "none"; $("testStage").classList.add("missing"); }
+  img.style.height = (testZoom * 32) + "px"; img.style.width = "auto";
+  img.classList.toggle("bob", testMode === "idle");
+}
+function renderTest() {
+  const c = byId[selected];
+  $("testName").textContent = "Test: " + c.name;
+  const modes = [{ id: "idle", label: "Idle" }, { id: "walk", label: "Walk" }]
+    .concat(c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name })));
+  if (!modes.some(m => m.id === testMode)) testMode = "idle";
+  $("testModes").innerHTML = modes.map(m => `<button class="tmode ${m.id === testMode ? "on" : ""}" data-mode="${m.id}">${m.label}</button>`).join("");
+  $("testModes").querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { testMode = b.dataset.mode; renderTest(); });
+  updateTestFrame();
+}
+function openTest() {
+  $("test").hidden = false; renderTest();
+  clearInterval(testTimer);
+  testTimer = setInterval(() => { if (testMode === "walk") { testFlip = !testFlip; updateTestFrame(); } }, 180);
+}
+function closeTest() { $("test").hidden = true; clearInterval(testTimer); testTimer = null; }
+$("testBtn").onclick = openTest;
+$("testClose").onclick = closeTest;
+$("test").onclick = e => { if (e.target.id === "test") closeTest(); };
+$("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textContent = testZoom + "×"; updateTestFrame(); };
 
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
