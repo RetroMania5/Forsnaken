@@ -11,12 +11,87 @@
 // ─────────────────────────────────────────────────────────────────────────
 window.ForsakenSolo = (function () {
   const SURV_SPEED = 200, KILL_SPEED = 230, SPRINT = 1.35, DT = 0.05;
+  const BOT_R = 16;                 // collision radius (a touch under the human's 18)
+  const RAD = Math.PI / 180;
+  // Steering: try the straight-ahead direction first, then progressively wider
+  // angles left/right so a blocked bot walks *around* a wall instead of into it.
+  const STEER = [0, 22, -22, 45, -45, 70, -70, 100, -100, 135, -135];
 
   const rnd  = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const hyp  = (dx, dy) => Math.hypot(dx, dy);
   const norm = (dx, dy) => { const d = hyp(dx, dy) || 1; return { x: dx / d, y: dy / d }; };
+  const clmp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const rot  = (v, deg) => { const a = deg * RAD, c = Math.cos(a), s = Math.sin(a);
+                             return { x: v.x * c - v.y * s, y: v.x * s + v.y * c }; };
 
-  let G, onMessage, bots = [], aiTimer = null;
+  let G, onMessage, bots = [], aiTimer = null, SOLO = null;
+  // Authoritative wall/obstacle test from the engine (current map's geometry).
+  const blocked = (x, y) => (SOLO && SOLO.blocked ? SOLO.blocked(x, y, BOT_R) : false);
+
+  // ── Navigation grid + A* (so bots route around walls, not into them) ──────
+  const CELL = 22;      // grid resolution
+  const GRID_R = 9;     // clearance used to build the graph; smaller than BOT_R so
+                        // real (human-passable) doorways aren't falsely walled off —
+                        // move()'s BOT_R collision still handles the actual squeeze.
+  let nav = null, navMapId = null;
+  function ensureNav(mapId, mapW, mapH) {
+    if (nav && navMapId === mapId) return;
+    const cols = Math.ceil(mapW / CELL), rows = Math.ceil(mapH / CELL);
+    const b = new Uint8Array(cols * rows);
+    const solid = (x, y) => (SOLO && SOLO.blocked ? SOLO.blocked(x, y, GRID_R) : false);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++)
+      b[j * cols + i] = solid(i * CELL + CELL / 2, j * CELL + CELL / 2) ? 1 : 0;
+    nav = { cols, rows, b, w: mapW, h: mapH };
+    navMapId = mapId;
+  }
+  const cIdx = (i, j) => j * nav.cols + i;
+  const cFree = (i, j) => i >= 0 && j >= 0 && i < nav.cols && j < nav.rows && !nav.b[cIdx(i, j)];
+  function nearestFreeCell(i, j) {
+    if (cFree(i, j)) return { i, j };
+    for (let r = 1; r < 8; r++)
+      for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++)
+        if (Math.abs(di) === r || Math.abs(dj) === r) if (cFree(i + di, j + dj)) return { i: i + di, j: j + dj };
+    return null;
+  }
+  const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  function findPath(sx, sy, tx, ty) {
+    if (!nav) return null;
+    const clampi = (v, hi) => (v < 0 ? 0 : v >= hi ? hi - 1 : v);
+    let s = nearestFreeCell(clampi(Math.floor(sx / CELL), nav.cols), clampi(Math.floor(sy / CELL), nav.rows));
+    let t = nearestFreeCell(clampi(Math.floor(tx / CELL), nav.cols), clampi(Math.floor(ty / CELL), nav.rows));
+    if (!s || !t) return null;
+    const g = new Map(), came = new Map(), open = new Map();
+    const h = (i, j) => Math.hypot(i - t.i, j - t.j);
+    const sk = cIdx(s.i, s.j);
+    g.set(sk, 0); open.set(sk, { i: s.i, j: s.j, f: h(s.i, s.j) });
+    let guard = 0;
+    while (open.size) {
+      if (++guard > 5000) break;
+      let bk = null, bf = Infinity;
+      for (const [k, v] of open) if (v.f < bf) { bf = v.f; bk = k; }
+      const cur = open.get(bk); open.delete(bk);
+      const ck = cIdx(cur.i, cur.j);
+      if (cur.i === t.i && cur.j === t.j) {
+        const path = []; let k = ck;
+        while (k !== undefined) { const i = k % nav.cols, j = (k - i) / nav.cols; path.push({ x: i * CELL + CELL / 2, y: j * CELL + CELL / 2 }); k = came.get(k); }
+        return path.reverse();
+      }
+      for (const [di, dj] of DIRS) {
+        const ni = cur.i + di, nj = cur.j + dj;
+        if (!cFree(ni, nj)) continue;
+        if (di && dj && (!cFree(cur.i + di, cur.j) || !cFree(cur.i, cur.j + dj))) continue; // no corner cut
+        const nk = cIdx(ni, nj);
+        const ng = g.get(ck) + (di && dj ? 1.414 : 1);
+        if (!g.has(nk) || ng < g.get(nk)) { g.set(nk, ng); came.set(nk, ck); open.set(nk, { i: ni, j: nj, f: ng + h(ni, nj) }); }
+      }
+    }
+    return null;
+  }
+  function lineOpen(ax, ay, bx, by) {
+    const d = hyp(bx - ax, by - ay), steps = Math.ceil(d / (CELL / 2));
+    for (let k = 1; k <= steps; k++) { const u = k / steps; if (blocked(ax + (bx - ax) * u, ay + (by - ay) * u)) return false; }
+    return true;
+  }
 
   // ── Human client: a stand-in for a WebSocket the game code already speaks ──
   class SoloLink {
@@ -40,6 +115,8 @@ window.ForsakenSolo = (function () {
       this.gens = [];               // [{x,y,done}]
       this.bx = 0; this.by = 0; this.facing = { x: 1, y: 0 };
       this.alive = true; this.playing = false;
+      this.hug = 0; this.hugSide = 1;   // wall-following commitment
+      this.path = null; this.pathI = 0; this.pathTgt = null; this.repathAt = 0;
       this.stunUntil = 0; this.nextUse = [0, 0, 0];
       this.nextSkill = 0; this.nextAttack = 0;
       sw.onOut = (json) => this.onServer(json);
@@ -67,6 +144,8 @@ window.ForsakenSolo = (function () {
           const me = (m.players || []).find(p => p.id === this.id);
           if (me) { this.bx = me.x; this.by = me.y; this.role = me.role; this.alive = true; }
           this.stunUntil = 0; this.nextUse = [0, 0, 0]; this.playing = true;
+          this.path = null; this.pathTgt = null;
+          ensureNav(m.mapId || "circus", this.map.w || 2400, this.map.h || 1600);
           break;
         case "state":
           this.snap = m;
@@ -96,14 +175,56 @@ window.ForsakenSolo = (function () {
     selfSnap() { return this.snap && this.snap.players.find(p => p.id === this.id); }
 
     move(dir, speed) {
-      this.bx = Math.max(20, Math.min(this.map.w - 20, this.bx + dir.x * speed * DT));
-      this.by = Math.max(20, Math.min(this.map.h - 20, this.by + dir.y * speed * DT));
-      if (dir.x || dir.y) this.facing = dir;
+      if (!dir.x && !dir.y) return false;
+      const step = speed * DT;
+      if (this.hug > 0) this.hug--;
+      const tryStep = (d) => {
+        const nx = clmp(this.bx + d.x * step, 20, this.map.w - 20);
+        const ny = clmp(this.by + d.y * step, 20, this.map.h - 20);
+        if (blocked(nx, ny)) return false;
+        this.bx = nx; this.by = ny; this.facing = d; return true;
+      };
+      // Straight ahead is clear → take it and drop any wall-follow.
+      if (tryStep(dir)) { this.hug = 0; return true; }
+      // Blocked: commit to following the wall on the roomier side for a few
+      // ticks (hysteresis) so we detour around it instead of oscillating.
+      if (this.hug <= 0) this.hugSide = this.clearer(dir, step);
+      for (const side of [this.hugSide, -this.hugSide]) {
+        for (const a of [45, 70, 95, 120, 145]) {
+          if (tryStep(rot(dir, side * a))) { this.hug = 10; this.hugSide = side; return true; }
+        }
+      }
+      return false; // fully boxed in this tick
+    }
+    // Which turn direction (+1 / -1) has more open room ahead of a blocked path.
+    clearer(dir, step) {
+      const run = (side) => {
+        const d = rot(dir, side * 75); let n = 0;
+        for (let k = 1; k <= 5; k++) { if (blocked(this.bx + d.x * step * k, this.by + d.y * step * k)) break; n++; }
+        return n;
+      };
+      return run(1) >= run(-1) ? 1 : -1;
+    }
+    // Path-follow toward (tx,ty): A* around walls, then local move() per step.
+    navTo(tx, ty, speed, now) {
+      if (!this.pathTgt || hyp(this.pathTgt.x - tx, this.pathTgt.y - ty) > 60 || now > this.repathAt || !this.path) {
+        this.path = findPath(this.bx, this.by, tx, ty);
+        this.pathI = 0; this.pathTgt = { x: tx, y: ty }; this.repathAt = now + 700;
+      }
+      if (!this.path || !this.path.length) { this.move(norm(tx - this.bx, ty - this.by), speed); return; }
+      // Advance past waypoints we've reached or can see straight to.
+      while (this.pathI < this.path.length - 1 &&
+             (hyp(this.path[this.pathI].x - this.bx, this.path[this.pathI].y - this.by) < CELL * 0.8 ||
+              lineOpen(this.bx, this.by, this.path[this.pathI + 1].x, this.path[this.pathI + 1].y)))
+        this.pathI++;
+      const wp = this.path[Math.min(this.pathI, this.path.length - 1)];
+      this.move(norm(wp.x - this.bx, wp.y - this.by), speed);
     }
     sendPos() { this.emit({ type: "pos", x: this.bx, y: this.by, facing: this.facing }); }
     useAbility(slot, ab, now, aim) {
       if (now < this.nextUse[slot]) return false;
-      if (aim) this.facing = aim;
+      // Orient toward the aim first (a pos msg) so facing-based abilities aim right.
+      if (aim) { this.facing = aim; this.emit({ type: "pos", x: this.bx, y: this.by, facing: aim }); }
       this.emit({ type: "ability", slot, aim: aim || this.facing });
       this.nextUse[slot] = now + (ab.cd || 5) * 1000;
       return true;
@@ -112,6 +233,11 @@ window.ForsakenSolo = (function () {
     think(now) {
       if (!this.playing || !this.alive || !this.snap) return;
       if (now < this.stunUntil) { this.sendPos(); return; }
+      // Anti-stuck: if we've barely moved while trying to navigate, force a re-path.
+      if (!this._mv || now - this._mv.at > 1500) {
+        if (this._mv && hyp(this.bx - this._mv.x, this.by - this._mv.y) < 24) { this.path = null; this.repathAt = 0; this.hug = 0; }
+        this._mv = { x: this.bx, y: this.by, at: now };
+      }
       const role = this.role || (this.roster.get(this.id) || {}).role;
       if (role === "killer") this.thinkKiller(now); else this.thinkSurvivor(now);
       this.sendPos();
@@ -124,7 +250,7 @@ window.ForsakenSolo = (function () {
       for (const s of survs) { const d = hyp(s.x - this.bx, s.y - this.by); if (d < best) { best = d; t = s; } }
       const dir = norm(t.x - this.bx, t.y - this.by);
       const ks = this.killerStats();
-      this.move(dir, KILL_SPEED * SPRINT);
+      this.navTo(t.x, t.y, KILL_SPEED * SPRINT, now);
       if (best <= (ks.attackRadius || 75) * 0.95 && now >= this.nextAttack) {
         this.emit({ type: "attack" });
         this.nextAttack = now + (ks.attackCooldown || 1) * 1000;
@@ -191,21 +317,21 @@ window.ForsakenSolo = (function () {
         this.move(dirFromK, SURV_SPEED * SPRINT);
         return;
       }
-      // If an ally is hurt and safe-ish, drift toward them to lend support.
+      // If an ally is hurt and safe-ish, path toward them to lend support.
       if (injured && injBest > 120 && dK > 360) {
-        this.move(norm(injured.x - this.bx, injured.y - this.by), SURV_SPEED);
+        this.navTo(injured.x, injured.y, SURV_SPEED, now);
         return;
       }
       const todo = this.gens.map((g, i) => ({ ...g, i })).filter(g => !g.done);
       if (!todo.length) {                            // all gens done: regroup near center
-        this.move(norm(this.map.w / 2 - this.bx, this.map.h - 220 - this.by), SURV_SPEED);
+        this.navTo(this.map.w / 2, this.map.h - 220, SURV_SPEED, now);
         return;
       }
       todo.sort((a, b) => hyp(a.x - this.bx, a.y - this.by) - hyp(b.x - this.bx, b.y - this.by));
       const g = todo[(this.index - 1) % todo.length]; // fan bots out across gens
       const dg = hyp(g.x - this.bx, g.y - this.by);
       if (dg > 78) {
-        this.move(norm(g.x - this.bx, g.y - this.by), SURV_SPEED * (dg > 320 ? SPRINT : 1));
+        this.navTo(g.x, g.y, SURV_SPEED * (dg > 320 ? SPRINT : 1), now);
       } else if (now >= this.nextSkill) {            // at the gen: run skill checks
         this.emit({ type: "skill", gen: g.i, result: "green" });
         this.nextSkill = now + 520;
@@ -220,6 +346,7 @@ window.ForsakenSolo = (function () {
     G = ctx.G; onMessage = ctx.onMessage;
     const S = window.__ForsakenSolo;
     if (!S) { return; }
+    SOLO = S;
     const name = ctx.name || "Player";
 
     // Human joins first (becomes host).

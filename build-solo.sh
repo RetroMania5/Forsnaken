@@ -53,7 +53,13 @@ cat >> "$OUT" <<'FOOTER'
     if (__wss._h.connection) __wss._h.connection(sw);
     return sw;
   }
-  window.__ForsakenSolo = { makeConn: makeConn };
+  // Expose the authoritative wall/obstacle collision test (uses the current
+  // map's geometry, swapped on round start) so bots can avoid walls.
+  window.__ForsakenSolo = {
+    makeConn: makeConn,
+    blocked: function (x, y, r) { return positionBlocked(x, y, r); },
+    mapSize: function () { return { w: MAP.w, h: MAP.h }; },
+  };
 })();
 FOOTER
 
