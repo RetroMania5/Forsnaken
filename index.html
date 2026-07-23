@@ -2733,7 +2733,9 @@ const GEN_SPAWN_POOL_REF = [
   [0.28, 0.32], [0.72, 0.32], [0.28, 0.71], [0.72, 0.71],
   [0.40, 0.42], [0.60, 0.42], [0.40, 0.58], [0.60, 0.58],
 ];
-function downloadMapImage() {
+function downloadMapImage(mapId) {
+  const M = MAPS[mapId] || MAPS[MAP_IDS[0]];
+  const walls = M.walls, obstacles = M.obstacles, conveyors = M.conveyors || [];
   const c = document.createElement("canvas");
   c.width = MAP_W; c.height = MAP_H;
   const x = c.getContext("2d");
@@ -2747,13 +2749,20 @@ function downloadMapImage() {
   x.strokeStyle = "rgba(255,255,255,0.18)"; x.lineWidth = 2;
   for (let gx = 0; gx <= MAP_W; gx += 400) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, MAP_H); x.stroke(); }
   for (let gy = 0; gy <= MAP_H; gy += 400) { x.beginPath(); x.moveTo(0, gy); x.lineTo(MAP_W, gy); x.stroke(); }
+  // Conveyors (drawn under walls/obstacles)
+  for (const cv of conveyors) {
+    x.fillStyle = "rgba(90,110,150,0.45)";
+    x.fillRect(cv.x - cv.w/2, cv.y - cv.h/2, cv.w, cv.h);
+    x.strokeStyle = "rgba(150,180,220,0.7)"; x.lineWidth = 2;
+    x.strokeRect(cv.x - cv.w/2, cv.y - cv.h/2, cv.w, cv.h);
+  }
   // Walls
   x.fillStyle = "#3a3a4d";
-  for (const w of WALLS) x.fillRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
+  for (const w of walls) x.fillRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
   x.strokeStyle = "rgba(255,255,255,0.25)"; x.lineWidth = 1;
-  for (const w of WALLS) x.strokeRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
+  for (const w of walls) x.strokeRect(w.x - w.w/2, w.y - w.h/2, w.w, w.h);
   // Obstacles (color by type roughly)
-  for (const o of OBSTACLES) {
+  for (const o of obstacles) {
     const color = ({ crate: "#7a5524", pillar: "#65656b", locker: "#3a4045", barrel: "#5a4530" })[o.type] || "#7a5524";
     x.fillStyle = color;
     x.fillRect(o.x - o.w/2, o.y - o.h/2, o.w, o.h);
@@ -2804,14 +2813,35 @@ function downloadMapImage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `forsaken-map-${MAP_W}x${MAP_H}.png`;
+    a.download = `forsaken-map-${mapId}-${MAP_W}x${MAP_H}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 }
-$("map-image-btn").addEventListener("click", downloadMapImage);
+// Small popup to pick which map to download.
+function chooseMap(cb) {
+  const ids = (typeof MAP_IDS !== "undefined" && MAP_IDS.length) ? MAP_IDS : Object.keys(MAPS);
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);display:grid;place-items:center;z-index:9999;";
+  const box = document.createElement("div");
+  box.style.cssText = "background:#1c1e2a;border:1px solid #33374d;border-radius:12px;padding:18px 20px;min-width:220px;color:#e7e9f3;font-family:system-ui,sans-serif;text-align:center;";
+  box.innerHTML = "<div style='font-weight:700;margin-bottom:12px'>Download which map?</div>";
+  const mkBtn = (label, fn, dim) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.cssText = `display:block;width:100%;margin:6px 0;padding:9px 12px;border-radius:8px;cursor:pointer;font-weight:600;${dim ? "opacity:0.75;" : ""}`;
+    b.onclick = fn; box.appendChild(b); return b;
+  };
+  const close = () => { if (ov.parentNode) document.body.removeChild(ov); };
+  ids.forEach(id => mkBtn(id.charAt(0).toUpperCase() + id.slice(1), () => { close(); cb(id); }));
+  mkBtn("Cancel", close, true);
+  ov.appendChild(box);
+  ov.onclick = (e) => { if (e.target === ov) close(); };
+  document.body.appendChild(ov);
+}
+$("map-image-btn").addEventListener("click", () => chooseMap(downloadMapImage));
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("random-killer-toggle").addEventListener("click", () => {
