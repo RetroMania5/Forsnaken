@@ -43,6 +43,9 @@
   .maintitle .dot { width:20px; height:20px; }
   .maintitle h2 { margin:0; font-size:22px; }
   .maintitle .role { font-size:12px; color:var(--dim); border:1px solid var(--line); padding:2px 8px; border-radius:99px; text-transform:capitalize; }
+  .floatbtn { margin-left:auto; font-size:12px; padding:6px 14px; border-radius:8px; color:var(--dim); }
+  .floatbtn:hover { border-color:var(--accent); color:var(--ink); }
+  .floatbtn.on { background:#17324a; border-color:var(--accent); color:#bfe0ff; }
   .hint { color:var(--dim); font-size:13px; margin:2px 0 18px; }
 
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; }
@@ -170,6 +173,7 @@ const TOTAL = ENTITIES.reduce((n, c) => n + slotsFor(c).length, 0);
 
 // ── Persistence (IndexedDB — handles many images; falls back to memory) ──────
 let store = {};                      // store[charId][slotId] = {filename,w,h,dataURL}
+let flags = {};                      // flags[charId] = { floatWalk: true }
 let selected = ALL[0].id;
 let dbOK = true;
 function idb(mode, fn) {
@@ -184,8 +188,13 @@ function idb(mode, fn) {
     } catch { dbOK = false; res(null); } };
   });
 }
-const save = () => idb("readwrite", os => os.put(store, "store"));
-async function load() { const v = await idb("readonly", os => os.get("store")); if (v) store = v; }
+const save = () => idb("readwrite", os => os.put({ store, flags }, "state"));
+async function load() {
+  const v = await idb("readonly", os => os.get("state"));
+  if (v && v.store) { store = v.store; flags = v.flags || {}; return; }
+  const old = await idb("readonly", os => os.get("store"));   // migrate older saves
+  if (old) store = old;
+}
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -232,9 +241,12 @@ function renderMain() {
       ${body}
     </div>`;
   }).join("");
+  const floatOn = !!(flags[c.id] && flags[c.id].floatWalk);
   $("main").innerHTML =
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
-       <h2>${c.name}</h2><span class="role">${c.role}</span></div>
+       <h2>${c.name}</h2><span class="role">${c.role}</span>
+       ${c.role !== "item" ? `<button id="floatToggle" class="floatbtn ${floatOn ? "on" : ""}" title="Make this character's walk a floating hover (carries into the game)">🎈 Floating walk${floatOn ? " ✓" : ""}</button>` : ""}
+     </div>
      <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
        If an ability doesn't need its own look, hit <b>no costume</b> on that card.
        Everything autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
@@ -252,6 +264,12 @@ function renderMain() {
     x.onclick = e => { e.stopPropagation(); clearSlot(x.dataset.clear); });
   $("main").querySelectorAll("[data-nocos]").forEach(b =>
     b.onclick = e => { e.stopPropagation(); toggleNoCostume(b.dataset.nocos); });
+  const ft = $("floatToggle");
+  if (ft) ft.onclick = () => {
+    if (flags[selected] && flags[selected].floatWalk) { delete flags[selected].floatWalk; if (!Object.keys(flags[selected]).length) delete flags[selected]; }
+    else (flags[selected] || (flags[selected] = {})).floatWalk = true;
+    save(); renderMain();
+  };
 }
 
 // Mark an ability slot as "no costume" (uses the default look) — or unmark it.
@@ -300,10 +318,12 @@ function exportFile() {
         ? { slot: s.id, label: s.label, kind: s.tag, noCostume: true }
         : { slot: s.id, label: s.label, kind: s.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
     });
-    return { id: c.id, name: c.name, role: c.role,
+    const out = { id: c.id, name: c.name, role: c.role,
              resolved: entries.map(e => e.slot),
              missing: slots.filter(s => !cs[s.id]).map(s => s.id),
              slots: entries };
+    if (flags[c.id] && flags[c.id].floatWalk) out.floatWalk = true;
+    return out;
   });
   const out = { app: "forsnaken-art", version: 1, totalSlots: TOTAL,
                 filledSlots: totalFilled(), characters };
@@ -318,10 +338,13 @@ function importFile(file) {
   fr.onload = () => {
     let d; try { d = JSON.parse(fr.result); } catch { return toast("Not a valid export file."); }
     if (!d.characters) return toast("Unrecognized file.");
-    for (const c of d.characters) for (const s of (c.slots || []))
-      (store[c.id] ||= {})[s.slot] = s.noCostume
-        ? { noCostume: true }
-        : { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
+    for (const c of d.characters) {
+      for (const s of (c.slots || []))
+        (store[c.id] ||= {})[s.slot] = s.noCostume
+          ? { noCostume: true }
+          : { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
+      if (c.floatWalk) (flags[c.id] ||= {}).floatWalk = true;
+    }
     save(); renderSidebar(); renderMain(); toast("Imported.");
   };
   fr.readAsText(file);
@@ -421,11 +444,15 @@ function drawTest(now) {
       const it = (store[c.id] || {})[m.slot];
       slot = (it && !it.noCostume) ? m.slot : m.base;  // "no costume" → base look
     }
-  } else if (m.kind === "walk") {                     // walk bob + sway
-    const phase = (anim.accum / AN.WALK_FRAME_MS) * Math.PI;
-    bob = -Math.abs(Math.sin(phase)) * 1.5;
-    sway = (anim.frame === "walkA" ? 1 : -1) * Math.sin(phase) * (4 * Math.PI / 180);
+  } else if (m.kind === "walk") {                     // walk bob + sway (or float)
     slot = anim.frame === "walkB" ? m.slots[1] : m.slots[0];
+    if (flags[c.id] && flags[c.id].floatWalk) {
+      bob = Math.sin(now * 0.006) * 3.5; sway = 0;     // floating hover
+    } else {
+      const phase = (anim.accum / AN.WALK_FRAME_MS) * Math.PI;
+      bob = -Math.abs(Math.sin(phase)) * 1.5;
+      sway = (anim.frame === "walkA" ? 1 : -1) * Math.sin(phase) * (4 * Math.PI / 180);
+    }
   } else {
     slot = m.slot;
   }
@@ -492,7 +519,7 @@ $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
 $("importFile").onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
 $("clearBtn").onclick = () => { if (confirm("Remove ALL added art? (Export first if you want to keep it.)"))
-  { store = {}; save(); renderSidebar(); renderMain(); } };
+  { store = {}; flags = {}; save(); renderSidebar(); renderMain(); } };
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 load().then(() => { renderSidebar(); renderMain(); });
