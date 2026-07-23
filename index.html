@@ -6424,6 +6424,11 @@ function drawPlayer(p) {
     }
   }
 
+  // Sly's transform: shudder/vibrate for the whole transform channel.
+  if (p.channelType === "transform" && now < (p.channelUntil || 0)) {
+    leanPx += Math.sin(now * 0.05) * 2.6;
+    bobPx += Math.sin(now * 0.083) * 1.6;
+  }
   ctx.translate(p.x + (flip ? -leanPx : leanPx), p.y + bobPx);
   // Sway pivots around the player's logical position (close to the
   // feet) so the head swings while the feet stay roughly planted.
@@ -6939,7 +6944,7 @@ function applyCustomArt() {
   if (anyAction) Settings.customAnims = true;
 
   // Item (world-entity) art — bake each to roughly its in-game display size.
-  const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [34, 34] };
+  const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90] };
   for (const id of Object.keys(ITEM_BOX)) {
     if (!data[id]) continue;
     const [bw, bh] = ITEM_BOX[id];
