@@ -193,6 +193,14 @@
     text-shadow: 0 6px 30px rgba(0,0,0,0.8);
   }
   .hud-banner .sub { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; opacity: 0.8; margin-top: 8px; }
+  /* Disconnect prompt — shown over the current screen (e.g. the win/defeat banner) */
+  #disconnect-prompt { position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 14vh; z-index: 500; pointer-events: none; }
+  #disconnect-prompt.hidden { display: none; }
+  #disconnect-prompt .dc-box { pointer-events: auto; background: rgba(10,12,20,0.88);
+    border: 1px solid rgba(255,255,255,0.22); border-radius: 14px; padding: 16px 22px; text-align: center; }
+  #disconnect-prompt .dc-title { color: #ff9db0; font-weight: 700; font-size: 18px; margin-bottom: 12px; }
+  #disconnect-prompt #dc-rejoin { font-size: 18px; padding: 10px 34px; }
 
   /* Touch controls */
   #touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 6; display: none; }
@@ -750,6 +758,13 @@
       <button id="save-download-lobby" class="secondary">⬇ Download save</button>
       <button id="save-load-lobby" class="secondary">⬆ Load save</button>
     </div>
+  </div>
+</div>
+
+<div id="disconnect-prompt" class="hidden">
+  <div class="dc-box">
+    <div class="dc-title">Disconnected</div>
+    <button id="dc-rejoin">Rejoin</button>
   </div>
 </div>
 
@@ -2211,6 +2226,7 @@ function connect() {
   }
   G.ws.addEventListener("open", () => {
     opened = true; clearTimeout(failTimer);
+    $("disconnect-prompt").classList.add("hidden");
     $("menu-status").textContent = "";
     G.ws.send(JSON.stringify({ type: "join", name: G.name, clientId: CLIENT_ID }));
   });
@@ -2220,10 +2236,10 @@ function connect() {
   });
   G.ws.addEventListener("close", () => {
     if (!opened) { fail(); return; }               // never connected → error
-    $("menu-status").innerHTML = '<span class="error">Disconnected.</span> <button id="rejoin-btn">Rejoin</button>';
-    const rb = document.getElementById("rejoin-btn");
-    if (rb) rb.onclick = () => connect();          // reconnect; host reclaims host via clientId
-    G.phase = "menu"; showOnly(menuEl);
+    // Stay on the current screen (e.g. the win/defeat banner) and overlay a
+    // Rejoin prompt, rather than dropping back to the title screen.
+    $("disconnect-prompt").classList.remove("hidden");
+    $("dc-rejoin").onclick = () => connect();      // reconnect; host reclaims host via clientId
   });
   G.ws.addEventListener("error", () => { if (!opened) fail(); });
 }
