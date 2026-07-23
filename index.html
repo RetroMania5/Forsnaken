@@ -4071,7 +4071,9 @@ function gameTick(now) {
     const me = G.players.get(G.myId);
     if (me && me.alive) {
       const v = inputVector();
-      const channeling = me.channelUntil && now < me.channelUntil;
+      // Killers can move while using their powers (channels don't root them);
+      // survivors still root during their summons.
+      const channeling = me.channelUntil && now < me.channelUntil && me.role !== "killer";
       // While aiming the sniper, input steers the reticle instead of the player.
       if (G.aiming) {
         // If we have a mouse position, use it — the reticle goes wherever the
