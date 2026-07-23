@@ -6828,10 +6828,22 @@ function applyCustomArt() {
     const c = document.createElement("canvas");
     c.width = S; c.height = S;
     const x = c.getContext("2d");
-    x.imageSmoothingEnabled = false;                 // crisp, not blurry
+    // Big art -> tiny sprite is a DOWNSCALE, so a high-quality resample gives a
+    // clean, sharp result (nearest-neighbor here just crunches/drops pixels).
+    // Multi-step halving keeps detail without the mush of one giant shrink.
+    let src = img, sw = img.naturalWidth, sh = img.naturalHeight;
+    while (sw > S * 2 && sh > S * 2) {
+      const half = document.createElement("canvas");
+      half.width = Math.max(1, Math.round(sw / 2)); half.height = Math.max(1, Math.round(sh / 2));
+      const hx = half.getContext("2d");
+      hx.imageSmoothingEnabled = true; hx.imageSmoothingQuality = "high";
+      hx.drawImage(src, 0, 0, half.width, half.height);
+      src = half; sw = half.width; sh = half.height;
+    }
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
     const sc = Math.min(S / img.naturalWidth, S / img.naturalHeight); // fit, keep aspect (~sprite size)
     const w = img.naturalWidth * sc, h = img.naturalHeight * sc;
-    x.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+    x.drawImage(src, (S - w) / 2, (S - h) / 2, w, h);
     return c;
   };
   // Map an art-tool slot to its in-game sprite sheet + frame.
