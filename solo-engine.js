@@ -377,6 +377,7 @@ const state = {
   players: new Map(),
   generators: freshGens(),
   designatedKillerId: null,
+  hostClientId: null,           // persistent id of the host, so they can reclaim on rejoin
   randomKillerEnabled: false,
   selectedMap: "random",        // "random" | "circus" | "factory"
   roundTimer: ROUND_DURATION,
@@ -506,9 +507,17 @@ function handle(id, ws, msg) {
 
 function onJoin(id, ws, msg) {
   const name = (msg.name || "Player").toString().slice(0, 16);
-  const isHost = state.players.size === 0;
+  const clientId = (msg.clientId != null) ? String(msg.clientId).slice(0, 64) : null;
+  const anyHost = [...state.players.values()].some(p => p.isHost);
+  // Host goes to the returning host (matching clientId), or to the first player
+  // when nobody is host yet.
+  const isHost = (clientId && clientId === state.hostClientId) || state.players.size === 0 || !anyHost;
+  if (isHost) {
+    for (const p of state.players.values()) p.isHost = false;   // demote any stand-in host
+    state.hostClientId = clientId;
+  }
   const player = {
-    id, ws, name,
+    id, ws, name, clientId,
     role: "unassigned",
     survivorChar: "scout",
     killerChar: "slasher",

@@ -2185,6 +2185,15 @@ function drawCharFrame(sx, v, frame) {
 }
 
 // ---------- Network ----------
+// Stable per-browser id so the host can reclaim host after a rejoin.
+const CLIENT_ID = (() => {
+  try {
+    let c = localStorage.getItem("forsnaken_cid");
+    if (!c) { c = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem("forsnaken_cid", c); }
+    return c;
+  } catch { return null; }
+})();
+
 function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${proto}//${location.host}`;
@@ -2203,7 +2212,7 @@ function connect() {
   G.ws.addEventListener("open", () => {
     opened = true; clearTimeout(failTimer);
     $("menu-status").textContent = "";
-    G.ws.send(JSON.stringify({ type: "join", name: G.name }));
+    G.ws.send(JSON.stringify({ type: "join", name: G.name, clientId: CLIENT_ID }));
   });
   G.ws.addEventListener("message", (e) => {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
@@ -2211,7 +2220,9 @@ function connect() {
   });
   G.ws.addEventListener("close", () => {
     if (!opened) { fail(); return; }               // never connected → error
-    $("menu-status").innerHTML = '<span class="error">Disconnected. Reload to try again.</span>';
+    $("menu-status").innerHTML = '<span class="error">Disconnected.</span> <button id="rejoin-btn">Rejoin</button>';
+    const rb = document.getElementById("rejoin-btn");
+    if (rb) rb.onclick = () => connect();          // reconnect; host reclaims host via clientId
     G.phase = "menu"; showOnly(menuEl);
   });
   G.ws.addEventListener("error", () => { if (!opened) fail(); });
