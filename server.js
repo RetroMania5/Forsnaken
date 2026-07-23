@@ -229,7 +229,7 @@ const ABILITIES = {
     // Slow Field persists until the killer attacks it (or the round ends).
     // Capped at maxFields per Sentinel — placing a new one pops the oldest.
     // channelDuration is the summoning channel before the field drops.
-    { id: "field", name: "Snow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 9999, channelDuration: 0.7, maxFields: 3 },
+    { id: "field", name: "Snow Field", cd: 18, type: "slow_field",  radius: 220, slowMult: 0.60, duration: 20, channelDuration: 0.7, maxFields: 3 },
   ],
   fencer: [
     // Slash: melee swing in front of the fencer. Stuns the killer for

@@ -647,7 +647,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#4ad0c0"></span><b>Frost Knight</b><span class="gd-muted">slows the killer (-5% repair)</span></div>
       <div class="gd-ab"><b>Z — Stun Burst</b>: instant aoe, killers within 180px are slowed to 50% speed for <b>10s</b>. CD 12s.</div>
-      <div class="gd-ab"><b>X — Snow Field</b>: <b>0.7s summoning channel</b> (you're rooted), then a frost field drops where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts until the killer destroys it</b> (or the round ends). <b>Max 3 active at a time</b> — placing a 4th pops the oldest. CD 18s.</div>
+      <div class="gd-ab"><b>X — Snow Field</b>: <b>0.7s summoning channel</b> (you're rooted), then a frost field drops where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts 20s</b> or until the killer destroys it. <b>Max 3 active at a time</b> — placing a 4th pops the oldest. CD 18s.</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
@@ -3020,8 +3020,8 @@ const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
 const PAYOUT = {
-  survivor: { win: 30, loss: 0 },
-  killer:   { win: 50, loss: 0 },
+  survivor: { win: 30, loss: 10 },
+  killer:   { win: 50, loss: 10 },
 };
 const Account = {
   loaded: false,
