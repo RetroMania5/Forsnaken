@@ -426,6 +426,9 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
+  if (url === "/custom-art.js") {
+    return sendFile(res, "custom-art.js", "application/javascript; charset=utf-8");
+  }
   res.writeHead(404); res.end("not found");
 });
 function sendFile(res, name, type, cache) {

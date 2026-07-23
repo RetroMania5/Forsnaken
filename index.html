@@ -753,6 +753,7 @@
   </div>
 </div>
 
+<script src="custom-art.js"></script>
 <script>
 "use strict";
 
@@ -6815,6 +6816,54 @@ function updateAbilitySlots(me) {
     }
   }
 }
+
+// ---------- Custom art (from the art tool) ----------
+// Bakes any provided images over the procedural sprites, at the same ~44px
+// sprite size and crisp (nearest-neighbor). Slots without art are left as-is.
+function applyCustomArt() {
+  const data = window.FORSNAKEN_ART;
+  if (!data) return;
+  const bake = (img) => {
+    const S = SPRITE_SIZE;
+    const c = document.createElement("canvas");
+    c.width = S; c.height = S;
+    const x = c.getContext("2d");
+    x.imageSmoothingEnabled = false;                 // crisp, not blurry
+    const sc = Math.min(S / img.naturalWidth, S / img.naturalHeight); // fit, keep aspect (~sprite size)
+    const w = img.naturalWidth * sc, h = img.naturalHeight * sc;
+    x.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+    return c;
+  };
+  // Map an art-tool slot to its in-game sprite sheet + frame.
+  const target = (charId, slot) => {
+    if (slot.startsWith("dino-")) {
+      const f = { "dino-idle": "idle", "dino-walk-1": "walkA", "dino-walk-2": "walkB", "dino-fire": "action_dino_fire" }[slot];
+      return f ? { sheet: "sly_dino", frame: f } : null;
+    }
+    const f = slot === "idle" ? "idle"
+            : slot === "walk-1" ? "walkA"
+            : slot === "walk-2" ? "walkB"
+            : slot === "attack" ? "action_attack"
+            : slot.startsWith("ability-") ? "action_" + slot.slice(8)
+            : null;
+    return f ? { sheet: charId, frame: f } : null;
+  };
+  let anyAction = false;
+  for (const charId of Object.keys(data)) {
+    for (const slot of Object.keys(data[charId])) {
+      const t = target(charId, slot);
+      if (!t) continue;
+      if (t.frame.startsWith("action_")) anyAction = true;
+      const img = new Image();
+      img.onload = () => { (sprites[t.sheet] || (sprites[t.sheet] = {}))[t.frame] = bake(img); };
+      img.src = data[charId][slot];
+    }
+  }
+  // Ability/attack art lives in the per-ability sprites, which drawPlayer only
+  // uses when customAnims is on — enable it so those poses show.
+  if (anyAction) Settings.customAnims = true;
+}
+applyCustomArt();
 </script>
 </body>
 </html>
