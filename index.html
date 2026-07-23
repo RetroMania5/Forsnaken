@@ -2435,6 +2435,8 @@ function onMessage(msg) {
       if (p && p._anim) {
         p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
         if (typeof msg.abilityId === "string") p._anim.actionAb = msg.abilityId;
+        // Hold the dash costume for the whole dash (remote players).
+        if (msg.abilityType === "dash_strike") { p._anim.holdUntil = performance.now() + (msg.duration || 3) * 1000; p._anim.holdAb = "dash"; }
       }
       // MEOW! visual: an expanding pink ring centered on the caster.
       if (msg.abilityType === "meow") {
@@ -4470,6 +4472,8 @@ function tryFireAbility(slot, me) {
     // Track the dash window for wall-hit detection.
     me._localDashUntil = now + ab.duration * 1000;
     me._dashWallHitSent = false;
+    // Hold the dash costume for the whole dash.
+    if (me._anim) { me._anim.holdUntil = now + ab.duration * 1000; me._anim.holdAb = ab.id; }
   } else if (ab.type === "shield") {
     // Local shield prediction so the slow + visual kick in instantly.
     me._localShieldUntil = now + ab.duration * 1000;
@@ -6119,11 +6123,18 @@ function drawPlayer(p) {
   const a = p._anim || { frame: "idle", actionUntil: 0 };
   const isActionNow = now < a.actionUntil;
   const frame = isActionNow ? "action" : a.frame;
+  // Hold the ability costume for the WHOLE channel (robot/snow field/build
+  // portal/teleport) or dash, not just the 320ms action window.
+  let holdAb = null;
+  if (now < (p.channelUntil || 0)) holdAb = CHANNEL_AB[p.channelType] || null;
+  else if (now < (a.holdUntil || 0)) holdAb = a.holdAb || null;
   // Custom per-ability action sprite (Settings toggle). If a baked
   // "action_<abId>" canvas exists for this character + ability, use it
   // in place of the generic "action" frame.
   let img;
-  if (isActionNow && Settings.customAnims && a.actionAb) {
+  if (holdAb && Settings.customAnims && sheet["action_" + holdAb]) {
+    img = sheet["action_" + holdAb];
+  } else if (isActionNow && Settings.customAnims && a.actionAb) {
     img = sheet["action_" + a.actionAb] || sheet[frame] || sheet.idle;
   } else {
     img = sheet[frame] || sheet.idle;
@@ -6395,7 +6406,7 @@ function drawPlayer(p) {
           leanPx = 5 - 5 * ease;
         }
       }
-    } else if (p._anim.frame === "walkA" || p._anim.frame === "walkB") {
+    } else if (!holdAb && (p._anim.frame === "walkA" || p._anim.frame === "walkB")) {
       if (FLOAT_WALK.has(charIdFor(p))) {
         // Floating walk: a smooth continuous hover instead of footstep bob/sway.
         bobPx = Math.sin(now * 0.006) * 3.5;
@@ -6498,7 +6509,8 @@ function drawPlayer(p) {
 
   // Fencer Soda: short sip animation — can lies horizontally, opening
   // (grey rim) tipped toward the mouth, body extending forward.
-  if (p.alive && charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil) {
+  if (p.alive && charIdFor(p) === "fencer" && p.sodaUntil && now < p.sodaUntil
+      && !(sprites.fencer && sprites.fencer.action_soda)) {
     const facingX = (p.id === G.myId) ? facing.x : (p.fx !== undefined ? p.fx : 1);
     const dir = facingX >= 0 ? 1 : -1;
     const sip = Math.sin(now * 0.018) * 1;        // quick wobble
@@ -6833,6 +6845,9 @@ function updateAbilitySlots(me) {
 // ---------- Custom art (from the art tool) ----------
 // Characters whose walk should be a floating hover (set in the art tool export).
 const FLOAT_WALK = new Set();
+// Channel type -> ability id, so the ability costume is held during the build-up.
+const CHANNEL_AB = { spawn_robot: "robot", slow_field: "field", build_portal: "build_portal",
+  teleport_portal: "teleport_portal", transform: "transform", spawn_pad: "spawner" };
 // World-entity (item) art, baked to display size and drawn by the entity draws.
 const ITEM_ART = {};   // ITEM_ART[itemId][slot] = canvas
 // Fit-and-downscale an image into a maxW x maxH box (clean high-quality shrink).
@@ -6909,7 +6924,13 @@ function applyCustomArt() {
       if (!t) continue;
       if (t.frame.startsWith("action_")) anyAction = true;
       const img = new Image();
-      img.onload = () => { (sprites[t.sheet] || (sprites[t.sheet] = {}))[t.frame] = bake(img); };
+      img.onload = () => {
+        const c = bake(img);
+        const sh = sprites[t.sheet] || (sprites[t.sheet] = {});
+        sh[t.frame] = c;
+        // Sly's dino attack uses the dino fire sprite.
+        if (t.sheet === "sly_dino" && t.frame === "action_trap_fire") sh["action_attack"] = c;
+      };
       img.src = data[charId][slot];
     }
   }
