@@ -6859,7 +6859,7 @@ function applyCustomArt() {
   // Map an art-tool slot to its in-game sprite sheet + frame.
   const target = (charId, slot) => {
     if (slot.startsWith("dino-")) {
-      const f = { "dino-idle": "idle", "dino-walk-1": "walkA", "dino-walk-2": "walkB", "dino-fire": "action_dino_fire" }[slot];
+      const f = { "dino-idle": "idle", "dino-walk-1": "walkA", "dino-walk-2": "walkB", "dino-fire": "action_trap_fire" }[slot];
       return f ? { sheet: "sly_dino", frame: f } : null;
     }
     const f = slot === "idle" ? "idle"
