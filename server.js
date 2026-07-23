@@ -211,7 +211,7 @@ const KILLER_CHARS = [
   { id: "sly",     name: "Sly",     color: "#3a2a4a", speedMult: 1.00, attackRadius: 75,  attackDamage: 14, attackName: "Strike",      attackCooldown: 1.0, blurb: "human / dino shapeshifter",
     // Dino-form overrides. Speed is much lower but damage and reach climb,
     // and the client lets him phase through interior walls / obstacles.
-    speedMultDino: 1.1, attackDamageDino: 100, attackRadiusDino: 150 },
+    speedMultDino: 1.1, attackDamageDino: 21, attackRadiusDino: 150 },
 ];
 
 // ---- HP ----
