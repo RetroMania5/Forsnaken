@@ -6508,21 +6508,28 @@ function drawPlayer(p) {
   if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
     ctx.globalAlpha *= (p.id === G.myId) ? 0.15 : 0.05;
   }
+  // Draw rect: custom sprites keep their own (possibly bigger) size, bottom-
+  // aligned to the foot line so feet stay planted; procedural stays 44x44.
+  const _foot = SPRITE_SIZE / 2 + 4;
+  const dw = img._custom ? img.width : SPRITE_SIZE;
+  const dh = img._custom ? img.height : SPRITE_SIZE;
+  const dx = -dw / 2;
+  const dy = img._custom ? (_foot - dh) : (-SPRITE_SIZE / 2 + 4);
   // Hit flash: tint sprite red briefly. Heal flash: green tint.
   if (p.hitFlashUntil && now < p.hitFlashUntil) {
-    ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
+    ctx.drawImage(img, dx, dy, dw, dh);
     ctx.globalCompositeOperation = "source-atop";
     ctx.fillStyle = "rgba(255,60,60,0.55)";
-    ctx.fillRect(-SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4, SPRITE_SIZE, SPRITE_SIZE);
+    ctx.fillRect(dx, dy, dw, dh);
     ctx.globalCompositeOperation = "source-over";
   } else if (p.healFlashUntil && now < p.healFlashUntil) {
-    ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
+    ctx.drawImage(img, dx, dy, dw, dh);
     ctx.globalCompositeOperation = "source-atop";
     ctx.fillStyle = "rgba(120,255,160,0.45)";
-    ctx.fillRect(-SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4, SPRITE_SIZE, SPRITE_SIZE);
+    ctx.fillRect(dx, dy, dw, dh);
     ctx.globalCompositeOperation = "source-over";
   } else {
-    ctx.drawImage(img, -SPRITE_SIZE / 2, -SPRITE_SIZE / 2 + 4);
+    ctx.drawImage(img, dx, dy, dw, dh);
   }
   ctx.restore();
 
@@ -6944,29 +6951,24 @@ function applyCustomArt() {
   for (const id of Object.keys(flags)) if (flags[id] && flags[id].floatWalk) FLOAT_WALK.add(id);
   const data = window.FORSNAKEN_ART;
   if (!data) return;
-  const bake = (img) => {
-    const S = SPRITE_SIZE;
-    const c = document.createElement("canvas");
-    c.width = S; c.height = S;
-    const x = c.getContext("2d");
-    // Big art -> tiny sprite is a DOWNSCALE, so a high-quality resample gives a
-    // clean, sharp result (nearest-neighbor here just crunches/drops pixels).
-    // Multi-step halving keeps detail without the mush of one giant shrink.
+  // Bake an image at a given scale into a "_custom" canvas of its own size
+  // (clean multi-step high-quality downscale). Using ONE scale across a
+  // character's frames means a frame drawn bigger than the idle renders bigger.
+  const bakeAt = (img, scale) => {
+    const dw = Math.max(1, Math.round(img.naturalWidth * scale));
+    const dh = Math.max(1, Math.round(img.naturalHeight * scale));
     let src = img, sw = img.naturalWidth, sh = img.naturalHeight;
-    while (sw > S * 2 && sh > S * 2) {
+    while (sw > dw * 2 && sh > dh * 2) {
       const half = document.createElement("canvas");
-      half.width = Math.max(1, Math.round(sw / 2)); half.height = Math.max(1, Math.round(sh / 2));
-      const hx = half.getContext("2d");
-      hx.imageSmoothingEnabled = true; hx.imageSmoothingQuality = "high";
-      hx.drawImage(src, 0, 0, half.width, half.height);
-      src = half; sw = half.width; sh = half.height;
+      half.width = Math.round(sw / 2); half.height = Math.round(sh / 2);
+      const hx = half.getContext("2d"); hx.imageSmoothingEnabled = true; hx.imageSmoothingQuality = "high";
+      hx.drawImage(src, 0, 0, half.width, half.height); src = half; sw = half.width; sh = half.height;
     }
-    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
-    const sc = Math.min(S / img.naturalWidth, S / img.naturalHeight); // fit, keep aspect (~sprite size)
-    const w = img.naturalWidth * sc, h = img.naturalHeight * sc;
-    x.drawImage(src, (S - w) / 2, (S - h) / 2, w, h);
-    return c;
+    const c = document.createElement("canvas"); c.width = dw; c.height = dh;
+    const x = c.getContext("2d"); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.drawImage(src, 0, 0, dw, dh); c._custom = true; return c;
   };
+  const loadImg = (url) => new Promise(r => { const im = new Image(); im.onload = () => r(im); im.onerror = () => r(null); im.src = url; });
   // Map an art-tool slot to its in-game sprite sheet + frame.
   const target = (charId, slot) => {
     if (slot.startsWith("dino-")) {
@@ -6983,20 +6985,29 @@ function applyCustomArt() {
   };
   let anyAction = false;
   for (const charId of Object.keys(data)) {
-    for (const slot of Object.keys(data[charId])) {
-      const t = target(charId, slot);
-      if (!t) continue;
-      if (t.frame.startsWith("action_")) anyAction = true;
-      const img = new Image();
-      img.onload = () => {
-        const c = bake(img);
+    const slots = Object.keys(data[charId]);
+    if (slots.some(s => { const t = target(charId, s); return t && t.frame.startsWith("action_"); })) anyAction = true;
+    // Load all of a character's frames, then bake them at ONE scale per sheet
+    // (from that sheet's idle) so a bigger-than-idle frame stays bigger.
+    (async () => {
+      const imgs = {};
+      await Promise.all(slots.map(async s => { imgs[s] = await loadImg(data[charId][s]); }));
+      const refFor = (sheet) => {
+        const idleImg = imgs[sheet === "sly_dino" ? "dino-idle" : "idle"];
+        if (idleImg) return idleImg.naturalHeight;
+        for (const s of slots) { const t = target(charId, s); if (t && t.sheet === sheet && imgs[s]) return imgs[s].naturalHeight; }
+        return null;
+      };
+      for (const s of slots) {
+        const t = target(charId, s); if (!t || !imgs[s]) continue;
+        const ref = refFor(t.sheet); if (!ref) continue;
+        const c = bakeAt(imgs[s], SPRITE_SIZE / ref);
         const sh = sprites[t.sheet] || (sprites[t.sheet] = {});
         sh[t.frame] = c;
         // Sly's dino attack uses the dino fire sprite.
         if (t.sheet === "sly_dino" && t.frame === "action_trap_fire") sh["action_attack"] = c;
-      };
-      img.src = data[charId][slot];
-    }
+      }
+    })();
   }
   // Ability/attack art lives in the per-ability sprites, which drawPlayer only
   // uses when customAnims is on — enable it so those poses show.
