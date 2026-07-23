@@ -193,6 +193,8 @@
     text-shadow: 0 6px 30px rgba(0,0,0,0.8);
   }
   .hud-banner .sub { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; opacity: 0.8; margin-top: 8px; }
+  .hud-banner #banner-rejoin { margin-top: 22px; font-size: 20px; padding: 10px 36px; pointer-events: auto; cursor: pointer; }
+  .hud-banner #banner-rejoin.hidden { display: none; }
   /* Disconnect prompt — shown over the current screen (e.g. the win/defeat banner) */
   #disconnect-prompt { position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
     padding-bottom: 14vh; z-index: 500; pointer-events: none; }
@@ -531,7 +533,7 @@
     <div class="slot hidden" id="slot-2"><div class="key">3</div><div class="name">—</div><div class="reload-fill" style="height:0"></div><div class="ammo-dots hidden"></div><div class="cd hidden">0</div></div>
   </div>
   <div class="hud-prompt hidden" id="hud-prompt"></div>
-  <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div></div>
+  <div class="hud-banner hidden" id="hud-banner"><div id="hud-banner-text"></div><div class="sub" id="hud-banner-sub"></div><button id="banner-rejoin" class="hidden">Rejoin</button></div>
   <button id="leave-btn" class="secondary">Leave</button>
   <div id="key-hints">WASD move &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; E skill check &nbsp;·&nbsp; Q attack &nbsp;·&nbsp; 1/2 abilities</div>
 </div>
@@ -2227,6 +2229,7 @@ function connect() {
   G.ws.addEventListener("open", () => {
     opened = true; clearTimeout(failTimer);
     $("disconnect-prompt").classList.add("hidden");
+    $("banner-rejoin").classList.add("hidden");
     $("menu-status").textContent = "";
     G.ws.send(JSON.stringify({ type: "join", name: G.name, clientId: CLIENT_ID }));
   });
@@ -2236,10 +2239,16 @@ function connect() {
   });
   G.ws.addEventListener("close", () => {
     if (!opened) { fail(); return; }               // never connected → error
-    // Stay on the current screen (e.g. the win/defeat banner) and overlay a
-    // Rejoin prompt, rather than dropping back to the title screen.
-    $("disconnect-prompt").classList.remove("hidden");
-    $("dc-rejoin").onclick = () => connect();      // reconnect; host reclaims host via clientId
+    if (G.phase === "over") {
+      // Game just ended → the Rejoin button on the win/defeat banner covers it.
+      const rj = $("banner-rejoin");
+      rj.classList.remove("hidden");
+      rj.onclick = () => connect();
+    } else {
+      // Otherwise overlay a Rejoin prompt on the current screen (not the title).
+      $("disconnect-prompt").classList.remove("hidden");
+      $("dc-rejoin").onclick = () => connect();    // reconnect; host reclaims host via clientId
+    }
   });
   G.ws.addEventListener("error", () => { if (!opened) fail(); });
 }
@@ -4024,6 +4033,10 @@ function showBanner(winner) {
     else s.textContent = "You survived";
   }
   b.classList.remove("hidden");
+  // Rejoin button lives right here on the end-game screen.
+  const rj = $("banner-rejoin");
+  rj.classList.remove("hidden");
+  rj.onclick = () => connect();
 }
 
 function randomName() {
