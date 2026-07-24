@@ -90,6 +90,22 @@
   .tmode.on { background:linear-gradient(160deg,#4f8fe0,#2f6fc0); border-color:#2f6fc0; color:#fff; }
   .testzoom { display:flex; align-items:center; gap:10px; padding:8px 16px 16px; color:var(--dim); font-size:13px; }
   .testzoom input { flex:1; }
+
+  /* Pets section */
+  .petfield { margin:16px 0; }
+  .petfield > label { display:block; font-size:11px; color:var(--dim); margin-bottom:7px; letter-spacing:.6px; text-transform:uppercase; }
+  .petinput { background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--ink);
+    padding:9px 12px; font-family:inherit; font-size:14px; width:100%; max-width:320px; }
+  .petinput:focus { outline:none; border-color:var(--accent); }
+  .behavtoggle { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .behavtoggle button { border:none; border-radius:0; background:var(--panel2); padding:9px 18px; }
+  .behavtoggle button.on { background:linear-gradient(160deg,#4f8fe0,#2f6fc0); color:#fff; }
+  .petrow { display:flex; align-items:flex-start; gap:22px; flex-wrap:wrap; margin:6px 0 4px; }
+  .petdrop { width:170px; }
+  #petPrev { image-rendering:auto; background:linear-gradient(160deg,#20364a,#141d28); border:1px solid var(--line); border-radius:10px; }
+  .newpetbtn { width:100%; text-align:center; color:var(--accent); border:1px dashed var(--line);
+    border-radius:8px; padding:9px; margin-top:4px; background:transparent; }
+  .newpetbtn:hover { border-color:var(--accent); background:var(--panel2); }
 </style>
 </head>
 <body>
@@ -174,8 +190,14 @@ const TOTAL = ENTITIES.reduce((n, c) => n + slotsFor(c).length, 0);
 // ── Persistence (IndexedDB — handles many images; falls back to memory) ──────
 let store = {};                      // store[charId][slotId] = {filename,w,h,dataURL}
 let flags = {};                      // flags[charId] = { floatWalk: true }
+let pets = [];                       // [{id,name,price,behavior:"walk"|"float",image:{filename,w,h,dataURL}}]
 let selected = ALL[0].id;
 let dbOK = true;
+const PET_W = 53, PET_H = 42;        // pets are auto-sized to fit this box (Blorb's size)
+const isPetSel = () => typeof selected === "string" && selected.startsWith("pet:");
+const curPet = () => isPetSel() ? pets.find(p => "pet:" + p.id === selected) : null;
+const escHtml = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const escAttr = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function idb(mode, fn) {
   return new Promise((res) => {
     let r;
@@ -188,10 +210,10 @@ function idb(mode, fn) {
     } catch { dbOK = false; res(null); } };
   });
 }
-const save = () => idb("readwrite", os => os.put({ store, flags }, "state"));
+const save = () => idb("readwrite", os => os.put({ store, flags, pets }, "state"));
 async function load() {
   const v = await idb("readonly", os => os.get("state"));
-  if (v && v.store) { store = v.store; flags = v.flags || {}; return; }
+  if (v && v.store) { store = v.store; flags = v.flags || {}; pets = v.pets || []; return; }
   const old = await idb("readonly", os => os.get("store"));   // migrate older saves
   if (old) store = old;
 }
@@ -210,13 +232,23 @@ function renderSidebar() {
       <span class="cnt ${f === t ? "full" : ""}">${f}/${t}</span>
     </button>`;
   }).join("");
-  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers) + group("Items", ITEMS);
+  const petGroup = `<div class="grouphead">Pets</div>` + pets.map(p =>
+    `<button class="charbtn ${("pet:" + p.id) === selected ? "sel" : ""}" data-char="pet:${p.id}">
+      <span class="dot" style="background:#59d0ff"></span>
+      <span class="nm">${escHtml(p.name || "Pet")}</span>
+      <span class="cnt">${(+p.price || 0)}🪙</span>
+    </button>`).join("") +
+    `<button class="newpetbtn" id="newPetBtn">＋ New pet</button>`;
+  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers)
+    + group("Items", ITEMS) + petGroup;
   $("sidebar").querySelectorAll(".charbtn").forEach(b =>
     b.onclick = () => { selected = b.dataset.char; renderSidebar(); renderMain(); });
+  const npb = $("newPetBtn"); if (npb) npb.onclick = newPet;
   $("prog").innerHTML = `<b>${totalFilled()}</b> / ${TOTAL} slots`;
 }
 
 function renderMain() {
+  if (isPetSel()) return renderPet();
   const c = byId[selected], slots = slotsFor(c), cs = store[c.id] || {};
   const cards = slots.map(s => {
     const it = cs[s.id];
@@ -270,6 +302,139 @@ function renderMain() {
     else (flags[selected] || (flags[selected] = {})).floatWalk = true;
     save(); renderMain();
   };
+}
+
+// ── Pets ─────────────────────────────────────────────────────────────────────
+function newPet() {
+  const id = "p" + Date.now().toString(36) + Math.floor(Math.random() * 1e5).toString(36);
+  pets.push({ id, name: "New Pet", price: 100, behavior: "walk", image: null });
+  selected = "pet:" + id;
+  save(); renderSidebar(); renderMain();
+}
+function renderPet() {
+  const p = curPet();
+  if (!p) { selected = ALL[0].id; return renderMain(); }
+  const img = p.image;
+  const drop = img
+    ? `<div class="drop" id="petDrop"><img src="${img.dataURL}" alt=""></div>
+       <div class="meta"><span class="fn" title="${escAttr(img.filename)}">${escHtml(img.filename)}</span>
+         <span>${img.w}×${img.h}</span><span class="x" id="petImgClear" title="Remove">✕</span></div>`
+    : `<div class="drop empty" id="petDrop"><span class="plus">＋<br>drop / click<br>to add pet image</span></div>`;
+  $("main").innerHTML =
+    `<div class="maintitle"><span class="dot" style="background:#59d0ff"></span>
+       <h2>${escHtml(p.name || "Pet")}</h2><span class="role">pet</span></div>
+     <div class="hint">Pets follow the player with a slight delay (like a pet-sim pet). They're auto-sized to
+       <b>${PET_W}×${PET_H}</b> in game (bigger art is scaled down). Name it, give it a look, pick a
+       walk or float follow-style and a price, then <b>Export pets</b> and send me <b>forsnaken-pets.json</b>.</div>
+     <div class="petfield"><label>Name</label>
+       <input class="petinput" id="petName" value="${escAttr(p.name)}" placeholder="Pet name" maxlength="24"></div>
+     <div class="petrow">
+       <div class="slot petdrop">${drop}</div>
+       <div class="petfield" style="margin-top:0">
+         <label>Preview — ${p.behavior === "float" ? "🎈 floating" : "🚶 walking"}</label>
+         <canvas id="petPrev" width="190" height="160"></canvas>
+       </div>
+     </div>
+     <div class="petfield"><label>Follow style</label>
+       <div class="behavtoggle" id="petBehav">
+         <button data-b="walk" class="${p.behavior === "walk" ? "on" : ""}">🚶 Walk</button>
+         <button data-b="float" class="${p.behavior === "float" ? "on" : ""}">🎈 Float</button>
+       </div></div>
+     <div class="petfield"><label>Price (coins)</label>
+       <input class="petinput" id="petPrice" type="number" min="0" step="10" value="${+p.price || 0}" style="max-width:160px;"></div>
+     <div style="display:flex;gap:10px;margin-top:24px;flex-wrap:wrap;">
+       <button class="primary" id="petExport">🐾 Export pets</button>
+       <button class="danger" id="petClearAll">🗑 Clear all pets</button>
+       <button class="danger" id="petRemove">Remove this pet</button>
+     </div>`;
+  // Name — update live without re-rendering main (keeps input focus).
+  $("petName").oninput = e => { p.name = e.target.value; save(); renderSidebar(); };
+  $("petPrice").oninput = e => { p.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); };
+  $("petBehav").querySelectorAll("[data-b]").forEach(b =>
+    b.onclick = () => { p.behavior = b.dataset.b; save(); renderPet(); });
+  const d = $("petDrop");
+  d.onclick = () => pickPetFile();
+  d.ondragover = e => { e.preventDefault(); d.classList.add("over"); };
+  d.ondragleave = () => d.classList.remove("over");
+  d.ondrop = e => { e.preventDefault(); d.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setPetImage(f); };
+  const ic = $("petImgClear"); if (ic) ic.onclick = e => { e.stopPropagation(); p.image = null; save(); renderPet(); };
+  $("petExport").onclick = exportPets;
+  $("petClearAll").onclick = clearPets;
+  $("petRemove").onclick = () => {
+    pets = pets.filter(x => x.id !== p.id);
+    selected = pets.length ? "pet:" + pets[0].id : ALL[0].id;
+    save(); renderSidebar(); renderMain();
+  };
+  startPetPrev();
+}
+function pickPetFile() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = () => { if (inp.files[0]) setPetImage(inp.files[0]); };
+  inp.click();
+}
+function setPetImage(file) {
+  const p = curPet(); if (!p) return;
+  if (!file.type.startsWith("image/")) { toast("That's not an image file."); return; }
+  const fr = new FileReader();
+  fr.onload = () => {
+    const img = new Image();
+    img.onload = () => { p.image = { filename: file.name, w: img.naturalWidth, h: img.naturalHeight, dataURL: fr.result }; save(); renderPet(); };
+    img.onerror = () => toast("Couldn't read that image.");
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(file);
+}
+// Animated preview: fit the art to the pet box, enlarge for visibility, and
+// show the follow-style (float = hover, walk = little hop).
+let petPrevRAF = null;
+function startPetPrev() {
+  cancelAnimationFrame(petPrevRAF); petPrevRAF = null;
+  const cv = $("petPrev"); if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const draw = ts => {
+    const p = curPet(); const c2 = $("petPrev");
+    if (!p || !c2) { petPrevRAF = null; return; }
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const cx = cv.width / 2, ground = cv.height * 0.74, t = ts / 1000;
+    let yoff = 0, shSc = 1;
+    if (p.behavior === "float") { yoff = -20 - Math.sin(t * 2.2) * 7; shSc = 0.8; }
+    else { const hop = Math.abs(Math.sin(t * 3.0)); yoff = -hop * 11; shSc = 1 - hop * 0.25; }
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath(); ctx.ellipse(cx, ground + 6, 24 * shSc, 6 * shSc, 0, 0, Math.PI * 2); ctx.fill();
+    const im = p.image ? getImg(p.image.dataURL) : null;
+    if (im) {
+      const sc = Math.min(PET_W / im.naturalWidth, PET_H / im.naturalHeight); // fit the pet box
+      const PREV = 3.4;                                                        // enlarge so it's easy to see
+      const w = im.naturalWidth * sc * PREV, h = im.naturalHeight * sc * PREV;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(im, cx - w / 2, ground - h + yoff, w, h);
+    } else {
+      ctx.fillStyle = "#59d0ff44";
+      ctx.beginPath(); ctx.ellipse(cx, ground - 20 + yoff, 26, 20, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    petPrevRAF = requestAnimationFrame(draw);
+  };
+  petPrevRAF = requestAnimationFrame(draw);
+}
+function exportPets() {
+  if (!pets.length) { toast("No pets to export yet — hit ＋ New pet."); return; }
+  const out = { app: "forsnaken-pets", version: 1, petSize: [PET_W, PET_H],
+    pets: pets.map(p => ({ id: p.id, name: p.name, price: +p.price || 0, behavior: p.behavior,
+      filename: p.image && p.image.filename || null, w: p.image && p.image.w || null,
+      h: p.image && p.image.h || null, image: p.image && p.image.dataURL || null })) };
+  const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "forsnaken-pets.json"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  const noImg = pets.filter(p => !p.image).length;
+  toast(`Exported ${pets.length} pet(s)${noImg ? ` (${noImg} with no image yet)` : ""}. Send me forsnaken-pets.json`);
+}
+function clearPets() {
+  if (!pets.length) { toast("No pets to clear."); return; }
+  if (!confirm("Remove ALL pets? (Export them first if you want to keep them.)")) return;
+  pets = []; selected = ALL[0].id;
+  save(); renderSidebar(); renderMain();
 }
 
 // Mark an ability slot as "no costume" (uses the default look) — or unmark it.
@@ -337,6 +502,17 @@ function importFile(file) {
   const fr = new FileReader();
   fr.onload = () => {
     let d; try { d = JSON.parse(fr.result); } catch { return toast("Not a valid export file."); }
+    // A pets export (or any file carrying a pets array) restores pets.
+    if (Array.isArray(d.pets)) {
+      for (const p of d.pets) {
+        if (pets.some(x => x.id === p.id)) continue;
+        pets.push({ id: p.id || ("p" + Date.now().toString(36) + pets.length), name: p.name || "Pet",
+          price: +p.price || 0, behavior: p.behavior === "float" ? "float" : "walk",
+          image: p.image ? { filename: p.filename || "pet.png", w: p.w, h: p.h, dataURL: p.image } : null });
+      }
+      save(); renderSidebar(); renderMain();
+      if (!d.characters) return toast(`Imported ${d.pets.length} pet(s).`);
+    }
     if (!d.characters) return toast("Unrecognized file.");
     for (const c of d.characters) {
       for (const s of (c.slots || []))
@@ -504,6 +680,7 @@ function renderTest() {
     b.onclick = () => { testMode = b.dataset.mode; resetAnim(); renderTest(); });
 }
 function openTest() {
+  if (isPetSel()) { toast("The pet has a live preview right in its editor."); return; }
   if (!AN) { toast("Animation file (anim-fx.js) didn't load."); return; }
   $("test").hidden = false; resetAnim(); renderTest(); sizeCanvas();
   cancelAnimationFrame(testRAF); testRAF = requestAnimationFrame(loopTest);
