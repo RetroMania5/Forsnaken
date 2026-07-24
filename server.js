@@ -857,6 +857,7 @@ function applyAbility(p, ab, slot, msg) {
         damage: ab.damage,
         range: ab.range,
         dist: 0,
+        kind: "knife",
       });
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, fx: fxn, fy: fyn });
       break;
