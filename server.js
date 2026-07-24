@@ -203,6 +203,7 @@ const SURVIVOR_CHARS = [
   { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
   { id: "angel",    name: "Angel",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },
   { id: "pollen",   name: "Pollen",   color: "#4a8c40", speedMult: 1.00, repairMult: 1.00, blurb: "clover trail + healing / defence fountains" },
+  { id: "whamo",    name: "Whamo",    color: "#ff9a3c", speedMult: 1.00, repairMult: 1.00, blurb: "standees + megaphone stun; speeds up near the killer" },
 ];
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
@@ -296,6 +297,14 @@ const ABILITIES = {
       stationKind: "defence", channelDuration: 5.0, hpCost: 15, radius: 140,
       shieldDuration: 8 },
   ],
+  whamo: [
+    // Standee: drop a cardboard cutout. Up to 3 at once; can't place a 4th
+    // until one is broken (the killer walks into it). Break feeds the passive.
+    { id: "standee", name: "Standee", cd: 30, type: "standee", maxStandees: 3, breakRadius: 30 },
+    // Megaphone: 1s wind-up (rooted, shaking) then stuns every killer on
+    // screen (approximated by a big radius) for 2s.
+    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", windupDuration: 1.0, stunDuration: 2.0, radius: 800 },
+  ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
     { id: "frenzy", name: "Frenzy",      cd: 14, type: "speed_self", mult: 1.30, duration: 4.0 },
@@ -367,6 +376,7 @@ const state = {
   spawnPads: [],
   clovers: [],     // Pollen's clover trail
   stations: [],    // Pollen's heal + defence stations
+  standees: [],    // Whamo's cardboard standees
   nextEntityId: 1,
 };
 
@@ -820,6 +830,8 @@ function onAbility(id, msg) {
   }
   // Sly can only shapeshift once he's downed a survivor this round.
   if (ab.type === "transform" && (p.kills || 0) < 1) return;
+  // Whamo can't place a 4th standee until one of his three is broken.
+  if (ab.type === "standee" && state.standees.filter(s => s.ownerId === p.id).length >= (ab.maxStandees || 3)) return;
   // Generic per-round use-limit (e.g. Fencer's Soda).
   if (ab.maxUses) {
     if (!p.abilityUses) p.abilityUses = {};
@@ -1076,6 +1088,36 @@ function applyAbility(p, ab, slot, msg) {
         owner.formUntil = Date.now() + ab.duration * 1000;
         broadcast({ type: "form", id: ownerId, form: "dino", duration: ab.duration });
       }, channelMs);
+      break;
+    }
+    case "standee": {
+      const st = { id: state.nextEntityId++, x: p.x, y: p.y, ownerId: p.id, breakRadius: ab.breakRadius || 30 };
+      state.standees.push(st);
+      broadcast({ type: "standee_place", id: st.id, x: st.x, y: st.y, ownerId: st.ownerId });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, x: st.x, y: st.y });
+      break;
+    }
+    case "megaphone": {
+      // 1s rooted wind-up (the client shakes), then stun every killer within
+      // range (≈ "on screen") for stunDuration seconds.
+      const ownerId = p.id;
+      const windupMs = (ab.windupDuration || 1) * 1000;
+      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.windupDuration || 1 });
+      setTimeout(() => {
+        if (state.phase !== "playing") return;
+        const owner = state.players.get(ownerId);
+        if (!owner || !owner.alive) return;
+        const R = ab.radius || 800;
+        for (const k of state.players.values()) {
+          if (k.role !== "killer" || !k.alive) continue;
+          if (Math.hypot(k.x - owner.x, k.y - owner.y) <= R) {
+            k.effects.slowMult = 0.05;
+            k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, Date.now() + ab.stunDuration * 1000);
+            broadcast({ type: "stun", id: k.id, by: ownerId, duration: ab.stunDuration });
+          }
+        }
+        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type });
+      }, windupMs);
       break;
     }
     case "spawn_robot": {
@@ -1352,6 +1394,7 @@ function startRound() {
   state.spawnPads = [];
   state.clovers = [];
   state.stations = [];
+  state.standees = [];
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1459,6 +1502,7 @@ function returnToLobby() {
   state.spawnPads = [];
   state.clovers = [];
   state.stations = [];
+  state.standees = [];
   for (const p of state.players.values()) {
     p.role = "unassigned";
     p.alive = true;
@@ -1667,6 +1711,20 @@ function tick() {
       return true;
     });
 
+    // Whamo standees: break when the killer walks into one (feeds Speedy).
+    if (state.standees.length) {
+      const killer = [...state.players.values()].find(k => k.role === "killer" && k.alive);
+      if (killer) {
+        state.standees = state.standees.filter(st => {
+          if (Math.hypot(killer.x - st.x, killer.y - st.y) < (st.breakRadius || 30)) {
+            broadcast({ type: "standee_break", id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, by: killer.id });
+            return false;
+          }
+          return true;
+        });
+      }
+    }
+
     // Pollen passive: drop a clover every CLOVER_SPACING px traveled
     // since the last drop. Clovers live for CLOVER_TTL seconds and heal
     // 0.5 HP/s to any OTHER survivor standing on them.
@@ -1862,6 +1920,7 @@ function tick() {
         spawnPads: state.spawnPads.map(sp => ({ id: sp.id, x: sp.x, y: sp.y, ownerId: sp.ownerId })),
         clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
         stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),
+        standees: state.standees.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {

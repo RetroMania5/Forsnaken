@@ -317,6 +317,7 @@
   }
   .bar.hp .fill    { background: linear-gradient(90deg, #e94560, #ff8a9c); }
   .bar.stam .fill  { background: linear-gradient(90deg, #6cb6ff, #b0e0ff); }
+  .bar.speedy .fill { background: linear-gradient(90deg, #ff9a3c, #ffe08a); }
 
   /* Ability slots (desktop HUD) */
   .ability-row {
@@ -569,6 +570,7 @@
   <div class="bar-stack">
     <div class="bar hp hidden" id="bar-hp"><div class="fill" style="width:100%"></div><div class="label">HP</div></div>
     <div class="bar stam"  id="bar-stam"><div class="fill" style="width:100%"></div><div class="label">STAMINA</div></div>
+    <div class="bar speedy hidden" id="bar-speedy"><div class="fill" style="width:0%"></div><div class="label">SPEEDY 1.0×</div></div>
   </div>
   <div class="ability-row" id="ability-row">
     <div class="slot main hidden" id="slot-main"><div class="key">Q</div><div class="name">—</div><div class="cd hidden">0</div></div>
@@ -717,6 +719,12 @@
       <div class="gd-ab"><b>Z — Breathe</b>: take a quick breath of fresh air — heal yourself <b>10 HP</b>. CD 20s.</div>
       <div class="gd-ab"><b>X — Heal Station</b>: <b>5s rooted channel</b>, blood lifts from your body as you raise your arms to the sky. Costs <b>15 HP</b> up front. When the channel finishes, a fountain drops at your feet and <b>heals every survivor in range 4 HP/sec</b>. It stays up <b>forever</b> until the killer melee-strikes it. Only one Heal Station at a time. CD 30s.</div>
       <div class="gd-ab"><b>C — Defence Station</b>: same 5s rooted channel + 15 HP cost as Heal Station, but instead it gives every survivor in range an <b>8s shield</b> (refreshed while they stay inside the radius). Killer melee strike breaks it. One Defence Station at a time. CD 30s.</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#ff9a3c"></span><b>Whamo</b><span class="gd-muted">standees + megaphone; speeds up near the killer</span></div>
+      <div class="gd-ab"><b>Passive — Speedy</b>: a meter (0–100%) that becomes speed — <b>1× at 0%, up to 3× at 100%</b>. It climbs <b>+4%/s</b> while the killer lingers near one of your standees and <b>+18%</b> whenever the killer breaks one. It only drains (<b>−1%/s</b>) while the killer is <b>off your screen</b>.</div>
+      <div class="gd-ab"><b>Z — Standee</b>: drop a cardboard cutout of yourself. Up to <b>3</b> out at once — you can't place a 4th until one is broken (the killer walks into it). CD 30s.</div>
+      <div class="gd-ab"><b>X — Megaphone</b>: a <b>1s wind-up</b> (you stand still, shaking as you heft it) then <b>stuns every enemy on screen for 2s</b>. CD 30s.</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
@@ -994,6 +1002,7 @@ const CHAR_VISUALS = {
   kacey:    { skin: "#ff9050", shirt: "#ffffff", pants: "#a05030", hair: "#ff9050", hat: "cat",     weapon: null, decoration: "burger" },
   angel:    { skin: "#888894", shirt: "#2a1840", pants: "#0a0612", hair: "#1a1828", hat: "shadow",  weapon: "dagger" },
   pollen:   { skin: "#f4d0a0", shirt: "#4a8c40", pants: "#2a4a20", hair: "#c8a040", hat: "flower",  weapon: null },
+  whamo:    { skin: "#f0c090", shirt: "#ff9a3c", pants: "#7a3a10", hair: "#3a2410", hat: null,      weapon: null },
   slasher:  { skin: "#a06060", shirt: "#e94560", pants: "#3a0a18", hair: "#0a0000", hat: "mask",    weapon: "knife" },
   stalker:  { skin: "#a08080", shirt: "#7a2030", pants: "#0a0510", hair: "#000000", hat: "hood",    weapon: "claws" },
   lunar:    { skin: "#e8e8f4", shirt: "#5a3acc", pants: "#2a1a60", hair: "#f0f0ff", hat: "moon",    weapon: null    },
@@ -1062,6 +1071,9 @@ const G = {
   localAbilityUses: [0, 0, 0],   // # of times each maxUses ability fired this round
   mainAttackCd: 0,     // local main attack CD timestamp
   stamina: 100,
+  standees: [],        // Whamo's placed standees (from server)
+  standeeBreaks: [],   // break VFX
+  speedyPct: 0,        // Whamo's Speedy meter (0..100), local
   // Sniper-specific local state.
   aiming: false,
   aimDir: { x: 1, y: 0 },
@@ -2424,6 +2436,9 @@ function onMessage(msg) {
       G.robotBreaks = [];
       G.traps = [];
       G.trapBreaks = [];
+      G.standees = [];
+      G.standeeBreaks = [];
+      G.speedyPct = 0;            // Whamo's Speedy meter resets each round
       for (const p of G.players.values()) p.form = "human";
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
@@ -2511,6 +2526,7 @@ function onMessage(msg) {
       G.spawnPads = msg.spawnPads || [];
       G.clovers   = msg.clovers   || [];
       G.stations  = msg.stations  || [];
+      G.standees  = msg.standees  || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -2681,6 +2697,17 @@ function onMessage(msg) {
       break;
     case "portal_break":
       G.portalBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
+      break;
+    case "standee_place":
+      G.standees = G.standees || [];
+      if (!G.standees.some(s => s.id === msg.id)) G.standees.push({ id: msg.id, x: msg.x, y: msg.y, ownerId: msg.ownerId });
+      break;
+    case "standee_break":
+      G.standees = (G.standees || []).filter(s => s.id !== msg.id);
+      G.standeeBreaks = G.standeeBreaks || [];
+      G.standeeBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 450 });
+      // Whamo gains a big Speedy burst whenever the killer breaks one of HIS standees.
+      if (msg.ownerId === G.myId) G.speedyPct = Math.min(100, (G.speedyPct || 0) + 18);
       break;
     case "ability_channel": {
       const v = G.players.get(msg.id);
@@ -4556,6 +4583,7 @@ function gameTick(now) {
     G.dialAngle = (G.dialAngle + DIAL_SPEED * dt) % (2 * Math.PI);
 
     const me = G.players.get(G.myId);
+    updateSpeedy(me, dt);   // Whamo's Speedy meter (safe no-op for everyone else)
     if (me && me.alive) {
       const v = inputVector();
       // Killers can move while using their powers (channels don't root them);
@@ -4600,6 +4628,8 @@ function gameTick(now) {
       // Speed buff: predict locally for snappy feel, fall back to server flag.
       if (now < (me._localSpeedUntil || 0)) speed *= me._localSpeedMult || 1.5;
       else if (me.speedBuff) speed *= 1.5;
+      // Whamo Speedy passive: up to 3x speed based on his meter.
+      if (me.survivorChar === "whamo") speed *= speedyMult();
       // Slow effect (Sentinel abilities target killers).
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
       // Engineer's OWN Shield slows the holder while it's up. Pollen's
@@ -4892,6 +4922,24 @@ function tryFireAbility(slot, me) {
     showCoinToast("Down a survivor first to transform!");
     return;
   }
+  // Whamo: can't place a 4th standee until one of the three breaks.
+  if (ab.type === "standee" && (G.standees || []).filter(s => s.ownerId === G.myId).length >= (ab.maxStandees || 3)) {
+    showCoinToast("Max standees out — one must break first!");
+    return;
+  }
+  // Whamo Megaphone: 1s rooted wind-up (shake, no costume yet); the server
+  // applies the stun and broadcasts the ability event afterward, which flips
+  // us into the megaphone action pose.
+  if (ab.type === "megaphone") {
+    if (now < G.cooldowns[slot]) return;
+    G.cooldowns[slot] = now + ab.cd * 1000;
+    me.channelUntil = now + (ab.windupDuration || 1) * 1000;
+    me.channelDuration = (ab.windupDuration || 1) * 1000;
+    me.channelType = "megaphone"; me.channelAbId = null;
+    if (G.testMode) applyLocalAbility(me, ab);
+    else sendMsg({ type: "ability", slot });
+    return;
+  }
 
   // Sniper: shoot is a two-step aim-then-fire; cooldown only spent on fire.
   if (ab.type === "shoot_sniper") {
@@ -5100,6 +5148,31 @@ function updatePlayerAnim(p, dt) {
   }
 }
 
+// Whamo's Speedy passive: the meter (0..100) climbs while the killer lingers
+// near his standees and jumps on a break; it drains only while the killer is
+// off Whamo's screen. Speed = 1x at 0%, up to 3x at 100%. Computed locally on
+// Whamo's own client (movement is client-authoritative).
+const SPEEDY_NEAR_R = 200;              // "near a standee"
+function speedyMult() { return 1 + 2 * (Math.max(0, Math.min(100, G.speedyPct || 0)) / 100); }
+function updateSpeedy(me, dt) {
+  if (!me || me.survivorChar !== "whamo" || me.role !== "survivor" || !me.alive) return;
+  const killer = [...G.players.values()].find(k => k.role === "killer" && k.alive);
+  if (!killer) { G.speedyPct = Math.max(0, (G.speedyPct || 0) - 1 * dt); return; }
+  // Near any of my standees?
+  let nearStandee = false;
+  for (const st of (G.standees || [])) {
+    if (st.ownerId !== G.myId) continue;
+    if (Math.hypot(killer.x - st.x, killer.y - st.y) <= SPEEDY_NEAR_R) { nearStandee = true; break; }
+  }
+  // Killer on Whamo's screen?
+  const zoom = Math.min(1.4, Math.max(0.7, Math.min(innerWidth, innerHeight) / 700));
+  const halfW = innerWidth / 2 / zoom + 30, halfH = innerHeight / 2 / zoom + 30;
+  const onScreen = Math.abs(killer.x - me.x) < halfW && Math.abs(killer.y - me.y) < halfH;
+  let pct = G.speedyPct || 0;
+  if (nearStandee) pct += 4 * dt;           // +4%/s while the killer loiters by a standee
+  else if (!onScreen) pct -= 1 * dt;        // -1%/s only while the killer is off-screen
+  G.speedyPct = Math.max(0, Math.min(100, pct));
+}
 function charSpeedMult(p) {
   if (p.role === "killer") {
     const c = G.killerChars.find(c => c.id === p.killerChar);
@@ -5365,6 +5438,7 @@ function render() {
   drawClovers();
   drawPortals();
   drawTraps();
+  drawStandees();
   drawSpawnPads();
   drawStations();
   drawSlowFields();
@@ -5689,6 +5763,37 @@ function drawConveyors() {
         ctx.lineTo(x0 + c.w * 0.75, ay);
         ctx.closePath(); ctx.fill();
       }
+    }
+  }
+}
+
+function drawStandees() {
+  const now = performance.now();
+  for (const st of (G.standees || [])) {
+    const sx = Math.round(st.x), sy = Math.round(st.y);
+    if (drawItemArt("standee", "sprite", sx, sy)) continue;
+    // ground shadow
+    ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.fillRect(sx - 10, sy + 6, 20, 3);
+    // easel legs
+    ctx.strokeStyle = "#6a4a28"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx - 6, sy + 6); ctx.lineTo(sx - 2, sy - 6);
+    ctx.moveTo(sx + 6, sy + 6); ctx.lineTo(sx + 2, sy - 6); ctx.stroke();
+    // cardboard board
+    ctx.fillStyle = "#caa06a"; ctx.fillRect(sx - 11, sy - 34, 22, 30);
+    ctx.strokeStyle = "#8a6a3a"; ctx.lineWidth = 2; ctx.strokeRect(sx - 11, sy - 34, 22, 30);
+    // little Whamo cutout
+    ctx.fillStyle = "#ff9a3c"; ctx.fillRect(sx - 5, sy - 24, 10, 12);
+    ctx.fillStyle = "#f0c090"; ctx.beginPath(); ctx.arc(sx, sy - 27, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#7a3a10"; ctx.fillRect(sx - 1, sy - 22, 2, 5); ctx.fillRect(sx - 1, sy - 15, 2, 2);
+  }
+  // break VFX — cardboard bits fly out
+  G.standeeBreaks = (G.standeeBreaks || []).filter(b => now < b.until);
+  for (const b of G.standeeBreaks) {
+    const t = (b.until - now) / 450;
+    ctx.fillStyle = `rgba(202,160,106,${t.toFixed(2)})`;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2, r = (1 - t) * 22;
+      ctx.fillRect(b.x + Math.cos(a) * r - 2, b.y - 14 + Math.sin(a) * r - 2, 4, 4);
     }
   }
 }
@@ -6978,6 +7083,11 @@ function drawPlayer(p) {
     leanPx += Math.sin(now * 0.05) * 2.6;
     bobPx += Math.sin(now * 0.083) * 1.6;
   }
+  // Whamo's Megaphone wind-up: shakes as if hauling it up, before the stun.
+  if (p.channelType === "megaphone" && now < (p.channelUntil || 0)) {
+    leanPx += Math.sin(now * 0.06) * 2.2;
+    bobPx += Math.sin(now * 0.11) * 1.3;
+  }
   ctx.translate(p.x + (flip ? -leanPx : leanPx), p.y + bobPx);
   // Sway pivots around the player's logical position (close to the
   // feet) so the head swings while the feet stay roughly planted.
@@ -7259,6 +7369,18 @@ function updateAbilitySlots(me) {
   const list = abilitiesFor(me);
   const now = performance.now();
   const isKiller = me.role === "killer";
+  // Whamo's Speedy meter bar (survivor-only, shown just for Whamo).
+  const speedyBar = $("bar-speedy");
+  if (speedyBar) {
+    if (me.role === "survivor" && me.survivorChar === "whamo") {
+      speedyBar.classList.remove("hidden");
+      const pct = Math.max(0, Math.min(100, G.speedyPct || 0));
+      speedyBar.querySelector(".fill").style.width = pct + "%";
+      speedyBar.querySelector(".label").textContent = "SPEEDY " + (1 + 2 * pct / 100).toFixed(1) + "×";
+    } else {
+      speedyBar.classList.add("hidden");
+    }
+  }
   // Slot keys are driven by the user's keybind settings.
   const B = Settings.bindings;
   const ku = (k) => keyDisplay(k);
@@ -7402,6 +7524,20 @@ function updateAbilitySlots(me) {
       slot.querySelector(".name").textContent = "Transform 🔒";
       mob.querySelector("span").textContent = "🔒";
       sDots.classList.add("hidden"); mDots.classList.add("hidden");
+      sFill.style.height = "0"; mFill.style.height = "0";
+    } else if (ab.type === "standee") {
+      // One dot per available standee slot; grey out when all 3 are placed.
+      const maxS = ab.maxStandees || 3;
+      const outNow = (G.standees || []).filter(s => s.ownerId === G.myId).length;
+      const remaining = Math.max(0, maxS - outNow);
+      const full = remaining <= 0;
+      slot.classList.toggle("disabled", full);
+      mob.classList.toggle("disabled", full);
+      slot.classList.remove("aim-active"); mob.classList.remove("aim-active");
+      sDots.classList.remove("hidden"); mDots.classList.remove("hidden");
+      let dots = "";
+      for (let j = 0; j < maxS; j++) dots += j < remaining ? '<div class="ammo-dot"></div>' : '<div class="ammo-dot empty"></div>';
+      sDots.innerHTML = dots; mDots.innerHTML = dots;
       sFill.style.height = "0"; mFill.style.height = "0";
     } else {
       slot.classList.remove("disabled", "aim-active");

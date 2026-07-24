@@ -141,7 +141,7 @@
 
 <script src="anim-fx.js"></script>
 <script>
-const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
+const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","color":"#ff80c0","abilities":[{"id":"dash","name":"Dash"},{"id":"smoke","name":"Smoke Bomb"}]},{"id":"engineer","name":"Engineer","role":"survivor","color":"#ffd84a","abilities":[{"id":"shield","name":"Shield"},{"id":"robot","name":"Robot"}]},{"id":"scout","name":"Scout","role":"survivor","color":"#6cb6ff","abilities":[{"id":"rally","name":"Rally"},{"id":"scan","name":"Scan"}]},{"id":"sentinel","name":"Frost Knight","role":"survivor","color":"#4ad0c0","abilities":[{"id":"burst","name":"Stun Burst"},{"id":"field","name":"Snow Field"}]},{"id":"sniper","name":"Sniper","role":"survivor","color":"#a070f0","abilities":[{"id":"shoot","name":"Shoot"},{"id":"reload","name":"Reload"},{"id":"sneak","name":"Sneak"}]},{"id":"fencer","name":"Fencer","role":"survivor","color":"#d04050","abilities":[{"id":"slash","name":"Slash"},{"id":"soda","name":"Soda"}]},{"id":"kacey","name":"Kacey","role":"survivor","color":"#ff9050","abilities":[{"id":"burger","name":"Burger!"},{"id":"meow","name":"MEOW!"}]},{"id":"angel","name":"Angel","role":"survivor","color":"#3a1860","abilities":[{"id":"stab","name":"Stab"},{"id":"duck","name":"Duck"},{"id":"spawner","name":"Spawner"}]},{"id":"pollen","name":"Pollen","role":"survivor","color":"#4a8c40","abilities":[{"id":"breathe","name":"Breathe"},{"id":"heal_station","name":"Heal Station"},{"id":"defence_station","name":"Defence Station"}]},{"id":"whamo","name":"Whamo","role":"survivor","color":"#ff9a3c","abilities":[{"id":"standee","name":"Standee"},{"id":"megaphone","name":"Megaphone"}]}],"killers":[{"id":"slasher","name":"Slasher","role":"killer","color":"#e94560","abilities":[{"id":"throw","name":"Throw Knife"},{"id":"frenzy","name":"Frenzy"}]},{"id":"stalker","name":"Stalker","role":"killer","color":"#7a2030","abilities":[{"id":"step","name":"Shadow Step"},{"id":"stalk","name":"Stalk"}]},{"id":"lunar","name":"Lunar","role":"killer","color":"#9070ff","abilities":[{"id":"build_portal","name":"Build Portal"},{"id":"teleport_portal","name":"Teleport"},{"id":"dash","name":"Dash"}]},{"id":"sly","name":"Sly","role":"killer","color":"#3a2a4a","abilities":[{"id":"trap_fire","name":"Trap"},{"id":"transform","name":"Transform"}]}]};
 
 const ALL = [...DATA.survivors, ...DATA.killers];
 
@@ -277,6 +277,7 @@ function renderMain() {
   $("main").innerHTML =
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
        <h2>${c.name}</h2><span class="role">${c.role}</span>
+       <button id="exportOneBtn" class="floatbtn" title="Export just this character's art (one file)">⬇ Export this one</button>
        ${c.role !== "item" ? `<button id="floatToggle" class="floatbtn ${floatOn ? "on" : ""}" title="Make this character's walk a floating hover (carries into the game)">🎈 Floating walk${floatOn ? " ✓" : ""}</button>` : ""}
      </div>
      <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
@@ -296,6 +297,7 @@ function renderMain() {
     x.onclick = e => { e.stopPropagation(); clearSlot(x.dataset.clear); });
   $("main").querySelectorAll("[data-nocos]").forEach(b =>
     b.onclick = e => { e.stopPropagation(); toggleNoCostume(b.dataset.nocos); });
+  const eo = $("exportOneBtn"); if (eo) eo.onclick = exportOne;
   const ft = $("floatToggle");
   if (ft) ft.onclick = () => {
     if (flags[selected] && flags[selected].floatWalk) { delete flags[selected].floatWalk; if (!Object.keys(flags[selected]).length) delete flags[selected]; }
@@ -530,29 +532,40 @@ function clearSlot(slot) {
 }
 
 // ── Export / import / clear ──────────────────────────────────────────────────
-function exportFile() {
-  const characters = ENTITIES.map(c => {
-    const slots = slotsFor(c), cs = store[c.id] || {};
-    const entries = slots.filter(s => cs[s.id]).map(s => {
-      const v = cs[s.id];
-      return v.noCostume
-        ? { slot: s.id, label: s.label, kind: s.tag, noCostume: true }
-        : { slot: s.id, label: s.label, kind: s.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
-    });
-    const out = { id: c.id, name: c.name, role: c.role,
-             resolved: entries.map(e => e.slot),
-             missing: slots.filter(s => !cs[s.id]).map(s => s.id),
-             slots: entries };
-    if (flags[c.id] && flags[c.id].floatWalk) out.floatWalk = true;
-    return out;
+function serializeChar(c) {
+  const slots = slotsFor(c), cs = store[c.id] || {};
+  const entries = slots.filter(s => cs[s.id]).map(s => {
+    const v = cs[s.id];
+    return v.noCostume
+      ? { slot: s.id, label: s.label, kind: s.tag, noCostume: true }
+      : { slot: s.id, label: s.label, kind: s.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
   });
-  const out = { app: "forsnaken-art", version: 1, totalSlots: TOTAL,
-                filledSlots: totalFilled(), characters };
-  const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
+  const out = { id: c.id, name: c.name, role: c.role,
+           resolved: entries.map(e => e.slot),
+           missing: slots.filter(s => !cs[s.id]).map(s => s.id),
+           slots: entries };
+  if (flags[c.id] && flags[c.id].floatWalk) out.floatWalk = true;
+  return out;
+}
+function downloadJSON(obj, name) {
+  const blob = new Blob([JSON.stringify(obj)], { type: "application/json" });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "forsnaken-art.json"; a.click();
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function exportFile() {
+  const characters = ENTITIES.map(serializeChar);
+  downloadJSON({ app: "forsnaken-art", version: 1, totalSlots: TOTAL, filledSlots: totalFilled(), characters }, "forsnaken-art.json");
   toast(`Exported ${totalFilled()} images. Send me forsnaken-art.json`);
+}
+// Export ONLY the selected character (same file format, one entry). Imports back
+// via the normal Import button, and the game bakes it the same way.
+function exportOne() {
+  const c = byId[selected];
+  if (!c) { toast("Pick a character first (pets have their own export)."); return; }
+  const entry = serializeChar(c);
+  downloadJSON({ app: "forsnaken-art", version: 1, single: true, characters: [entry] }, `forsnaken-art-${c.id}.json`);
+  toast(`Exported ${entry.slots.length} image(s) for ${c.name}: forsnaken-art-${c.id}.json`);
 }
 function importFile(file) {
   const fr = new FileReader();
