@@ -205,9 +205,15 @@
   #disconnect-prompt #dc-rejoin { font-size: 18px; padding: 10px 34px; }
 
   /* ---- Lobby hub + Shop / Inventory ---- */
-  #lobby-hub { display:block; margin:6px auto 0; background:#12161f; border:1px solid #333a52;
-    border-radius:12px; image-rendering:pixelated; touch-action:none; max-width:100%; }
-  .hub-row { display:flex; gap:10px; justify-content:center; margin:10px 0 4px; flex-wrap:wrap; }
+  #lobby.overlay { display:block; padding:0; }
+  #lobby-hub { display:block; position:fixed; inset:0; width:100vw; height:100vh;
+    background:#141821; image-rendering:pixelated; touch-action:none; }
+  #lobby-topbar { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:6;
+    display:flex; gap:10px; align-items:center; background:rgba(10,12,20,0.62);
+    border:1px solid #333a52; border-radius:12px; padding:8px 14px; }
+  #lobby-topbar #lobby-coins { color:#ffd84a; font-weight:700; margin-right:4px; }
+  #lobby #lobby-status { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:6; }
+  .lobby-menu-body { padding:16px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; max-height:78vh; }
   .store-modal { position:fixed; inset:0; background:rgba(0,0,0,0.78); display:grid; place-items:center; z-index:600; }
   .store-modal.hidden { display:none; }
   .store-box { background:#171a24; border:1px solid #333a52; border-radius:14px; width:min(700px,95vw);
@@ -770,31 +776,35 @@
 </div>
 
 <div id="lobby" class="overlay hidden">
-  <div class="panel">
-    <h1 class="title" style="font-size: 28px;">LOBBY <span id="lobby-coins">🪙 0</span></h1>
-    <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
-    <div id="map-select" class="hidden"></div>
-    <div id="player-list"></div>
-    <canvas id="lobby-hub" width="440" height="240"></canvas>
-    <div class="hub-row">
-      <button id="open-shop-btn">🛒 Shop</button>
-      <button id="open-inv-btn">🎒 Inventory</button>
-    </div>
-    <!-- Old character grids kept but hidden; equipping now happens in the Inventory. -->
-    <div style="display:none">
-      <div class="char-grid" id="surv-grid"></div>
-      <div class="char-grid k2" id="kill-grid"></div>
-    </div>
-    <div id="lobby-status" class="status"></div>
-    <div class="row">
+  <canvas id="lobby-hub"></canvas>
+  <div id="lobby-topbar">
+    <span id="lobby-coins">🪙 0</span>
+    <button id="open-shop-btn">🛒 Shop</button>
+    <button id="open-inv-btn">🎒 Inventory</button>
+    <button id="open-menu-btn">☰ Menu</button>
+  </div>
+  <div id="lobby-status" class="status"></div>
+  <!-- Old character grids kept hidden; equipping happens in the Inventory. -->
+  <div style="display:none">
+    <div class="char-grid" id="surv-grid"></div>
+    <div class="char-grid k2" id="kill-grid"></div>
+  </div>
+</div>
+
+<!-- Lobby menu — pauses the hub for this player -->
+<div id="lobby-menu" class="store-modal hidden">
+  <div class="store-box" style="width:min(420px,94vw);">
+    <div class="store-head"><h2>☰ Menu</h2><button id="lobby-menu-close">✕ Close</button></div>
+    <div class="lobby-menu-body">
+      <div id="player-list"></div>
+      <div id="map-select" class="hidden"></div>
+      <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
       <button id="start-btn" disabled>Start Round</button>
       <button id="lobby-guide-btn" class="secondary">Guide</button>
       <button id="lobby-settings-btn" class="secondary">Settings</button>
-      <button id="leave-lobby-btn" class="secondary">Leave</button>
-    </div>
-    <div class="save-row">
       <button id="save-download-lobby" class="secondary">⬇ Download save</button>
       <button id="save-load-lobby" class="secondary">⬆ Load save</button>
+      <button id="leave-lobby-btn" class="secondary">Leave</button>
     </div>
   </div>
 </div>
@@ -2354,6 +2364,9 @@ function onMessage(msg) {
         renderLobby();
       }
       break;
+    case "lobby_state":
+      G.lobbyPlayers = msg.players || [];   // other players' hub positions
+      break;
     case "start":
       reapplyCustomArt();               // keep custom sprites (esp. the dino) every round
       mergeRoster(msg.players);
@@ -3013,16 +3026,14 @@ document.querySelectorAll("#inv-modal .store-tab").forEach(t => t.onclick = () =
   renderStore("inv");
 });
 
-// ---- Walkable hub ----
-const HUB_W = 440, HUB_H = 240, HUB_SPEED = 95;
-const hub = { x: 220, y: 195, facing: 1, walking: false, frame: 0, accum: 0, lastT: 0, _wasShown: false };
-const hubStations = [
-  { id: "shop", x: 120, y: 78, w: 96, h: 56, label: "🛒 SHOP", open: openShop },
-  { id: "inv",  x: 320, y: 78, w: 96, h: 56, label: "🎒 INVENTORY", open: openInv },
-];
-let curStation = null;
+// ---- Full-screen walkable lobby (other players synced live) ----
+const LOBBY_W = 1280, LOBBY_H = 720, HUB_SPEED = 155, HUB_SPAWN_X = 640, HUB_SPAWN_Y = 470;
+const HUB_SCALE = 2.4;
+const hub = { x: HUB_SPAWN_X, y: HUB_SPAWN_Y, facing: 1, walking: false, frame: 0, accum: 0, lastT: 0, lastSend: 0, _wasShown: false };
 function anyStoreOpen() { return !$("shop-modal").classList.contains("hidden") || !$("inv-modal").classList.contains("hidden"); }
-function updateHub(dt) {
+function lobbyMenuOpen() { return !$("lobby-menu").classList.contains("hidden"); }
+function anyLobbyOverlay() { return anyStoreOpen() || lobbyMenuOpen(); }   // any of these pauses the hub
+function updateHub(dt, now) {
   let dx = 0, dy = 0;
   if (keys["w"] || keys["arrowup"]) dy -= 1;
   if (keys["s"] || keys["arrowdown"]) dy += 1;
@@ -3033,55 +3044,81 @@ function updateHub(dt) {
   if (m > 0) {
     dx /= m; dy /= m;
     if (dx < -0.2) hub.facing = -1; else if (dx > 0.2) hub.facing = 1;
-    hub.x = Math.max(16, Math.min(HUB_W - 16, hub.x + dx * HUB_SPEED * dt));
-    hub.y = Math.max(28, Math.min(HUB_H - 16, hub.y + dy * HUB_SPEED * dt));
+    hub.x = Math.max(28, Math.min(LOBBY_W - 28, hub.x + dx * HUB_SPEED * dt));
+    hub.y = Math.max(72, Math.min(LOBBY_H - 24, hub.y + dy * HUB_SPEED * dt));
     hub.accum += dt * 1000; if (hub.accum >= 180) { hub.accum -= 180; hub.frame ^= 1; }
   } else hub.accum = 0;
-  let inSt = null;
-  for (const st of hubStations) if (Math.abs(hub.x - st.x) < st.w / 2 && Math.abs(hub.y - st.y) < st.h / 2) inSt = st;
-  if (inSt && inSt !== curStation) inSt.open();
-  curStation = inSt;
+  // Share my hub position so other players see me walk around the lobby.
+  if (now - hub.lastSend > 90) {
+    hub.lastSend = now;
+    sendMsg({ type: "pos", x: hub.x, y: hub.y, facing: { x: hub.facing, y: 0 } });
+  }
+}
+function drawHubPlayer(x, sprId, px, py, faceX, walking, wframe) {
+  const sh = sprites[sprId] || sprites["scout"]; if (!sh) return;
+  let frame = walking ? (wframe ? sh.walkB : sh.walkA) : sh.idle;
+  frame = frame || sh.idle; if (!frame) return;
+  const w = frame.width * HUB_SCALE, h = frame.height * HUB_SCALE;
+  x.save(); x.translate(px, py);
+  if (faceX < 0) x.scale(-1, 1);
+  x.drawImage(frame, -w / 2, -h + 8, w, h);
+  x.restore();
 }
 function renderHub(now) {
   const cv = $("lobby-hub"); if (!cv) return;
-  const x = cv.getContext("2d");
-  x.imageSmoothingEnabled = false;
-  x.fillStyle = "#1a1e2a"; x.fillRect(0, 0, HUB_W, HUB_H);
-  x.strokeStyle = "rgba(255,255,255,0.05)"; x.lineWidth = 1;
-  for (let gx = 0; gx <= HUB_W; gx += 40) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, HUB_H); x.stroke(); }
-  for (let gy = 0; gy <= HUB_H; gy += 40) { x.beginPath(); x.moveTo(0, gy); x.lineTo(HUB_W, gy); x.stroke(); }
-  for (const st of hubStations) {
-    x.fillStyle = "rgba(80,110,160,0.35)"; x.fillRect(st.x - st.w / 2, st.y - st.h / 2, st.w, st.h);
-    x.strokeStyle = "#7aa0d0"; x.lineWidth = 2; x.strokeRect(st.x - st.w / 2, st.y - st.h / 2, st.w, st.h);
-    x.fillStyle = "#fff"; x.font = "bold 12px system-ui"; x.textAlign = "center"; x.textBaseline = "middle";
-    x.fillText(st.label, st.x, st.y);
+  if (cv.width !== window.innerWidth || cv.height !== window.innerHeight) {
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
   }
-  const sh = sprites[G.myChars.survivor];
-  if (sh) {
-    let frame = hub.walking ? (hub.frame ? sh.walkB : sh.walkA) : sh.idle;
-    frame = frame || sh.idle;
-    if (frame) {
-      const scale = 1.5, w = frame.width * scale, h = frame.height * scale;
-      x.save(); x.translate(hub.x, hub.y);
-      if (hub.facing < 0) x.scale(-1, 1);
-      x.drawImage(frame, -w / 2, -h + 6, w, h);
-      x.restore();
+  const x = cv.getContext("2d");
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = "#0e1119"; x.fillRect(0, 0, cv.width, cv.height);
+  // Fit the fixed room into the window, letterboxed.
+  const scale = Math.min(cv.width / LOBBY_W, cv.height / LOBBY_H);
+  const ox = (cv.width - LOBBY_W * scale) / 2, oy = (cv.height - LOBBY_H * scale) / 2;
+  x.setTransform(scale, 0, 0, scale, ox, oy);
+  x.fillStyle = "#1a1e2a"; x.fillRect(0, 0, LOBBY_W, LOBBY_H);
+  x.strokeStyle = "rgba(255,255,255,0.05)"; x.lineWidth = 1;
+  for (let gx = 0; gx <= LOBBY_W; gx += 64) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, LOBBY_H); x.stroke(); }
+  for (let gy = 0; gy <= LOBBY_H; gy += 64) { x.beginPath(); x.moveTo(0, gy); x.lineTo(LOBBY_W, gy); x.stroke(); }
+  x.strokeStyle = "rgba(120,150,200,0.35)"; x.lineWidth = 6; x.strokeRect(6, 6, LOBBY_W - 12, LOBBY_H - 12);
+  x.fillStyle = "rgba(180,200,240,0.20)"; x.font = "bold 56px system-ui"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText("LOBBY", LOBBY_W / 2, 62);
+  // Everyone in the room, depth-sorted by y (me + others).
+  const list = [];
+  for (const p of (G.lobbyPlayers || [])) { if (p.id !== G.myId) list.push({ y: p.y, p }); }
+  list.push({ y: hub.y, p: null });
+  list.sort((a, b) => a.y - b.y);
+  for (const it of list) {
+    if (!it.p) {
+      drawHubPlayer(x, G.myChars.survivor, hub.x, hub.y, hub.facing, hub.walking, hub.frame);
+    } else {
+      const p = it.p;
+      drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, false, 0);
+      x.fillStyle = "#cfe0ff"; x.font = "bold 18px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
+      x.fillText(p.name || "Player", p.x, p.y - 76);
     }
   }
-  x.fillStyle = "rgba(255,255,255,0.5)"; x.font = "11px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
-  x.fillText("WASD / arrows to walk · step into (or click) a station", HUB_W / 2, HUB_H - 4);
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.fillStyle = "rgba(255,255,255,0.4)"; x.font = "13px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
+  x.fillText("WASD / arrows to walk around the lobby", cv.width / 2, cv.height - 10);
 }
-if ($("lobby-hub")) $("lobby-hub").addEventListener("click", (e) => {
-  const cv = $("lobby-hub"), r = cv.getBoundingClientRect();
-  const cx = (e.clientX - r.left) * (cv.width / r.width), cy = (e.clientY - r.top) * (cv.height / r.height);
-  for (const st of hubStations) if (Math.abs(cx - st.x) < st.w / 2 && Math.abs(cy - st.y) < st.h / 2) st.open();
-});
+// ---- Menu overlay (pauses the hub for this player) ----
+function openLobbyMenu() { renderLobby(); $("lobby-menu").classList.remove("hidden"); }
+function closeLobbyMenu() { $("lobby-menu").classList.add("hidden"); }
+if ($("open-menu-btn")) $("open-menu-btn").addEventListener("click", openLobbyMenu);
+if ($("lobby-menu-close")) $("lobby-menu-close").addEventListener("click", closeLobbyMenu);
+if ($("lobby-menu")) $("lobby-menu").addEventListener("click", (e) => { if (e.target.id === "lobby-menu") closeLobbyMenu(); });
 function uiLoop(now) {
   const lobbyShown = lobbyEl && !lobbyEl.classList.contains("hidden");
   if (anyStoreOpen()) drawPreviews(now);
   if (lobbyShown) {
-    if (!hub._wasShown) { hub.x = 220; hub.y = 195; hub.lastT = 0; hub._wasShown = true; curStation = null; }
-    if (!anyStoreOpen()) { const dt = hub.lastT ? Math.min(0.05, (now - hub.lastT) / 1000) : 0; updateHub(dt); hub.lastT = now; }
+    if (!hub._wasShown) { hub.x = HUB_SPAWN_X; hub.y = HUB_SPAWN_Y; hub.lastT = 0; hub._wasShown = true; }
+    if (!anyLobbyOverlay()) {
+      const dt = hub.lastT ? Math.min(0.05, (now - hub.lastT) / 1000) : 0;
+      updateHub(dt, now);
+    }
+    hub.lastT = now;   // keep fresh even while paused so dt never jumps on resume
     renderHub(now);
   } else { hub._wasShown = false; }
   requestAnimationFrame(uiLoop);

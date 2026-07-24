@@ -626,7 +626,7 @@ function onStart(id) {
 
 function onPos(id, msg) {
   const p = state.players.get(id);
-  if (!p || state.phase !== "playing") return;
+  if (!p || (state.phase !== "playing" && state.phase !== "lobby")) return;  // lobby = hub movement
   if (!p.alive) return;
   if (typeof msg.x !== "number" || typeof msg.y !== "number") return;
   p.x = clamp(msg.x, 20, MAP.w - 20);
@@ -1799,6 +1799,12 @@ function tick() {
       if (sc) p.color = sc.color;
     }
     broadcastLobby();
+  } else if (state.phase === "lobby") {
+    // Sync hub positions so lobby players see each other move.
+    broadcast({ type: "lobby_state", players: [...state.players.values()].map(p => ({
+      id: p.id, x: Math.round(p.x), y: Math.round(p.y), fx: +p.facing.x.toFixed(2),
+      survivorChar: p.survivorChar, name: p.name,
+    })) });
   }
 }
 
