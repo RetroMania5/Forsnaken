@@ -2298,6 +2298,7 @@ function onMessage(msg) {
       }
       break;
     case "start":
+      reapplyCustomArt();               // keep custom sprites (esp. the dino) every round
       mergeRoster(msg.players);
       G.gens = msg.gens.map(g => ({ ...g }));
       G.timer = msg.timer;
@@ -6946,6 +6947,15 @@ const CHANNEL_AB = { spawn_robot: "robot", slow_field: "field", build_portal: "b
   teleport_portal: "teleport_portal", transform: "transform", spawn_pad: "spawner" };
 // World-entity (item) art, baked to display size and drawn by the entity draws.
 const ITEM_ART = {};   // ITEM_ART[itemId][slot] = canvas
+// Cache of baked custom character sprites, re-applied each round so they never
+// revert to the procedural design.
+const CUSTOM_SPRITES = {};   // CUSTOM_SPRITES[sheet][frame] = canvas
+function reapplyCustomArt() {
+  for (const sheet of Object.keys(CUSTOM_SPRITES)) {
+    const src = CUSTOM_SPRITES[sheet], dst = sprites[sheet] || (sprites[sheet] = {});
+    for (const f of Object.keys(src)) dst[f] = src[f];
+  }
+}
 // Fit-and-downscale an image into a maxW x maxH box (clean high-quality shrink).
 function bakeFit(img, maxW, maxH) {
   const sc = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight);
@@ -7031,9 +7041,10 @@ function applyCustomArt() {
         if (s === "ability-transform") ref = imgs[s].naturalHeight;
         const c = bakeAt(imgs[s], SPRITE_SIZE / ref);
         const sh = sprites[t.sheet] || (sprites[t.sheet] = {});
-        sh[t.frame] = c;
+        const cc = CUSTOM_SPRITES[t.sheet] || (CUSTOM_SPRITES[t.sheet] = {});
+        sh[t.frame] = c; cc[t.frame] = c;
         // Sly's dino attack uses the dino fire sprite.
-        if (t.sheet === "sly_dino" && t.frame === "action_trap_fire") sh["action_attack"] = c;
+        if (t.sheet === "sly_dino" && t.frame === "action_trap_fire") { sh["action_attack"] = c; cc["action_attack"] = c; }
       }
     })();
   }
