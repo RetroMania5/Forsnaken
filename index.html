@@ -3037,6 +3037,7 @@ document.querySelectorAll("#inv-modal .store-tab").forEach(t => t.onclick = () =
 const LOBBY_W = 1280, LOBBY_H = 720, HUB_SPEED = 155, HUB_SPAWN_X = 640, HUB_SPAWN_Y = 470;
 const HUB_SCALE = 2.4;
 const hub = { x: HUB_SPAWN_X, y: HUB_SPAWN_Y, facing: 1, walking: false, frame: 0, accum: 0, lastT: 0, lastSend: 0, _wasShown: false };
+const hubAnim = new Map();   // other players' walk state: id -> {lastX,lastY,movingUntil}
 function anyStoreOpen() { return !$("shop-modal").classList.contains("hidden") || !$("inv-modal").classList.contains("hidden"); }
 function lobbyMenuOpen() { return !$("lobby-menu").classList.contains("hidden"); }
 function anyLobbyOverlay() { return anyStoreOpen() || lobbyMenuOpen(); }   // any of these pauses the hub
@@ -3101,7 +3102,14 @@ function renderHub(now) {
       drawHubPlayer(x, G.myChars.survivor, hub.x, hub.y, hub.facing, hub.walking, hub.frame);
     } else {
       const p = it.p;
-      drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, false, 0);
+      // Detect movement from position changes between lobby updates so remote
+      // players show their walk cycle just like the local player does.
+      let a = hubAnim.get(p.id);
+      if (!a) { a = { lastX: p.x, lastY: p.y, movingUntil: 0 }; hubAnim.set(p.id, a); }
+      if (Math.hypot(p.x - a.lastX, p.y - a.lastY) > 0.5) { a.movingUntil = now + 170; a.lastX = p.x; a.lastY = p.y; }
+      const walking = now < a.movingUntil;
+      const wframe = (Math.floor(now / 180) & 1);   // alternate walk-1 / walk-2
+      drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, walking, wframe);
       x.fillStyle = "#cfe0ff"; x.font = "bold 18px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
       x.fillText(p.name || "Player", p.x, p.y - 76);
     }
