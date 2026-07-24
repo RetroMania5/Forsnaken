@@ -224,7 +224,7 @@
   .lobby-menu-body { padding:16px; display:flex; flex-direction:column; gap:10px; overflow-y:auto; max-height:78vh; }
   .store-modal { position:fixed; inset:0; background:rgba(0,0,0,0.78); display:grid; place-items:center; z-index:600; }
   .store-modal.hidden { display:none; }
-  .store-box { background:#171a24; border:1px solid #333a52; border-radius:14px; width:min(700px,95vw);
+  .store-box { background:#171a24; border:1px solid #333a52; border-radius:14px; width:min(920px,96vw);
     max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
   .store-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #333a52; }
   .store-head h2 { margin:0; flex:1; font-size:20px; }
@@ -247,6 +247,30 @@
   .store-cell .soldout { color:#e94560; font-weight:800; font-size:12px; margin-top:3px; letter-spacing:0.6px; }
   .store-cell .equipped-tag { color:#66e08a; font-weight:700; font-size:11px; margin-top:3px; }
   .store-empty { grid-column:1/-1; text-align:center; color:#8a90a8; padding:24px; }
+  /* Two-column store: grid on the left, character detail on the right */
+  .store-body { display:flex; flex:1; overflow:hidden; min-height:0; }
+  .store-body .store-grid { flex:1; min-width:0; }
+  .store-detail { width:300px; flex:none; border-left:1px solid #333a52; padding:14px 16px 20px; overflow-y:auto; }
+  .store-detail.hidden { display:none; }
+  .detail-prev { display:block; margin:0 auto 4px; background:linear-gradient(160deg,#222a3a,#141a26);
+    border:1px solid #333a52; border-radius:12px; image-rendering:pixelated; }
+  .detail-name { text-align:center; font-weight:800; font-size:18px; margin:4px 0 1px; }
+  .detail-sub { text-align:center; color:#8a90a8; font-size:12px; margin-bottom:8px; }
+  .detail-act { width:100%; margin:6px 0 2px; }
+  .detail-owned { text-align:center; color:#66e08a; font-weight:700; font-size:13px; margin:6px 0; }
+  .detail-h { font-size:11px; letter-spacing:1px; color:#8a90a8; text-transform:uppercase; margin:14px 0 6px; }
+  .detail-powers { display:flex; flex-direction:column; gap:6px; }
+  .power-row { display:flex; align-items:center; gap:9px; font-size:13px; }
+  .power-row canvas { width:36px; height:36px; flex:none; background:#20242f; border:1px solid #333a52; border-radius:8px; image-rendering:pixelated; }
+  .skin-chips { display:flex; flex-direction:column; gap:6px; }
+  .skin-chip { display:flex; align-items:center; justify-content:space-between; gap:8px; background:#20242f;
+    border:1px solid #333a52; border-radius:10px; padding:8px 10px; cursor:pointer; font-size:13px; }
+  .skin-chip:hover { border-color:#556; }
+  .skin-chip.on { border-color:var(--accent); box-shadow:0 0 0 2px rgba(233,69,96,0.35); }
+  .skin-chip .sc-price { color:#ffd84a; font-weight:700; font-size:12px; }
+  .skin-chip .sc-eq { color:#66e08a; font-weight:700; font-size:11px; }
+  .skin-chip .sc-own { color:#8a90a8; font-size:11px; }
+  @media (max-width:640px) { .store-body { flex-direction:column; } .store-detail { width:auto; border-left:none; border-top:1px solid #333a52; } }
 
   /* Touch controls */
   #touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 6; display: none; }
@@ -832,9 +856,11 @@
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
       <button class="store-tab" data-role="pet">🐾 Pets</button>
-      <button class="store-tab" data-role="skin">✨ Skins</button>
     </div>
-    <div class="store-grid" id="shop-grid"></div>
+    <div class="store-body">
+      <div class="store-grid" id="shop-grid"></div>
+      <div class="store-detail" id="shop-detail"></div>
+    </div>
   </div>
 </div>
 <div id="inv-modal" class="store-modal hidden">
@@ -844,9 +870,11 @@
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
       <button class="store-tab" data-role="pet">🐾 Pets</button>
-      <button class="store-tab" data-role="skin">✨ Skins</button>
     </div>
-    <div class="store-grid" id="inv-grid"></div>
+    <div class="store-body">
+      <div class="store-grid" id="inv-grid"></div>
+      <div class="store-detail" id="inv-detail"></div>
+    </div>
   </div>
 </div>
 
@@ -3003,7 +3031,8 @@ $("map-image-btn").addEventListener("click", () => chooseMap(downloadMapImage));
 
 // ================= Lobby hub + Shop / Inventory =================
 const storeRole = { shop: "survivor", inv: "survivor" };
-const _previews = [];   // {cv, charId, animate} — animated sprite icons in the grids
+const storeSel = { shop: null, inv: null };   // selected char per store (drives the detail panel)
+const _previews = [];   // {cv, charId, skinId, animate, frame} — animated sprite icons
 const charListFor = (role) => (role === "killer" ? (G.killerChars || []) : (G.survivorChars || []));
 const equippedFor = (role) => (role === "killer" ? G.myChars.killer : G.myChars.survivor);
 
@@ -3019,44 +3048,104 @@ function renderStore(which) {
   const isShop = which === "shop";
   const role = storeRole[which];
   const grid = $(isShop ? "shop-grid" : "inv-grid");
+  const detail = $(isShop ? "shop-detail" : "inv-detail");
   _previews.length = 0;
   grid.innerHTML = "";
-  if (role === "pet") return renderPetStore(which, isShop, grid);
-  if (role === "skin") return renderSkinStore(which, isShop, grid);
+  if (detail) detail.innerHTML = "";
+  if (role === "pet") { if (detail) detail.classList.add("hidden"); return renderPetStore(which, isShop, grid); }
+  if (detail) detail.classList.remove("hidden");
   let list = charListFor(role);
   if (!isShop) list = list.filter(c => isUnlocked(c.id));   // inventory = owned only
   if (!list.length) {
     grid.innerHTML = `<div class="store-empty">${isShop ? "No characters available." : "No " + role + "s owned yet — buy some in the Shop!"}</div>`;
     return;
   }
+  // Selection drives the detail panel; default to the equipped char, else first.
+  let sel = storeSel[which];
+  if (!sel || !list.some(c => c.id === sel)) sel = (list.find(c => c.id === equippedFor(role)) || list[0]).id;
+  storeSel[which] = sel;
   const equipped = equippedFor(role);
   for (const c of sortByCostThenName(list)) {
-    const owned = isUnlocked(c.id), isEq = c.id === equipped;
+    const owned = isUnlocked(c.id), isSel = c.id === sel, isEq = c.id === equipped;
     const cell = document.createElement("div");
-    cell.className = "store-cell" + (isEq ? " equipped" : "") + (owned ? "" : " locked");
+    cell.className = "store-cell" + (isSel ? " equipped" : "") + (isShop && !owned ? " locked" : "");
     const cv = document.createElement("canvas"); cv.width = 96; cv.height = 96;
-    _previews.push({ cv, charId: c.id, animate: isEq });   // equipped one plays its walk
+    _previews.push({ cv, charId: c.id, skinId: equippedSkinFor(c.id), animate: isEq });   // equipped one walks
     cell.appendChild(cv);
     const nm = document.createElement("div"); nm.className = "cname"; nm.textContent = c.name; cell.appendChild(nm);
-    if (isShop) {
-      const tag = document.createElement("div");
-      if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; }
-      else { tag.className = "cprice"; tag.textContent = "🪙 " + priceOf(c.id); }
-      cell.appendChild(tag);
-      cell.onclick = () => {
-        if (isUnlocked(c.id)) return;
-        const price = priceOf(c.id);
-        if (!window.confirm(`Buy ${c.name} for ${price} coins?\nYou have ${Account.coins}.`)) return;
-        if (!tryBuy(c.id)) { alert(`Not enough coins — you have ${Account.coins}, ${c.name} costs ${price}.`); return; }
-        showCoinToast(`Unlocked ${c.name}!  (−${price})`);
-        updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins;
-        renderStore("shop");
-      };
-    } else {
-      if (isEq) { const eq = document.createElement("div"); eq.className = "equipped-tag"; eq.textContent = "EQUIPPED"; cell.appendChild(eq); }
-      cell.onclick = () => { equipChar(role, c.id); renderStore("inv"); };
-    }
+    if (isShop && !owned) { const t = document.createElement("div"); t.className = "cprice"; t.textContent = "🪙 " + priceOf(c.id); cell.appendChild(t); }
+    else if (isEq) { const t = document.createElement("div"); t.className = "equipped-tag"; t.textContent = "EQUIPPED"; cell.appendChild(t); }
+    cell.onclick = () => { storeSel[which] = c.id; renderStore(which); };
     grid.appendChild(cell);
+  }
+  renderCharDetail(which, isShop, role, sel, detail);
+}
+
+// The side detail panel: big walking preview, powers, and skin picker for a char.
+function renderCharDetail(which, isShop, role, charId, detail) {
+  if (!detail) return;
+  const c = charListFor(role).find(x => x.id === charId); if (!c) return;
+  const owned = isUnlocked(charId), isEq = equippedFor(role) === charId;
+  const skinEq = equippedSkinFor(charId);
+  detail.innerHTML = "";
+  const pv = document.createElement("canvas"); pv.className = "detail-prev"; pv.width = 220; pv.height = 200;
+  detail.appendChild(pv);
+  _previews.push({ cv: pv, charId, skinId: skinEq, animate: true });   // always walking
+  const nm = document.createElement("div"); nm.className = "detail-name"; nm.textContent = c.name; detail.appendChild(nm);
+  const sub = document.createElement("div"); sub.className = "detail-sub"; sub.textContent = role === "killer" ? "Killer" : "Survivor"; detail.appendChild(sub);
+  // Buy (shop) / Equip (inventory) / status.
+  if (isShop && !owned) {
+    const b = document.createElement("button"); b.className = "detail-act"; b.textContent = "Buy — 🪙 " + priceOf(charId);
+    b.onclick = () => {
+      if (!window.confirm(`Buy ${c.name} for ${priceOf(charId)} coins?\nYou have ${Account.coins}.`)) return;
+      if (!tryBuy(charId)) { alert(`Not enough coins — you have ${Account.coins}, ${c.name} costs ${priceOf(charId)}.`); return; }
+      showCoinToast(`Unlocked ${c.name}!  (−${priceOf(charId)})`); updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins; renderStore("shop");
+    };
+    detail.appendChild(b);
+  } else if (isShop) { const d = document.createElement("div"); d.className = "detail-owned"; d.textContent = "Owned ✓"; detail.appendChild(d); }
+  else if (isEq) { const d = document.createElement("div"); d.className = "detail-owned"; d.textContent = "Equipped ✓"; detail.appendChild(d); }
+  else { const b = document.createElement("button"); b.className = "detail-act"; b.textContent = "Equip"; b.onclick = () => { equipChar(role, charId); renderStore("inv"); }; detail.appendChild(b); }
+  // Powers — the killer's Attack (if any) then each ability, with its sprite icon.
+  const abs = ((G.abilities && G.abilities[charId]) || []).slice();
+  const rows = [];
+  if (role === "killer") rows.push({ id: "attack", name: (c.attackName || "Attack") });
+  for (const ab of abs) rows.push({ id: ab.id, name: ab.name });
+  if (rows.length) {
+    const h = document.createElement("div"); h.className = "detail-h"; h.textContent = "Powers"; detail.appendChild(h);
+    const wrap = document.createElement("div"); wrap.className = "detail-powers"; detail.appendChild(wrap);
+    for (const r of rows) {
+      const row = document.createElement("div"); row.className = "power-row";
+      const ic = document.createElement("canvas"); ic.width = 36; ic.height = 36;
+      _previews.push({ cv: ic, charId, skinId: skinEq, frame: "action_" + r.id });
+      row.appendChild(ic);
+      const t = document.createElement("span"); t.textContent = r.name; row.appendChild(t);
+      wrap.appendChild(row);
+    }
+  }
+  // Skins — Default + each skin for this char; click to wear (buying first if needed).
+  const mySkins = SKINS.filter(s => s.base === charId);
+  const h2 = document.createElement("div"); h2.className = "detail-h"; h2.textContent = "Skins"; detail.appendChild(h2);
+  const chips = document.createElement("div"); chips.className = "skin-chips"; detail.appendChild(chips);
+  const def = document.createElement("div"); def.className = "skin-chip" + (!skinEq ? " on" : "");
+  def.innerHTML = `<span>Default</span>${!skinEq ? '<span class="sc-eq">WEARING</span>' : ""}`;
+  def.onclick = () => { equipSkin(charId, null); renderStore(which); };
+  chips.appendChild(def);
+  if (!mySkins.length) { const n = document.createElement("div"); n.className = "sc-own"; n.style.padding = "2px 2px"; n.textContent = "No skins yet."; chips.appendChild(n); }
+  for (const sk of mySkins) {
+    const skOwned = isSkinOwned(sk.id), skEq = Account.equippedSkins[charId] === sk.id;
+    const chip = document.createElement("div"); chip.className = "skin-chip" + (skEq ? " on" : "");
+    const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">Owned</span>' : `<span class="sc-price">🪙 ${sk.price}</span>`);
+    chip.innerHTML = `<span>${escapeHTML(sk.name)}</span>${right}`;
+    chip.onclick = () => {
+      if (!skOwned) {
+        if (!window.confirm(`Buy skin ${sk.name} for ${sk.price} coins?\nYou have ${Account.coins}.`)) return;
+        if (!tryBuySkin(sk.id)) { alert(`Not enough coins — ${sk.name} costs ${sk.price}.`); return; }
+        showCoinToast(`Unlocked ${sk.name}!  (−${sk.price})`); updateCoinDisplay(); if (isShop) $("shop-coins").textContent = "🪙 " + Account.coins;
+      }
+      equipSkin(charId, sk.id);   // wear it — the preview shows them moving with the skin
+      renderStore(which);
+    };
+    chips.appendChild(chip);
   }
 }
 
@@ -3177,15 +3266,20 @@ function drawPetPreview(cv, petId, now) {
 function drawPreviews(now) {
   for (const p of _previews) {
     if (p.petId) { drawPetPreview(p.cv, p.petId, now); continue; }
-    if (p.skinId) { drawSkinPreview(p.cv, p.skinId, now); continue; }
-    const sh = sprites[p.charId]; if (!sh) continue;
+    let sh = sprites[p.charId]; if (!sh) continue;
+    // Apply an equipped skin's frames over the base char.
+    if (p.skinId && SKIN_SPRITES[p.skinId] && SKIN_SPRITES[p.skinId][p.charId]) sh = Object.assign({}, sh, SKIN_SPRITES[p.skinId][p.charId]);
     const x = p.cv.getContext("2d");
     x.clearRect(0, 0, p.cv.width, p.cv.height);
-    let frame = p.animate ? ((Math.floor(now / 200) % 2 ? sh.walkB : sh.walkA) || sh.idle) : sh.idle;
+    let frame;
+    if (p.frame) frame = sh[p.frame] || sh.idle;                                        // a specific pose (ability icon)
+    else if (p.animate) frame = (Math.floor(now / 200) % 2 ? sh.walkB : sh.walkA) || sh.idle;   // walk cycle
+    else frame = sh.idle;
     if (!frame) continue;
     x.imageSmoothingEnabled = !!frame._custom;   // crisp for native art, pixelated for procedural
-    const sc = Math.min(p.cv.width / frame.width, (p.cv.height - 8) / frame.height) * 0.92;
-    const w = frame.width * sc, h = frame.height * sc;
+    const fw = frame._dw || frame.width, fh = frame._dh || frame.height;
+    const sc = Math.min(p.cv.width / fw, (p.cv.height - 8) / fh) * 0.92;
+    const w = fw * sc, h = fh * sc;
     x.drawImage(frame, (p.cv.width - w) / 2, p.cv.height - h - 4, w, h);
   }
 }
