@@ -323,9 +323,9 @@ function renderPet() {
   $("main").innerHTML =
     `<div class="maintitle"><span class="dot" style="background:#59d0ff"></span>
        <h2>${escHtml(p.name || "Pet")}</h2><span class="role">pet</span></div>
-     <div class="hint">Pets follow the player with a slight delay (like a pet-sim pet). They're auto-sized to
-       <b>${PET_W}×${PET_H}</b> in game (bigger art is scaled down). Name it, give it a look, pick a
-       walk or float follow-style and a price, then <b>Export pets</b> and send me <b>forsnaken-pets.json</b>.</div>
+     <div class="hint">Pets follow the player with a slight delay (like a pet-sim pet). They're auto-sized down
+       to a small companion (bigger art is scaled to fit — upload it big and crisp). Name it, give it a
+       look, pick a walk or float follow-style and a price, then <b>Export pets</b> and send me <b>forsnaken-pets.json</b>.</div>
      <div class="petfield"><label>Name</label>
        <input class="petinput" id="petName" value="${escAttr(p.name)}" placeholder="Pet name" maxlength="24"></div>
      <div class="petrow">
@@ -442,20 +442,23 @@ function startPetPrev() {
     const petMoving = Math.abs(petVX) > 0.12;
 
     // Pet is drawn first (behind); player in front when they overlap.
-    shadow(petTrail.x, 13, 4);
+    shadow(petTrail.x, 12, 3.5);
     drawWalker(ctx, groundY, petTrail.x, petTrail.facing, petMoving, t, WFMS, K, () => {
       const im = p.image ? getImg(p.image.dataURL) : null;
       if (im && im.naturalWidth) {
-        const sc = Math.min((PET_W * K) / im.naturalWidth, (PET_H * K) / im.naturalHeight);
+        // Small companion size, and NEVER upscale (cap at native) so a tiny
+        // source like Blorb stays crisp instead of blurring.
+        const PBW = 46, PBH = 37;
+        const sc = Math.min(1, PBW / im.naturalWidth, PBH / im.naturalHeight);
         const w = im.naturalWidth * sc, h = im.naturalHeight * sc;
         ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
         ctx.drawImage(im, -w / 2, -h, w, h);
-      } else { ctx.fillStyle = "#59d0ff"; ctx.beginPath(); ctx.ellipse(0, -PET_H * K * 0.5, PET_W * K * 0.5, PET_H * K * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
+      } else { ctx.fillStyle = "#59d0ff"; ctx.beginPath(); ctx.ellipse(0, -18, 20, 16, 0, 0, Math.PI * 2); ctx.fill(); }
     }, p.behavior === "float");
 
-    shadow(playerX, 16, 4.5);
+    shadow(playerX, 17, 4.5);
     drawWalker(ctx, groundY, playerX, pFacing, true, t, WFMS, K, () => {
-      const H = SPRITE_UNIT() * K;
+      const H = SPRITE_UNIT() * 2.0;   // draw the player big so the pet reads as small next to it
       let img = null;
       if (ref.cs) { const fr = Math.floor((t * 1000) / WFMS) % 2; const it = ref.cs[fr ? "walk-2" : "walk-1"] || ref.cs.idle; img = it && getImg(it.dataURL); }
       if (img && img.naturalWidth) {
