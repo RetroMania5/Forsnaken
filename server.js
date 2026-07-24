@@ -531,6 +531,7 @@ function onJoin(id, ws, msg) {
     survivorChar: "scout",
     killerChar: "slasher",
     pet: null,               // equipped pet id (cosmetic companion)
+    kills: 0,                // survivors downed this round (gates Sly's transform)
     color: SURVIVOR_CHARS.find(c => c.id === "scout").color,
     x: MAP.w / 2, y: MAP.h - 200,
     facing: { x: 1, y: 0 },
@@ -768,6 +769,10 @@ function applyDamage(target, amount, attacker) {
     }
     target.alive = false;
     state.roundTimer += TIME_PER_DOWN;
+    // Credit the kill (a killer downing a survivor) — Sly needs one to transform.
+    if (attacker && attacker.role === "killer" && target.role === "survivor" && attacker !== target) {
+      attacker.kills = (attacker.kills || 0) + 1;
+    }
     broadcast({ type: "down", id: target.id, by: attacker.id, timer: state.roundTimer });
     checkRoundEnd();
   }
@@ -813,6 +818,8 @@ function onAbility(id, msg) {
     // One robot per Engineer at a time.
     if (state.robots.some(r => r.ownerId === p.id)) return;
   }
+  // Sly can only shapeshift once he's downed a survivor this round.
+  if (ab.type === "transform" && (p.kills || 0) < 1) return;
   // Generic per-round use-limit (e.g. Fencer's Soda).
   if (ab.maxUses) {
     if (!p.abilityUses) p.abilityUses = {};
@@ -1365,6 +1372,7 @@ function startRound() {
   killer.abilityUses = {};
   killer.form = "human";        // Sly starts human each round; reset for everyone
   killer.formUntil = 0;
+  killer.kills = 0;             // must down a survivor before Sly can transform
   killer.effects = freshEffects();
 
   survIds.forEach((sid, idx) => {
@@ -1823,6 +1831,7 @@ function tick() {
           sm: now < (p.effects.slowUntil || 0) ? +(p.effects.slowMult || 1).toFixed(2) : 1,
           sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
           fm: p.form === "dino" ? 1 : 0,
+          kl: p.role === "killer" ? (p.kills || 0) : 0,
           du: now < (p.effects.duckUntil || 0) ? 1 : 0,
           ml: p.role === "survivor" && p.survivorChar === "angel" ? Math.round(p.malice || 0) : 0,
           wg: p.respawned ? 1 : 0,

@@ -1138,27 +1138,32 @@ function pollKeyShots() {
   const me = G.players.get(G.myId);
   const isKiller = me && me.role === "killer";
   const B = Settings.bindings;
+  // Only QUEUE actions while actually in a round and alive — otherwise a key
+  // pressed in the lobby (or a held key) would sit queued and auto-fire the
+  // instant the round starts. We still track key edges every frame so a key
+  // already held when the round begins doesn't count as a fresh press.
+  const armed = G.phase === "playing" && me && me.alive;
   const interactDown = !!keys[B.interact];
-  if (interactDown && !prevSlot.interact && G.context === "interact") G.skillQueued = true;
+  if (armed && interactDown && !prevSlot.interact && G.context === "interact") G.skillQueued = true;
   prevSlot.interact = interactDown;
   // slot1: killer attack OR survivor's ability 1
   const s1 = !!keys[B.slot1];
-  if (s1 && !prevSlot.slot1) {
+  if (armed && s1 && !prevSlot.slot1) {
     if (isKiller) G.attackQueued = true;
     else G.abilityQueued[0] = true;
   }
   prevSlot.slot1 = s1;
   // slot2: killer ability 1 OR survivor's ability 2
   const s2 = !!keys[B.slot2];
-  if (s2 && !prevSlot.slot2) G.abilityQueued[isKiller ? 0 : 1] = true;
+  if (armed && s2 && !prevSlot.slot2) G.abilityQueued[isKiller ? 0 : 1] = true;
   prevSlot.slot2 = s2;
   // slot3: killer ability 2 OR survivor's ability 3
   const s3 = !!keys[B.slot3];
-  if (s3 && !prevSlot.slot3) G.abilityQueued[isKiller ? 1 : 2] = true;
+  if (armed && s3 && !prevSlot.slot3) G.abilityQueued[isKiller ? 1 : 2] = true;
   prevSlot.slot3 = s3;
   // slot4: killer ability 3 (unused for survivors)
   const s4 = !!keys[B.slot4];
-  if (s4 && !prevSlot.slot4 && isKiller) G.abilityQueued[2] = true;
+  if (armed && s4 && !prevSlot.slot4 && isKiller) G.abilityQueued[2] = true;
   prevSlot.slot4 = s4;
 }
 
@@ -2389,6 +2394,8 @@ function onMessage(msg) {
     case "start":
       reapplyCustomArt();               // keep custom sprites (esp. the dino) every round
       mergeRoster(msg.players);
+      // Clear any queued input so nothing auto-fires on the first frame.
+      G.abilityQueued = [false, false, false]; G.attackQueued = false; G.skillQueued = false;
       G.gens = msg.gens.map(g => ({ ...g }));
       G.timer = msg.timer;
       G.winner = null;
@@ -2461,6 +2468,7 @@ function onMessage(msg) {
           p.sneaking = !!s.sn;
           p.shielded = !!s.sh;
           p.form = s.fm ? "dino" : "human";
+          if (typeof s.kl === "number") p.kills = s.kl;   // for Sly's transform gate
           p.ducking = !!s.du;
           p.malice = typeof s.ml === "number" ? s.ml : 0;
           p.respawned = !!s.wg;
@@ -2680,6 +2688,7 @@ function onMessage(msg) {
         v.channelUntil = performance.now() + (msg.duration || 0) * 1000;
         v.channelDuration = (msg.duration || 0) * 1000;
         v.channelType = msg.abilityType;
+        v.channelAbId = msg.abilityId;   // exact ability so stations hold their own costume
       }
       break;
     }
@@ -4241,7 +4250,7 @@ function clickPortal(portalId) {
   G.cooldowns[slot] = now + ab.cd * 1000;
   me.channelUntil = now + (ab.channelDuration || 0) * 1000;
   me.channelDuration = (ab.channelDuration || 0) * 1000;
-  me.channelType = ab.type;
+  me.channelType = ab.type; me.channelAbId = ab.id;
   G.portalMenu = "closed";
   renderPortalBar();
   // Predict the teleport locally at channel-end so our outgoing pos
@@ -4868,6 +4877,12 @@ function tryFireAbility(slot, me) {
   if (!ab) return;
   const now = performance.now();
 
+  // Sly can only shapeshift after he's downed a survivor this round.
+  if (ab.type === "transform" && (me.kills || 0) < 1) {
+    showCoinToast("Down a survivor first to transform!");
+    return;
+  }
+
   // Sniper: shoot is a two-step aim-then-fire; cooldown only spent on fire.
   if (ab.type === "shoot_sniper") {
     if ((G.ammo | 0) <= 0) return;
@@ -4916,7 +4931,7 @@ function tryFireAbility(slot, me) {
     G.cooldowns[slot] = now + ab.cd * 1000;
     me.channelUntil = now + (ab.channelDuration || 0) * 1000;
     me.channelDuration = (ab.channelDuration || 0) * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
     G.portalMenu = "closed";
     if (G.testMode) applyLocalAbility(me, ab);
     else sendMsg({ type: "ability", slot });
@@ -4997,19 +5012,19 @@ function tryFireAbility(slot, me) {
   } else if (ab.type === "spawn_robot" && ab.channelDuration) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
   } else if (ab.type === "transform" && ab.channelDuration) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
   } else if (ab.type === "spawn_pad" && ab.channelDuration) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
   } else if (ab.type === "build_station" && ab.channelDuration) {
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
   } else if (ab.type === "duck") {
     me._localSneakUntil = now + ab.duration * 1000;
     me._localDuckUntil  = now + ab.duration * 1000;
@@ -5027,7 +5042,7 @@ function tryFireAbility(slot, me) {
     // Local prediction: show summoning channel immediately on the caster.
     me.channelUntil = now + ab.channelDuration * 1000;
     me.channelDuration = ab.channelDuration * 1000;
-    me.channelType = ab.type;
+    me.channelType = ab.type; me.channelAbId = ab.id;
   } else if (ab.type === "teleport" && !G.testMode) {
     // Teleport locally on press. Without this, pos messages sent in
     // the round-trip window overwrite the server-side teleport.
@@ -6650,7 +6665,7 @@ function drawPlayer(p) {
   // Hold the ability costume for the WHOLE channel (robot/snow field/build
   // portal/teleport) or dash, not just the 320ms action window.
   let holdAb = null;
-  if (now < (p.channelUntil || 0)) holdAb = CHANNEL_AB[p.channelType] || null;
+  if (now < (p.channelUntil || 0)) holdAb = p.channelAbId || CHANNEL_AB[p.channelType] || null;
   else if (now < (a.holdUntil || 0)) holdAb = a.holdAb || null;
   // Custom per-ability action sprite (Settings toggle). If a baked
   // "action_<abId>" canvas exists for this character + ability, use it
@@ -7370,6 +7385,14 @@ function updateAbilitySlots(me) {
       mDots.innerHTML = dots;
       sFill.style.height = "0";
       mFill.style.height = "0";
+    } else if (ab.type === "transform" && (me.kills || 0) < 1) {
+      // Sly must down a survivor first — show the slot locked.
+      slot.classList.add("disabled"); mob.classList.add("disabled");
+      slot.classList.remove("aim-active"); mob.classList.remove("aim-active");
+      slot.querySelector(".name").textContent = "Transform 🔒";
+      mob.querySelector("span").textContent = "🔒";
+      sDots.classList.add("hidden"); mDots.classList.add("hidden");
+      sFill.style.height = "0"; mFill.style.height = "0";
     } else {
       slot.classList.remove("disabled", "aim-active");
       mob.classList.remove("disabled", "aim-active");
