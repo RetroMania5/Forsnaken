@@ -823,6 +823,7 @@
     <div class="store-tabs">
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
+      <button class="store-tab" data-role="pet">🐾 Pets</button>
     </div>
     <div class="store-grid" id="shop-grid"></div>
   </div>
@@ -833,6 +834,7 @@
     <div class="store-tabs">
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
+      <button class="store-tab" data-role="pet">🐾 Pets</button>
     </div>
     <div class="store-grid" id="inv-grid"></div>
   </div>
@@ -846,6 +848,7 @@
 </div>
 
 <script src="custom-art.js"></script>
+<script src="pets-data.js"></script>
 <script>
 "use strict";
 
@@ -2355,6 +2358,7 @@ function onMessage(msg) {
       G.roundDuration = msg.roundDuration;
       G.timer = msg.roundDuration;
       buildCharGrids();
+      if (G.myPet) sendMsg({ type: "set_pet", pet: G.myPet });   // tell others our equipped pet
       break;
     case "lobby": {
       const wasOver = G.phase === "over";
@@ -2697,6 +2701,7 @@ function mergeRoster(list) {
     p.isHost = sp.isHost; p.alive = sp.alive;
     p.survivorChar = sp.survivorChar;
     p.killerChar = sp.killerChar;
+    p.pet = sp.pet || null;
     if (sp.id !== G.myId) {
       if (!remoteLerp.has(sp.id)) remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
     } else if (isNew || G.phase !== "playing") {
@@ -2974,6 +2979,7 @@ function renderStore(which) {
   const grid = $(isShop ? "shop-grid" : "inv-grid");
   _previews.length = 0;
   grid.innerHTML = "";
+  if (role === "pet") return renderPetStore(which, isShop, grid);
   let list = charListFor(role);
   if (!isShop) list = list.filter(c => isUnlocked(c.id));   // inventory = owned only
   if (!list.length) {
@@ -3011,8 +3017,66 @@ function renderStore(which) {
   }
 }
 
+// Pets store tab: buy in the shop, equip in the inventory (+ a "None" to unequip).
+function renderPetStore(which, isShop, grid) {
+  let list = PETS.slice();
+  if (!isShop) list = list.filter(p => isPetOwned(p.id));
+  list.sort((a, b) => (a.price - b.price) || a.name.localeCompare(b.name));
+  const addCell = (canvasDraw, name, tagEl, cls, onclick) => {
+    const cell = document.createElement("div");
+    cell.className = "store-cell" + cls;
+    const cv = document.createElement("canvas"); cv.width = 96; cv.height = 96;
+    canvasDraw(cv);
+    cell.appendChild(cv);
+    const nm = document.createElement("div"); nm.className = "cname"; nm.textContent = name; cell.appendChild(nm);
+    if (tagEl) cell.appendChild(tagEl);
+    if (onclick) cell.onclick = onclick;
+    grid.appendChild(cell);
+  };
+  if (!isShop) {
+    // "None" — unequip.
+    const isEq = !Account.equippedPet;
+    const tag = isEq ? Object.assign(document.createElement("div"), { className: "equipped-tag", textContent: "EQUIPPED" }) : null;
+    addCell(cv => { const x = cv.getContext("2d"); x.clearRect(0, 0, 96, 96); x.fillStyle = "#8892b0"; x.font = "38px system-ui"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("🚫", 48, 42); },
+      "None", tag, isEq ? " equipped" : "", () => { equipPet(null); renderStore("inv"); });
+  }
+  if (!list.length) {
+    const d = document.createElement("div"); d.className = "store-empty";
+    d.textContent = isShop ? "No pets available." : "No pets owned yet — buy some in the Shop!";
+    grid.appendChild(d); return;
+  }
+  for (const pet of list) {
+    const owned = isPetOwned(pet.id), isEq = pet.id === Account.equippedPet;
+    let tag = null;
+    if (isShop) { tag = document.createElement("div"); if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; } else { tag.className = "cprice"; tag.textContent = "🪙 " + pet.price; } }
+    else if (isEq) { tag = document.createElement("div"); tag.className = "equipped-tag"; tag.textContent = "EQUIPPED"; }
+    const cls = (isEq ? " equipped" : "") + (isShop && !owned ? " locked" : "");
+    addCell(cv => _previews.push({ cv, petId: pet.id, animate: true }), pet.name, tag, cls,
+      isShop
+        ? () => {
+            if (isPetOwned(pet.id)) return;
+            if (!window.confirm(`Buy ${pet.name} for ${pet.price} coins?\nYou have ${Account.coins}.`)) return;
+            if (!tryBuyPet(pet.id)) { alert(`Not enough coins — you have ${Account.coins}, ${pet.name} costs ${pet.price}.`); return; }
+            showCoinToast(`Unlocked ${pet.name}!  (−${pet.price})`);
+            updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins;
+            renderStore("shop");
+          }
+        : () => { equipPet(isEq ? null : pet.id); renderStore("inv"); });
+  }
+}
+function drawPetPreview(cv, petId, now) {
+  const pet = PET_BY_ID[petId], spr = pet && pet.sprite;
+  const x = cv.getContext("2d"); x.clearRect(0, 0, cv.width, cv.height);
+  if (!spr) return;
+  const box = 74, sc = Math.min(box / spr.width, box / spr.height);
+  const w = spr.width * sc, h = spr.height * sc;
+  const yoff = pet.behavior === "float" ? (-Math.sin(now * 0.005) * 4 - 5) : (-Math.abs(Math.sin(now * 0.02)) * 3);
+  x.imageSmoothingEnabled = true;
+  x.drawImage(spr, (cv.width - w) / 2, cv.height - h - 8 + yoff, w, h);
+}
 function drawPreviews(now) {
   for (const p of _previews) {
+    if (p.petId) { drawPetPreview(p.cv, p.petId, now); continue; }
     const sh = sprites[p.charId]; if (!sh) continue;
     const x = p.cv.getContext("2d");
     x.clearRect(0, 0, p.cv.width, p.cv.height);
@@ -3139,6 +3203,7 @@ function renderHub(now) {
   list.sort((a, b) => a.y - b.y);
   for (const it of list) {
     if (!it.p) {
+      drawPetForOwner(x, "lob:me", now, HUB_SCALE);
       drawHubPlayer(x, G.myChars.survivor, hub.x, hub.y, hub.facing, hub.walking, hub.frame);
     } else {
       const p = it.p;
@@ -3149,6 +3214,7 @@ function renderHub(now) {
       if (Math.hypot(p.x - a.lastX, p.y - a.lastY) > 0.5) { a.movingUntil = now + 170; a.lastX = p.x; a.lastY = p.y; }
       const walking = now < a.movingUntil;
       const wframe = (Math.floor(now / 180) & 1);   // alternate walk-1 / walk-2
+      drawPetForOwner(x, "lob:" + p.id, now, HUB_SCALE);
       drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, walking, wframe);
       x.fillStyle = "#cfe0ff"; x.font = "bold 18px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
       x.fillText(p.name || "Player", p.x, p.y - 76);
@@ -3169,11 +3235,12 @@ function uiLoop(now) {
   if (anyStoreOpen()) drawPreviews(now);
   if (lobbyShown) {
     if (!hub._wasShown) { hub.x = HUB_SPAWN_X; hub.y = HUB_SPAWN_Y; hub.lastT = 0; hub._wasShown = true; }
-    if (!anyLobbyOverlay()) {
-      const dt = hub.lastT ? Math.min(0.05, (now - hub.lastT) / 1000) : 0;
-      updateHub(dt, now);
-    }
+    const dt = hub.lastT ? Math.min(0.05, (now - hub.lastT) / 1000) : 0;
+    if (!anyLobbyOverlay()) updateHub(dt, now);
     hub.lastT = now;   // keep fresh even while paused so dt never jumps on resume
+    // Pets trail their owners in the lobby too.
+    updatePetTrail("lob:me", hub.x, hub.y, hub.facing, dt, G.myPet);
+    for (const pp of (G.lobbyPlayers || [])) if (pp.id !== G.myId) updatePetTrail("lob:" + pp.id, pp.x, pp.y, (pp.fx || 1), dt, pp.pet);
     renderHub(now);
   } else { hub._wasShown = false; }
   requestAnimationFrame(uiLoop);
@@ -3348,6 +3415,8 @@ const Account = {
   loaded: false,
   coins: 0,
   unlocks: [...DEFAULT_UNLOCKS],
+  pets: [],                 // owned pet ids
+  equippedPet: null,        // currently equipped pet id (or null)
 };
 const ACCOUNT_KEY = "fk:account";
 const ACCOUNT_VERSION = 6;
@@ -3390,9 +3459,13 @@ function loadAccount() {
     // Ensure current defaults stay unlocked regardless of migrations.
     const set = new Set([...DEFAULT_UNLOCKS, ...unlocks]);
     Account.unlocks = [...set];
+    Account.pets = Array.isArray(saved.pets) ? saved.pets.filter(x => typeof x === "string") : [];
+    Account.equippedPet = (typeof saved.equippedPet === "string" && Account.pets.includes(saved.equippedPet)) ? saved.equippedPet : null;
   } else {
     Account.coins = 0;
     Account.unlocks = [...DEFAULT_UNLOCKS];
+    Account.pets = [];
+    Account.equippedPet = null;
   }
   Account.loaded = true;
   saveAccount();
@@ -3402,10 +3475,28 @@ function saveAccount() {
     version: ACCOUNT_VERSION,
     coins: Account.coins,
     unlocks: Account.unlocks,
+    pets: Account.pets,
+    equippedPet: Account.equippedPet,
   }));
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
+G.myPet = Account.equippedPet;   // currently equipped pet, sent to the server on join
+
+// ---- Pet economy (uses PET_BY_ID, defined with the pet render module) ----
+function isPetOwned(id) { return Account.pets.includes(id); }
+function petPrice(id) { const p = (typeof PET_BY_ID !== "undefined") && PET_BY_ID[id]; return p ? p.price : 0; }
+function tryBuyPet(id) {
+  if (isPetOwned(id)) return true;
+  const price = petPrice(id);
+  if (Account.coins < price) return false;
+  Account.coins -= price; Account.pets.push(id); saveAccount(); return true;
+}
+function equipPet(id) {
+  if (id && !isPetOwned(id)) return;
+  Account.equippedPet = id || null; G.myPet = Account.equippedPet;
+  saveAccount(); sendMsg({ type: "set_pet", pet: G.myPet });
+}
 
 
 // Export the current save to a downloadable .txt file (JSON inside).
@@ -4586,7 +4677,11 @@ function gameTick(now) {
     }
 
     // Update animation state for every visible player.
-    for (const p of G.players.values()) updatePlayerAnim(p, dt);
+    for (const p of G.players.values()) {
+      updatePlayerAnim(p, dt);
+      const petId = (p.id === G.myId) ? G.myPet : p.pet;   // own pet is instant-local
+      updatePetTrail("g:" + p.id, p.x, p.y, p.fx, dt, petId);
+    }
 
     // Test-mode local sim (no server doing this for us).
     if (G.testMode) {
@@ -5249,9 +5344,10 @@ function render() {
   drawStations();
   drawSlowFields();
 
-  // players (z-sort by y)
+  // players (z-sort by y); each player's pet is drawn just under them
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
-  for (const p of sorted) drawPlayer(p);
+  const _petNow = performance.now();
+  for (const p of sorted) { drawPetForOwner(ctx, "g:" + p.id, _petNow, 1); drawPlayer(p); }
 
   // Generator skill-check sparks (miss feedback)
   drawGenSparks();
@@ -7426,6 +7522,57 @@ function applyCustomArt() {
   }
 }
 applyCustomArt();
+
+// ---------- Pets (cosmetic companions that follow the player) ----------
+const PET_FIT_W = 26, PET_FIT_H = 22;    // in-game display box — small companion (~half a player)
+const PETS = [];                          // [{id,name,price,behavior,sprite}]
+const PET_BY_ID = {};
+(function bakePets() {
+  for (const pd of (window.FORSNAKEN_PETS || [])) {
+    const pet = { id: pd.id, name: pd.name || "Pet", price: +pd.price || 0,
+      behavior: pd.behavior === "walk" ? "walk" : "float", sprite: null };
+    PETS.push(pet); PET_BY_ID[pet.id] = pet;
+    if (pd.image) { const im = new Image(); im.onload = () => { pet.sprite = bakeFit(im, PET_FIT_W, PET_FIT_H); }; im.src = pd.image; }
+  }
+})();
+// Per-owner trailing position so the pet follows with a slight delay (pet-sim style).
+// key namespaces the context ("g:"+id in game, "lob:"+id / "lob:me" in the lobby).
+G.petTrails = G.petTrails || {};
+function updatePetTrail(key, ownerX, ownerY, ownerFacing, dt, petId) {
+  if (!petId || !PET_BY_ID[petId]) { delete G.petTrails[key]; return; }
+  const face = ownerFacing < 0 ? -1 : 1;
+  const tx = ownerX - face * 15, ty = ownerY + 2;   // sit a little behind the owner
+  let tr = G.petTrails[key];
+  if (!tr) tr = G.petTrails[key] = { x: tx, y: ty, facing: face };
+  const rate = 1 - Math.pow(0.0009, Math.min(0.05, dt || 0.016));
+  const px = tr.x;
+  tr.x += (tx - tr.x) * rate; tr.y += (ty - tr.y) * rate;
+  const vx = tr.x - px;
+  if (Math.abs(vx) > 0.08) tr.facing = vx >= 0 ? 1 : -1;
+  tr.moving = Math.hypot(tx - tr.x, ty - tr.y) > 3;   // still catching up = walking
+  tr.petId = petId;
+}
+function drawPetForOwner(c, key, now, scaleMul) {
+  const tr = G.petTrails[key]; if (!tr || !tr.petId) return;
+  const pet = PET_BY_ID[tr.petId]; const spr = pet && pet.sprite; if (!spr) return;
+  const s = scaleMul || 1;
+  const w = (spr._dw || spr.width) * s, h = (spr._dh || spr.height) * s;
+  let yoff = 0, sway = 0;
+  if (pet.behavior === "float") {
+    yoff = -(5 * s) - Math.sin(now * 0.005) * (3 * s);          // hover
+  } else if (tr.moving) {
+    const ph = now * 0.02;                                       // little walk bob + sway
+    yoff = -Math.abs(Math.sin(ph)) * (2 * s);
+    sway = Math.sin(ph) * 0.09;
+  }
+  c.save();
+  c.translate(tr.x, tr.y + yoff);
+  if (sway) c.rotate(sway);
+  if (tr.facing < 0) c.scale(-1, 1);
+  c.imageSmoothingEnabled = true;
+  c.drawImage(spr, -w / 2, -h, w, h);                            // feet on the trail point
+  c.restore();
+}
 </script>
 </body>
 </html>

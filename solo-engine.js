@@ -461,6 +461,9 @@ const server = http.createServer((req, res) => {
   if (url === "/custom-art.js") {
     return sendFile(res, "custom-art.js", "application/javascript; charset=utf-8");
   }
+  if (url === "/pets-data.js") {
+    return sendFile(res, "pets-data.js", "application/javascript; charset=utf-8");
+  }
   res.writeHead(404); res.end("not found");
 });
 function sendFile(res, name, type, cache) {
@@ -503,9 +506,16 @@ function handle(id, ws, msg) {
     case "ability":   return onAbility(id, msg);
     case "dash_wall_hit": return onDashWallHit(id);
     case "skill":     return onSkill(id, msg);
+    case "set_pet":   return onSetPet(id, msg);
     case "rejoin":    return onRejoinVote(id);
     case "leave":     return removePlayer(id);
   }
+}
+function onSetPet(id, msg) {
+  const p = state.players.get(id);
+  if (!p) return;
+  p.pet = (typeof msg.pet === "string" && msg.pet) ? msg.pet.slice(0, 40) : null;
+  broadcastLobby();
 }
 
 // ---- Post-round rejoin vote: 2/3 of players must vote to return everyone ----
@@ -549,6 +559,7 @@ function onJoin(id, ws, msg) {
     role: "unassigned",
     survivorChar: "scout",
     killerChar: "slasher",
+    pet: null,               // equipped pet id (cosmetic companion)
     color: SURVIVOR_CHARS.find(c => c.id === "scout").color,
     x: MAP.w / 2, y: MAP.h - 200,
     facing: { x: 1, y: 0 },
@@ -1879,7 +1890,7 @@ function tick() {
     // Sync hub positions so lobby players see each other move.
     broadcast({ type: "lobby_state", players: [...state.players.values()].map(p => ({
       id: p.id, x: Math.round(p.x), y: Math.round(p.y), fx: +p.facing.x.toFixed(2),
-      survivorChar: p.survivorChar, name: p.name,
+      survivorChar: p.survivorChar, name: p.name, pet: p.pet || null,
     })) });
   }
 }
@@ -1905,6 +1916,7 @@ function serializePlayers() {
     hp: p.role === "survivor" ? Math.round(p.hp) : null,
     survivorChar: p.survivorChar,
     killerChar: p.killerChar,
+    pet: p.pet || null,
   }));
 }
 
