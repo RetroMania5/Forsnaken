@@ -385,34 +385,87 @@ function setPetImage(file) {
   };
   fr.readAsDataURL(file);
 }
-// Animated preview: fit the art to the pet box, enlarge for visibility, and
-// show the follow-style (float = hover, walk = little hop).
-let petPrevRAF = null;
+// Animated preview: a reference player walks back and forth and the pet follows
+// behind with a slight delay (like a pet-sim pet). The pet is drawn at its true
+// in-game size relative to the player, walking with the game's real bob+sway or
+// floating. Retina-aware backing keeps it crisp (no display upscale blur).
+let petPrevRAF = null, petTrail = null;
+const SPRITE_UNIT = () => (AN && AN.SPRITE_SIZE) || 44;   // game sprite height in units
+// First survivor that has uploaded art, used as the on-screen reference player.
+function refPlayer() {
+  for (const c of DATA.survivors) { const cs = store[c.id]; if (cs && cs.idle) return { color: c.color, cs }; }
+  return { color: "#8fd0ff", cs: null };
+}
+function drawWalker(ctx, groundY, x, facing, moving, t, WFMS, K, drawSprite, floatMode) {
+  let bob = 0, sway = 0;
+  if (floatMode) {
+    bob = -(12 * K) - Math.sin(t * 3) * (4 * K);         // hovering float
+  } else if (moving) {                                    // player-style walk bob + sway
+    const phase = (t * 1000 / WFMS) * Math.PI;
+    const fr = Math.floor((t * 1000) / WFMS) % 2;
+    bob = -Math.abs(Math.sin(phase)) * 1.5 * K;
+    sway = (fr === 0 ? 1 : -1) * Math.sin(phase) * (4 * Math.PI / 180);
+  }
+  ctx.save();
+  ctx.translate(x, groundY + bob);
+  if (sway) ctx.rotate(sway);
+  if (facing < 0) ctx.scale(-1, 1);
+  drawSprite();                                           // caller draws bottom-aligned at (0,0)
+  ctx.restore();
+}
 function startPetPrev() {
-  cancelAnimationFrame(petPrevRAF); petPrevRAF = null;
+  cancelAnimationFrame(petPrevRAF); petPrevRAF = null; petTrail = null;
   const cv = $("petPrev"); if (!cv) return;
+  const CSSW = 250, CSSH = 150;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  cv.width = Math.round(CSSW * dpr); cv.height = Math.round(CSSH * dpr);
+  cv.style.width = CSSW + "px"; cv.style.height = CSSH + "px";
   const ctx = cv.getContext("2d");
+  const WFMS = (AN && AN.WALK_FRAME_MS) || 180;
+  const K = 1.5, groundY = CSSH * 0.74;
+  const ref = refPlayer();
+  const shadow = (x, rx, ry) => { ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.beginPath(); ctx.ellipse(x, groundY + 4, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); };
   const draw = ts => {
-    const p = curPet(); const c2 = $("petPrev");
-    if (!p || !c2) { petPrevRAF = null; return; }
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    const cx = cv.width / 2, ground = cv.height * 0.74, t = ts / 1000;
-    let yoff = 0, shSc = 1;
-    if (p.behavior === "float") { yoff = -20 - Math.sin(t * 2.2) * 7; shSc = 0.8; }
-    else { const hop = Math.abs(Math.sin(t * 3.0)); yoff = -hop * 11; shSc = 1 - hop * 0.25; }
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath(); ctx.ellipse(cx, ground + 6, 24 * shSc, 6 * shSc, 0, 0, Math.PI * 2); ctx.fill();
-    const im = p.image ? getImg(p.image.dataURL) : null;
-    if (im) {
-      const sc = Math.min(PET_W / im.naturalWidth, PET_H / im.naturalHeight); // fit the pet box
-      const PREV = 3.4;                                                        // enlarge so it's easy to see
-      const w = im.naturalWidth * sc * PREV, h = im.naturalHeight * sc * PREV;
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(im, cx - w / 2, ground - h + yoff, w, h);
-    } else {
-      ctx.fillStyle = "#59d0ff44";
-      ctx.beginPath(); ctx.ellipse(cx, ground - 20 + yoff, 26, 20, 0, 0, Math.PI * 2); ctx.fill();
-    }
+    const p = curPet(); if (!p || !$("petPrev")) { petPrevRAF = null; return; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, CSSW, CSSH);
+    const t = ts / 1000, RANGE = 58, SPEED = 0.85;
+    const playerX = CSSW / 2 + Math.sin(t * SPEED) * RANGE;
+    const pFacing = Math.cos(t * SPEED) >= 0 ? 1 : -1;
+    // Pet trails behind the player with lag (the pet-sim delay).
+    if (!petTrail) petTrail = { x: playerX - 46, facing: pFacing };
+    const targetX = playerX - pFacing * 46;
+    const prevX = petTrail.x;
+    petTrail.x += (targetX - petTrail.x) * 0.06;
+    const petVX = petTrail.x - prevX;
+    if (Math.abs(petVX) > 0.05) petTrail.facing = petVX >= 0 ? 1 : -1;
+    const petMoving = Math.abs(petVX) > 0.12;
+
+    // Pet is drawn first (behind); player in front when they overlap.
+    shadow(petTrail.x, 13, 4);
+    drawWalker(ctx, groundY, petTrail.x, petTrail.facing, petMoving, t, WFMS, K, () => {
+      const im = p.image ? getImg(p.image.dataURL) : null;
+      if (im && im.naturalWidth) {
+        const sc = Math.min((PET_W * K) / im.naturalWidth, (PET_H * K) / im.naturalHeight);
+        const w = im.naturalWidth * sc, h = im.naturalHeight * sc;
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(im, -w / 2, -h, w, h);
+      } else { ctx.fillStyle = "#59d0ff"; ctx.beginPath(); ctx.ellipse(0, -PET_H * K * 0.5, PET_W * K * 0.5, PET_H * K * 0.5, 0, 0, Math.PI * 2); ctx.fill(); }
+    }, p.behavior === "float");
+
+    shadow(playerX, 16, 4.5);
+    drawWalker(ctx, groundY, playerX, pFacing, true, t, WFMS, K, () => {
+      const H = SPRITE_UNIT() * K;
+      let img = null;
+      if (ref.cs) { const fr = Math.floor((t * 1000) / WFMS) % 2; const it = ref.cs[fr ? "walk-2" : "walk-1"] || ref.cs.idle; img = it && getImg(it.dataURL); }
+      if (img && img.naturalWidth) {
+        const sc = H / img.naturalHeight, w = img.naturalWidth * sc, h = img.naturalHeight * sc;
+        ctx.imageSmoothingEnabled = true; ctx.drawImage(img, -w / 2, -h, w, h);
+      } else {                                            // simple placeholder player
+        ctx.fillStyle = ref.color; ctx.fillRect(-H * 0.22, -H * 0.72, H * 0.44, H * 0.72);
+        ctx.fillStyle = "#f0d0b0"; ctx.beginPath(); ctx.arc(0, -H * 0.8, H * 0.2, 0, Math.PI * 2); ctx.fill();
+      }
+    }, false);
     petPrevRAF = requestAnimationFrame(draw);
   };
   petPrevRAF = requestAnimationFrame(draw);
