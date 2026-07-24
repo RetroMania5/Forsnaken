@@ -36,8 +36,8 @@
   .charbtn .nm { flex:1; font-weight:600; font-size:14px; }
   .charbtn .cnt { font-size:11px; color:var(--dim); }
   .charbtn .cnt.full { color:var(--good); }
-  .charbtn.skinbtn { margin-left:18px; padding:6px 10px; width:calc(100% - 18px); }
-  .charbtn.skinbtn .nm { font-weight:500; font-size:13px; }
+  .charbtn.skinbtn, .charbtn.itembtn { margin-left:18px; padding:6px 10px; width:calc(100% - 18px); }
+  .charbtn.skinbtn .nm, .charbtn.itembtn .nm { font-weight:500; font-size:13px; }
   .newskinbtn { display:block; width:calc(100% - 18px); margin:0 0 6px 18px; text-align:left; color:var(--accent);
     background:transparent; border:1px dashed var(--line); border-radius:7px; padding:5px 10px; font-size:12px; font-weight:600; cursor:pointer; }
   .newskinbtn:hover { border-color:var(--accent); background:var(--panel2); }
@@ -154,23 +154,26 @@ const DATA = {"survivors":[{"id":"runner","name":"Runner","role":"survivor","col
 
 const ALL = [...DATA.survivors, ...DATA.killers];
 
-// In-game items (ability-spawned objects + the generator). Each has its own slots.
+// In-game items. `owner` is the character that produces the item (so the item
+// nests under that character in the sidebar). The generator has no owner.
 const ITEMS = [
-  { id: "gen",         name: "Generator",       role: "item", color: "#c9b24a",
+  { id: "gen",         name: "Generator",       role: "item", color: "#c9b24a", owner: null,
     slots: [{ id: "working", label: "Working", tag: "item" }, { id: "done", label: "Completed", tag: "item" }] },
-  { id: "knife",       name: "Throw Knife",     role: "item", color: "#c0c4cc", slots: [{ id: "sprite", label: "Knife", tag: "item" }] },
-  { id: "bullet",      name: "Sniper Bullet",   role: "item", color: "#a070f0", slots: [{ id: "sprite", label: "Bullet", tag: "item" }] },
-  { id: "robot",       name: "Robot",           role: "item", color: "#ffd84a", slots: [{ id: "sprite", label: "Robot", tag: "item" }] },
-  { id: "burger",      name: "Burger",          role: "item", color: "#ff9050", slots: [{ id: "sprite", label: "Burger", tag: "item" }] },
-  { id: "spawnpad",    name: "Spawn Pad",       role: "item", color: "#3a1860", slots: [{ id: "sprite", label: "Pad", tag: "item" }] },
-  { id: "healstation", name: "Heal Station",    role: "item", color: "#4a8c40", slots: [{ id: "sprite", label: "Station", tag: "item" }] },
-  { id: "defstation",  name: "Defence Station", role: "item", color: "#5a9cd0", slots: [{ id: "sprite", label: "Station", tag: "item" }] },
-  { id: "clover",      name: "Clover",          role: "item", color: "#6cc04a", slots: [{ id: "sprite", label: "Clover", tag: "item" }] },
-  { id: "portal",      name: "Portal",          role: "item", color: "#9070ff", slots: [{ id: "sprite", label: "Portal", tag: "item" }] },
-  { id: "trap",        name: "Trap",            role: "item", color: "#c05050", slots: [{ id: "sprite", label: "Trap", tag: "item" }] },
-  { id: "fireball",    name: "Fireball",        role: "item", color: "#ff6a2a", slots: [{ id: "sprite", label: "Fireball", tag: "item" }] },
-  { id: "standee",     name: "Standee",         role: "item", color: "#ff9a3c", slots: [{ id: "sprite", label: "Standee", tag: "item" }] },
+  { id: "knife",       name: "Throw Knife",     role: "item", color: "#c0c4cc", owner: "slasher", slots: [{ id: "sprite", label: "Knife", tag: "item" }] },
+  { id: "bullet",      name: "Sniper Bullet",   role: "item", color: "#a070f0", owner: "sniper",  slots: [{ id: "sprite", label: "Bullet", tag: "item" }] },
+  { id: "robot",       name: "Robot",           role: "item", color: "#ffd84a", owner: "engineer", slots: [{ id: "sprite", label: "Robot", tag: "item" }] },
+  { id: "burger",      name: "Burger",          role: "item", color: "#ff9050", owner: "kacey",   slots: [{ id: "sprite", label: "Burger", tag: "item" }] },
+  { id: "spawnpad",    name: "Spawn Pad",       role: "item", color: "#3a1860", owner: "angel",   slots: [{ id: "sprite", label: "Pad", tag: "item" }] },
+  { id: "healstation", name: "Heal Station",    role: "item", color: "#4a8c40", owner: "pollen",  slots: [{ id: "sprite", label: "Station", tag: "item" }] },
+  { id: "defstation",  name: "Defence Station", role: "item", color: "#5a9cd0", owner: "pollen",  slots: [{ id: "sprite", label: "Station", tag: "item" }] },
+  { id: "clover",      name: "Clover",          role: "item", color: "#6cc04a", owner: "pollen",  slots: [{ id: "sprite", label: "Clover", tag: "item" }] },
+  { id: "portal",      name: "Portal",          role: "item", color: "#9070ff", owner: "lunar",   slots: [{ id: "sprite", label: "Portal", tag: "item" }] },
+  { id: "trap",        name: "Trap",            role: "item", color: "#c05050", owner: "sly",     slots: [{ id: "sprite", label: "Trap", tag: "item" }] },
+  { id: "fireball",    name: "Fireball",        role: "item", color: "#ff6a2a", owner: "sly",     slots: [{ id: "sprite", label: "Fireball", tag: "item" }] },
+  { id: "standee",     name: "Standee",         role: "item", color: "#ff9a3c", owner: "whamo",   slots: [{ id: "sprite", label: "Standee", tag: "item" }] },
 ];
+const ITEMS_BY_OWNER = {};
+for (const it of ITEMS) { (ITEMS_BY_OWNER[it.owner || "_none"] ||= []).push(it); }
 
 const ENTITIES = [...ALL, ...ITEMS];
 const byId = Object.fromEntries(ENTITIES.map(c => [c.id, c]));
@@ -276,10 +279,20 @@ function renderSidebar() {
       <span class="cnt">${(+s.price || 0)}🪙</span>
     </button>`;
   };
-  const withSkins = c => charBtn(c) + skins.filter(s => s.base === c.id).map(skinBtn).join("")
+  const itemBtn = it => {
+    const f = filledCount(it.id), t = slotsFor(it).length;
+    return `<button class="charbtn itembtn ${it.id === selected ? "sel" : ""}" data-char="${it.id}">
+      <span class="dot" style="background:${it.color};opacity:.6"></span>
+      <span class="nm">${it.name}</span>
+      <span class="cnt ${f === t ? "full" : ""}">${f}/${t}</span>
+    </button>`;
+  };
+  const charBlock = c => charBtn(c)
+    + (ITEMS_BY_OWNER[c.id] || []).map(itemBtn).join("")           // items this character makes
+    + skins.filter(s => s.base === c.id).map(skinBtn).join("")     // skins for this character
     + `<button class="newskinbtn" data-newskin="${c.id}">＋ Skin</button>`;
-  const group = (title, list, skinnable) => `<div class="grouphead">${title}</div>` +
-    list.map(skinnable ? withSkins : charBtn).join("");
+  const group = (title, list, isChars) => `<div class="grouphead">${title}</div>` +
+    list.map(isChars ? charBlock : itemBtn).join("");
   const petGroup = `<div class="grouphead">Pets</div>` + pets.map(p =>
     `<button class="charbtn ${("pet:" + p.id) === selected ? "sel" : ""}" data-char="pet:${p.id}">
       <span class="dot" style="background:#59d0ff"></span>
@@ -288,7 +301,7 @@ function renderSidebar() {
     </button>`).join("") +
     `<button class="newpetbtn" id="newPetBtn">＋ New pet</button>`;
   $("sidebar").innerHTML = group("Survivors", DATA.survivors, true) + group("Killers", DATA.killers, true)
-    + group("Items", ITEMS, false) + petGroup;
+    + group("Objects", ITEMS_BY_OWNER["_none"] || [], false) + petGroup;
   $("sidebar").querySelectorAll(".charbtn").forEach(b =>
     b.onclick = () => { selected = b.dataset.char; renderSidebar(); renderMain(); });
   $("sidebar").querySelectorAll("[data-newskin]").forEach(b =>
@@ -297,9 +310,20 @@ function renderSidebar() {
   $("prog").innerHTML = `<b>${totalFilled()}</b> / ${TOTAL} slots`;
 }
 
+// The item-costume slots a skin can fill: one per slot of each item its base
+// character produces, keyed "item:<itemId>:<slotId>".
+function skinItemSlots(baseId) {
+  const out = [];
+  for (const it of (ITEMS_BY_OWNER[baseId] || [])) {
+    for (const sl of it.slots) {
+      out.push({ id: `item:${it.id}:${sl.id}`, label: it.name + (it.slots.length > 1 ? " · " + sl.label : ""), tag: "item" });
+    }
+  }
+  return out;
+}
 // Build the pose/slot cards for an entity (character, item, or skin).
-function slotCardsHTML(c) {
-  const slots = slotsFor(c), cs = store[c.id] || {};
+function slotCardsHTML(c, slotsList) {
+  const slots = slotsList || slotsFor(c), cs = store[c.id] || {};
   return slots.map(s => {
     const it = cs[s.id];
     const isAbility = s.tag === "ability";
@@ -367,6 +391,8 @@ function renderSkin() {
   if (!s) { selected = ALL[0].id; return renderMain(); }
   const c = byId[s.id], base = byId[s.base], baseName = base ? base.name : s.base;
   const cards = slotCardsHTML(c);
+  const itemSlots = skinItemSlots(s.base);
+  const itemCards = itemSlots.length ? slotCardsHTML(c, itemSlots) : "";
   const musicCards = MUSIC_SLOTS.map(ms => {
     const m = (s.music || {})[ms.id];
     const body = m
@@ -389,6 +415,8 @@ function renderSkin() {
      <div class="hint">Re-skins <b>${escHtml(baseName)}</b> — fill the same poses (a blank slot falls back to
        ${escHtml(baseName)}'s look). Buyable in the Shop at your price.</div>
      <div class="grid">${cards}</div>
+     ${itemCards ? `<div class="grouphead" style="margin:22px 6px 8px;">Item costumes (optional — blank = normal)</div>
+     <div class="grid">${itemCards}</div>` : ""}
      <div class="grouphead" style="margin:22px 6px 8px;">Custom chase music (optional — blank = normal)</div>
      <div class="grid">${musicCards}</div>`;
   wireSlotDrops();
@@ -670,7 +698,7 @@ function downloadJSON(obj, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 function serializeSkin(s) {
-  const c = byId[s.id], slots = slotsFor(c), cs = store[s.id] || {};
+  const c = byId[s.id], slots = slotsFor(c).concat(skinItemSlots(s.base)), cs = store[s.id] || {};
   const entries = slots.filter(sl => cs[sl.id]).map(sl => {
     const v = cs[sl.id];
     return v.noCostume

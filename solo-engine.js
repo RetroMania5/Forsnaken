@@ -1937,7 +1937,7 @@ function tick() {
         projectiles: state.projectiles.map(pr => ({
           id: pr.id, x: Math.round(pr.x), y: Math.round(pr.y),
           vx: +pr.vx.toFixed(1), vy: +pr.vy.toFixed(1),
-          k: pr.kind || null,
+          k: pr.kind || null, o: pr.ownerId,
         })),
         smokes: state.smokes.map(sm => ({
           id: sm.id, x: sm.x, y: sm.y, radius: sm.radius, ttl: +sm.ttl.toFixed(2),
@@ -1945,15 +1945,15 @@ function tick() {
         slowFields: state.slowFields.map(f => ({
           id: f.id, x: f.x, y: f.y, radius: f.radius, ttl: +f.ttl.toFixed(2),
         })),
-        portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y })),
+        portals: state.portals.map(pt => ({ id: pt.id, x: pt.x, y: pt.y, o: pt.ownerId })),
         portalsActive: state._portalsActiveSnapshot || [],
         burgers: state.burgers.map(b => ({
           id: b.id,
           x: Math.round(b.x), y: Math.round(b.y),
-          vx: +b.vx.toFixed(1), vy: +b.vy.toFixed(1),
+          vx: +b.vx.toFixed(1), vy: +b.vy.toFixed(1), o: b.ownerId,
         })),
-        robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y) })),
-        traps:  state.traps.map(t  => ({ id: t.id, x: Math.round(t.x), y: Math.round(t.y) })),
+        robots: state.robots.map(r => ({ id: r.id, x: Math.round(r.x), y: Math.round(r.y), o: r.ownerId })),
+        traps:  state.traps.map(t  => ({ id: t.id, x: Math.round(t.x), y: Math.round(t.y), o: t.ownerId })),
         spawnPads: state.spawnPads.map(sp => ({ id: sp.id, x: sp.x, y: sp.y, ownerId: sp.ownerId })),
         clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
         stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),

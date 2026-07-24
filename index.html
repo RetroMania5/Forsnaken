@@ -5748,7 +5748,7 @@ function drawProjectiles() {
     ctx.rotate(ang);
     const kind = pr.k || pr.kind;
     const artId = kind === "sniper" ? "bullet" : kind === "fire" ? "fireball" : kind === "knife" ? "knife" : null;
-    if (artId && drawItemArt(artId, "sprite", 0, 0)) { ctx.restore(); continue; }
+    if (artId && drawItemArt(artId, "sprite", 0, 0, pr.o)) { ctx.restore(); continue; }
     if (kind === "sniper") {
       // Bright bullet with a streak tail.
       ctx.fillStyle = "rgba(255,220,140,0.7)";
@@ -5885,9 +5885,9 @@ function drawConveyors() {
 
 function drawStandees() {
   const now = performance.now();
-  const art = ITEM_ART["standee"] && ITEM_ART["standee"]["sprite"];
   for (const st of (G.standees || [])) {
     const sx = Math.round(st.x), sy = Math.round(st.y);
+    const art = itemArtCanvas("standee", "sprite", st.ownerId);   // owner's skin can re-skin it
     if (art) {
       // Custom art stands on the ground (bottom-aligned), not centered.
       const w = art._dw || art.width, h = art._dh || art.height;
@@ -5926,7 +5926,7 @@ function drawTraps() {
   const now = performance.now();
   for (const tr of (G.traps || [])) {
     const sx = Math.round(tr.x), sy = Math.round(tr.y);
-    if (drawItemArt("trap", "sprite", sx, sy)) continue;
+    if (drawItemArt("trap", "sprite", sx, sy, tr.o)) continue;
     // Ground shadow — chunky pixel rect, no soft falloff.
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(sx - 10, sy + 7, 20, 2);
@@ -5977,7 +5977,7 @@ function drawSpawnPads() {
   const now = performance.now();
   for (const sp of (G.spawnPads || [])) {
     const x = Math.round(sp.x), y = Math.round(sp.y);
-    if (drawItemArt("spawnpad", "sprite", x, y)) continue;
+    if (drawItemArt("spawnpad", "sprite", x, y, sp.ownerId)) continue;
     // Dark base plate
     ctx.fillStyle = "#1a0a2a";
     ctx.fillRect(x - 14, y - 4, 28, 10);
@@ -6023,7 +6023,7 @@ function drawClovers() {
     const x = cv.x | 0, y = cv.y | 0;
     if (ITEM_ART["clover"]) {
       ctx.save(); ctx.globalAlpha = alpha;
-      const drew = drawItemArt("clover", "sprite", x, y);
+      const drew = drawItemArt("clover", "sprite", x, y, cv.o);
       ctx.restore();
       if (drew) continue;
     }
@@ -6062,7 +6062,7 @@ function drawStations() {
     ctx.beginPath(); ctx.arc(x, y, st.radius || 140, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     const stArt = st.kind === "heal" ? "healstation" : "defstation";
-    if (drawItemArt(stArt, "sprite", x, y)) continue;
+    if (drawItemArt(stArt, "sprite", x, y, st.ownerId)) continue;
     if (st.kind === "heal") {
       // Stone fountain base
       ctx.fillStyle = "#5a5a64"; ctx.fillRect(x - 12, y + 2, 24, 6);
@@ -6119,7 +6119,7 @@ function drawRobots() {
   const now = performance.now();
   for (const r of (G.robots || [])) {
     const sx = Math.round(r.x), sy = Math.round(r.y);
-    if (drawItemArt("robot", "sprite", sx, sy)) continue;
+    if (drawItemArt("robot", "sprite", sx, sy, r.o)) continue;
     // Shadow
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(sx - 7, sy + 10, 14, 2);
@@ -6177,7 +6177,7 @@ function drawBurgers() {
   const now = performance.now();
   for (const b of (G.burgers || [])) {
     const sx = Math.round(b.x), sy = Math.round(b.y);
-    if (drawItemArt("burger", "sprite", sx, sy)) continue;
+    if (drawItemArt("burger", "sprite", sx, sy, b.o)) continue;
     const vx = b.vx || 0, vy = b.vy || 0;
     const speed = Math.hypot(vx, vy);
     // Motion trail while flying — small pixel-block ghosts behind the burger.
@@ -6262,7 +6262,7 @@ function drawMeowPulses() {
 function drawPortals() {
   const now = performance.now();
   for (const p of (G.portals || [])) {
-    if (drawItemArt("portal", "sprite", p.x, p.y)) continue;
+    if (drawItemArt("portal", "sprite", p.x, p.y, p.o)) continue;
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(now * 0.003);
@@ -7682,6 +7682,11 @@ const CHANNEL_AB = { spawn_robot: "robot", slow_field: "field", build_portal: "b
   teleport_portal: "teleport_portal", transform: "transform", spawn_pad: "spawner" };
 // World-entity (item) art, baked to display size and drawn by the entity draws.
 const ITEM_ART = {};   // ITEM_ART[itemId][slot] = canvas
+// In-game display box (px) each world item is fit to. Shared by the base item
+// art and per-skin item costumes.
+const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90],
+  knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42],
+  standee: [34, 46] };
 // Cache of baked custom character sprites, re-applied each round so they never
 // revert to the procedural design.
 const CUSTOM_SPRITES = {};   // CUSTOM_SPRITES[sheet][frame] = canvas
@@ -7719,9 +7724,18 @@ function bakeNative(img, dw, dh) {
   c._custom = true; c._dw = dw; c._dh = dh;
   return c;
 }
+// Resolve an item's baked art — an owner's equipped skin can re-skin its items.
+function itemArtCanvas(id, slot, ownerId) {
+  if (ownerId != null) {
+    const owner = G.players.get(ownerId), sk = owner && owner.skin;
+    const c = sk && SKIN_ITEM_ART[sk] && SKIN_ITEM_ART[sk][id] && SKIN_ITEM_ART[sk][id][slot];
+    if (c) return c;
+  }
+  return (ITEM_ART[id] && ITEM_ART[id][slot]) || null;
+}
 // Draw an item's baked art centered at (x,y). Returns false if none loaded yet.
-function drawItemArt(id, slot, x, y) {
-  const c = ITEM_ART[id] && ITEM_ART[id][slot];
+function drawItemArt(id, slot, x, y, ownerId) {
+  const c = itemArtCanvas(id, slot, ownerId);
   if (!c) return false;
   const w = c._dw || c.width, h = c._dh || c.height;
   ctx.imageSmoothingEnabled = true;   // downscale native art crisply
@@ -7802,9 +7816,6 @@ function applyCustomArt() {
   if (anyAction) Settings.customAnims = true;
 
   // Item (world-entity) art — bake each to roughly its in-game display size.
-  const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90],
-    knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42],
-    standee: [34, 46] };
   for (const id of Object.keys(ITEM_BOX)) {
     if (!data[id]) continue;
     const [bw, bh] = ITEM_BOX[id];
@@ -7871,7 +7882,7 @@ function drawPetForOwner(c, key, now, scaleMul) {
 }
 
 // ---------- Skins (alternate costumes for a character; buyable) ----------
-const SKINS = [], SKIN_BY_ID = {}, SKIN_SPRITES = {}, SKIN_MUSIC = {};
+const SKINS = [], SKIN_BY_ID = {}, SKIN_SPRITES = {}, SKIN_MUSIC = {}, SKIN_ITEM_ART = {};   // SKIN_ITEM_ART[skinId][itemId][slot]
 (function loadSkins() {
   for (const sd of (window.FORSNAKEN_SKINS || [])) {
     const skin = { id: sd.id, base: sd.base, name: sd.name || "Skin", price: +sd.price || 0,
@@ -7896,17 +7907,30 @@ function bakeSkins() {
   for (const skin of SKINS) {
     const base = skin.base, art = skin.art || {}, slots = Object.keys(art);
     if (slots.some(s => s === "attack" || s.startsWith("ability-"))) anyAction = true;
+    // Item-costume entries ("item:<itemId>:<slot>") bake into SKIN_ITEM_ART.
+    for (const key of slots) {
+      if (!key.startsWith("item:")) continue;
+      const parts = key.split(":"), itemId = parts[1], itemSlot = parts.slice(2).join(":");
+      const box = ITEM_BOX[itemId]; if (!box) continue;
+      const im = new Image();
+      im.onload = () => {
+        const byItem = SKIN_ITEM_ART[skin.id] || (SKIN_ITEM_ART[skin.id] = {});
+        (byItem[itemId] || (byItem[itemId] = {}))[itemSlot] = bakeFit(im, box[0], box[1]);
+      };
+      im.src = art[key];
+    }
+    const poseSlots = slots.filter(s => !s.startsWith("item:"));
     (async () => {
       const imgs = {};
-      await Promise.all(slots.map(async s => { imgs[s] = await loadImg(art[s]); }));
+      await Promise.all(poseSlots.map(async s => { imgs[s] = await loadImg(art[s]); }));
       const sheets = SKIN_SPRITES[skin.id] || (SKIN_SPRITES[skin.id] = {});
       const refFor = (sheet) => {
         const idleImg = imgs[sheet === "sly_dino" ? "dino-idle" : "idle"];
         if (idleImg) return idleImg.naturalHeight;
-        for (const s of slots) { const t = skinTarget(base, s); if (t && t.sheet === sheet && imgs[s]) return imgs[s].naturalHeight; }
+        for (const s of poseSlots) { const t = skinTarget(base, s); if (t && t.sheet === sheet && imgs[s]) return imgs[s].naturalHeight; }
         return null;
       };
-      for (const s of slots) {
+      for (const s of poseSlots) {
         const t = skinTarget(base, s); if (!t || !imgs[s]) continue;
         let ref = refFor(t.sheet); if (!ref) continue;
         if (s === "ability-transform") ref = imgs[s].naturalHeight;
