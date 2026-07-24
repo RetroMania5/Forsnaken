@@ -7563,11 +7563,13 @@ const PET_BY_ID = {};
 G.petTrails = G.petTrails || {};
 function updatePetTrail(key, ownerX, ownerY, ownerFacing, dt, petId) {
   if (!petId || !PET_BY_ID[petId]) { delete G.petTrails[key]; return; }
-  const face = ownerFacing < 0 ? -1 : 1;
-  const tx = ownerX - face * 15, ty = ownerY + 2;   // sit a little behind the owner
+  // Head straight for wherever the owner IS — no positional offset. The trail
+  // comes purely from a slow catch-up speed, so the pet lags behind by time
+  // while you move and settles onto you when you stop.
+  const tx = ownerX, ty = ownerY;
   let tr = G.petTrails[key];
-  if (!tr) tr = G.petTrails[key] = { x: tx, y: ty, facing: face };
-  const rate = 1 - Math.pow(0.0009, Math.min(0.05, dt || 0.016));
+  if (!tr) tr = G.petTrails[key] = { x: tx, y: ty, facing: ownerFacing < 0 ? -1 : 1 };
+  const rate = 1 - Math.pow(0.10, Math.min(0.05, dt || 0.016));   // slower = more trailing delay
   const px = tr.x;
   tr.x += (tx - tr.x) * rate; tr.y += (ty - tr.y) * rate;
   const vx = tr.x - px;
