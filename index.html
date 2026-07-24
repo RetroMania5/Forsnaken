@@ -938,6 +938,7 @@ const G = {
   players: new Map(),
   gens: [],
   projectiles: [],
+  genSparks: [],
   smokes: [],
   slowFields: [],
   fieldBreaks: [],
@@ -2139,11 +2140,6 @@ function drawCharFrame(sx, v, frame) {
     // Snout under-shadow
     sx.fillStyle = "#3a4a20";
     sx.fillRect(cx + 6, 14, 5, 1);
-    // Teeth along the snout's underside
-    sx.fillStyle = "#ffffff";
-    sx.fillRect(cx + 6,  14, 1, 1);
-    sx.fillRect(cx + 8,  14, 1, 1);
-    sx.fillRect(cx + 10, 14, 1, 1);
     // Slitted yellow reptile eye
     sx.fillStyle = "#1a1208";
     sx.fillRect(cx - 1, 10, 4, 3);
@@ -4080,9 +4076,29 @@ function attemptSkill() {
   } else {
     sendMsg({ type: "skill", gen: idx, result });
   }
-  const colors = { green: "#66e08a", yellow: "#ffd84a", red: "#e94560" };
-  G.flash = { color: colors[result], until: now + 350 };
-  if (result !== "red" && me._anim) me._anim.actionUntil = now + ACTION_HOLD_MS;
+  // Feedback on the generator itself (no character fixing animation):
+  // green/yellow -> the gen glows; a miss (red) -> sparks fly out.
+  const gg = G.gens[idx];
+  if (result === "red") spawnGenSparks(gg.x, gg.y);
+  else { gg._glowUntil = now + 350; gg._glowColor = result === "green" ? "102,224,138" : "255,216,74"; }
+}
+function spawnGenSparks(x, y) {
+  const now = performance.now();
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 140;
+    G.genSparks.push({ x, y: y - 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, born: now, life: 300 + Math.random() * 250 });
+  }
+}
+function drawGenSparks() {
+  const now = performance.now();
+  G.genSparks = G.genSparks.filter(s => now - s.born < s.life);
+  for (const s of G.genSparks) {
+    const t = (now - s.born) / 1000;
+    const px = s.x + s.vx * t, py = s.y + s.vy * t + 220 * t * t;   // gravity
+    const fade = 1 - (now - s.born) / s.life;
+    ctx.fillStyle = `rgba(255,${(170 + 70 * fade) | 0},70,${fade.toFixed(2)})`;
+    ctx.fillRect(Math.round(px) - 1, Math.round(py) - 1, 2, 2);
+  }
 }
 
 // ---------- Game tick ----------
@@ -4869,6 +4885,16 @@ function render() {
       ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2;
       ctx.strokeRect(g.x - 30, g.y - 30, 60, 60);
     }
+    // Skill-check feedback: brief glow on a green/yellow hit.
+    const gnow = performance.now();
+    if (g._glowUntil && gnow < g._glowUntil) {
+      const gf = (g._glowUntil - gnow) / 350;
+      const grad = ctx.createRadialGradient(g.x, g.y, 6, g.x, g.y, 48);
+      grad.addColorStop(0, `rgba(${g._glowColor},${(0.6 * gf).toFixed(2)})`);
+      grad.addColorStop(1, `rgba(${g._glowColor},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(g.x, g.y, 48, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillRect(g.x - 36, g.y - 50, 72, 8);
     ctx.fillStyle = g.done ? "#9adcff" : "#66e08a";
@@ -4893,6 +4919,8 @@ function render() {
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
   for (const p of sorted) drawPlayer(p);
 
+  // Generator skill-check sparks (miss feedback)
+  drawGenSparks();
   // Projectiles (over players for visibility)
   drawProjectiles();
   // Teleport ghosts (fade-out trail)
@@ -5227,22 +5255,6 @@ function drawTraps() {
     ctx.fillStyle = "#1a1c20";
     ctx.fillRect(sx - 4, sy - 6, 8, 12);
     ctx.fillRect(sx - 6, sy - 4, 12, 8);
-    // Iron teeth around the rim — sharp 2x2 white pixels
-    ctx.fillStyle = "#d0d4dc";
-    ctx.fillRect(sx - 1, sy - 12, 2, 2);   // top
-    ctx.fillRect(sx - 1, sy + 10, 2, 2);   // bottom
-    ctx.fillRect(sx - 12, sy - 1, 2, 2);   // left
-    ctx.fillRect(sx + 10, sy - 1, 2, 2);   // right
-    ctx.fillRect(sx - 9, sy - 8, 2, 2);    // diagonals
-    ctx.fillRect(sx + 7, sy - 8, 2, 2);
-    ctx.fillRect(sx - 9, sy + 6, 2, 2);
-    ctx.fillRect(sx + 7, sy + 6, 2, 2);
-    // Tooth shadows for chunk
-    ctx.fillStyle = "#7a8088";
-    ctx.fillRect(sx - 1, sy - 10, 2, 1);
-    ctx.fillRect(sx - 1, sy + 9,  2, 1);
-    ctx.fillRect(sx - 10, sy - 1, 1, 2);
-    ctx.fillRect(sx + 9,  sy - 1, 1, 2);
     // Pressure plate in the center (lighter)
     ctx.fillStyle = "#a0a8b4";
     ctx.fillRect(sx - 3, sy - 3, 6, 6);
