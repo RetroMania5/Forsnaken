@@ -713,9 +713,9 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#4a8c40"></span><b>Pollen</b><span class="gd-muted">trail of clovers + healing / defence fountains</span></div>
-      <div class="gd-ab"><b>Passive — Clover Trail</b>: a short trail of clovers drops behind you as you walk. Each clover lasts about <b>2.5s</b> and fades quickly. Any <b>other survivor</b> standing on the trail heals <b>0.5 HP/sec</b> (you can't heal off your own trail).</div>
+      <div class="gd-ab"><b>Passive — Clover Trail</b>: a short trail of clovers drops behind you as you walk. Each clover lasts about <b>2.5s</b> and fades quickly. Any <b>other survivor</b> standing on the trail heals <b>0.9 HP/sec</b> (you can't heal off your own trail).</div>
       <div class="gd-ab"><b>Z — Breathe</b>: take a quick breath of fresh air — heal yourself <b>10 HP</b>. CD 20s.</div>
-      <div class="gd-ab"><b>X — Heal Station</b>: <b>5s rooted channel</b>, blood lifts from your body as you raise your arms to the sky. Costs <b>15 HP</b> up front. When the channel finishes, a fountain drops at your feet and <b>heals every survivor in range 2 HP/sec</b>. It stays up <b>forever</b> until the killer melee-strikes it. Only one Heal Station at a time. CD 30s.</div>
+      <div class="gd-ab"><b>X — Heal Station</b>: <b>5s rooted channel</b>, blood lifts from your body as you raise your arms to the sky. Costs <b>15 HP</b> up front. When the channel finishes, a fountain drops at your feet and <b>heals every survivor in range 4 HP/sec</b>. It stays up <b>forever</b> until the killer melee-strikes it. Only one Heal Station at a time. CD 30s.</div>
       <div class="gd-ab"><b>C — Defence Station</b>: same 5s rooted channel + 15 HP cost as Heal Station, but instead it gives every survivor in range an <b>8s shield</b> (refreshed while they stay inside the radius). Killer melee strike breaks it. One Defence Station at a time. CD 30s.</div>
     </div>
     <div class="gd-card">
@@ -4594,8 +4594,10 @@ function gameTick(now) {
       else if (me.speedBuff) speed *= 1.5;
       // Slow effect (Sentinel abilities target killers).
       if (me.slowMult && me.slowMult < 1) speed *= me.slowMult;
-      // Engineer Shield slows the holder while it's up.
-      if (me.shielded || (me.id === G.myId && now < (me._localShieldUntil || 0))) speed *= 0.6;
+      // Engineer's OWN Shield slows the holder while it's up. Pollen's
+      // defence-station shield only protects — it does NOT slow you, so we key
+      // the slow off the self-cast prediction rather than the shared shield flag.
+      if (me.id === G.myId && now < (me._localShieldUntil || 0)) speed *= 0.6;
       // Angel Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
       if (me.ducking || (me.id === G.myId && now < (me._localDuckUntil || 0))) speed *= 0.6;
       const _dashIntDx = v.x * speed * dt;

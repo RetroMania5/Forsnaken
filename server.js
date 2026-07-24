@@ -289,7 +289,7 @@ const ABILITIES = {
     // that heals nearby survivors 2 HP/sec until a killer melee breaks it.
     { id: "heal_station", name: "Heal Station", cd: 30, type: "build_station",
       stationKind: "heal", channelDuration: 5.0, hpCost: 15, radius: 140,
-      healPerSec: 2 },
+      healPerSec: 4 },
     // Defence Station: 5s channel + 15 HP cost like Heal Station, but
     // refreshes a short shield on any survivor inside the radius.
     { id: "defence_station", name: "Defence Station", cd: 30, type: "build_station",
@@ -1673,7 +1673,7 @@ function tick() {
     const CLOVER_SPACING = 32;
     const CLOVER_TTL = 2.5;     // short trail — fades quickly
     const CLOVER_R = 16;
-    const CLOVER_HEAL_PER_SEC = 0.5;
+    const CLOVER_HEAL_PER_SEC = 0.9;   // 1.8x the old 0.5/s
     const CLOVER_MAX_PER_OWNER = 40;
     for (const p of state.players.values()) {
       if (p.survivorChar !== "pollen" || p.role !== "survivor" || !p.alive) continue;
