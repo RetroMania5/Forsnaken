@@ -7324,7 +7324,15 @@ function applyCustomArt() {
         // Sly's transform pose is drawn small in the source — fit it to the
         // sprite size so it reads as big as the idle.
         if (s === "ability-transform") ref = imgs[s].naturalHeight;
-        const c = bakeAt(imgs[s], SPRITE_SIZE / ref);
+        let scale = SPRITE_SIZE / ref;
+        // Some frames are drawn at a smaller scale than the idle (e.g. Angel's
+        // walk art is ~half the idle's size), which would render tiny. If a
+        // frame would come out drastically shorter than the sprite size (drawn
+        // at a reduced scale, like Angel's half-size walk), normalize it up to
+        // fill the sprite. A gentle 0.65 threshold leaves deliberately shorter
+        // poses (crouches/ducks) and taller poses (arms-up) alone.
+        if (imgs[s].naturalHeight * scale < SPRITE_SIZE * 0.65) scale = SPRITE_SIZE / imgs[s].naturalHeight;
+        const c = bakeAt(imgs[s], scale);
         const sh = sprites[t.sheet] || (sprites[t.sheet] = {});
         const cc = CUSTOM_SPRITES[t.sheet] || (CUSTOM_SPRITES[t.sheet] = {});
         sh[t.frame] = c; cc[t.frame] = c;
