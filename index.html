@@ -204,6 +204,36 @@
   #disconnect-prompt .dc-title { color: #ff9db0; font-weight: 700; font-size: 18px; margin-bottom: 12px; }
   #disconnect-prompt #dc-rejoin { font-size: 18px; padding: 10px 34px; }
 
+  /* ---- Lobby hub + Shop / Inventory ---- */
+  #lobby-hub { display:block; margin:6px auto 0; background:#12161f; border:1px solid #333a52;
+    border-radius:12px; image-rendering:pixelated; touch-action:none; max-width:100%; }
+  .hub-row { display:flex; gap:10px; justify-content:center; margin:10px 0 4px; flex-wrap:wrap; }
+  .store-modal { position:fixed; inset:0; background:rgba(0,0,0,0.78); display:grid; place-items:center; z-index:600; }
+  .store-modal.hidden { display:none; }
+  .store-box { background:#171a24; border:1px solid #333a52; border-radius:14px; width:min(700px,95vw);
+    max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+  .store-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #333a52; }
+  .store-head h2 { margin:0; flex:1; font-size:20px; }
+  .store-head .coins { color:#ffd84a; font-weight:700; }
+  .store-head button { padding:6px 12px; }
+  .store-tabs { display:flex; gap:6px; padding:12px 16px 0; }
+  .store-tab { padding:8px 18px; border-radius:9px 9px 0 0; background:#222736; border:1px solid #333a52;
+    border-bottom:none; cursor:pointer; font-weight:600; color:#c7cbe0; }
+  .store-tab.on { background:#2f3654; color:#fff; }
+  .store-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(122px,1fr)); gap:14px;
+    padding:16px; overflow-y:auto; }
+  .store-cell { background:#20242f; border:1px solid #333a52; border-radius:12px; padding:10px 8px;
+    text-align:center; cursor:pointer; position:relative; }
+  .store-cell:hover { border-color:#556; }
+  .store-cell.equipped { border-color:var(--accent); box-shadow:0 0 0 2px rgba(233,69,96,0.4); }
+  .store-cell.locked { cursor:pointer; }
+  .store-cell canvas { display:block; margin:0 auto 6px; image-rendering:pixelated; }
+  .store-cell .cname { font-weight:700; font-size:13px; }
+  .store-cell .cprice { font-size:12px; color:#ffd84a; margin-top:3px; }
+  .store-cell .soldout { color:#e94560; font-weight:800; font-size:12px; margin-top:3px; letter-spacing:0.6px; }
+  .store-cell .equipped-tag { color:#66e08a; font-weight:700; font-size:11px; margin-top:3px; }
+  .store-empty { grid-column:1/-1; text-align:center; color:#8a90a8; padding:24px; }
+
   /* Touch controls */
   #touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 6; display: none; }
   body.touch #touch-controls { display: block; }
@@ -745,10 +775,16 @@
     <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
     <div id="map-select" class="hidden"></div>
     <div id="player-list"></div>
-    <div class="section">YOUR SURVIVOR</div>
-    <div class="char-grid" id="surv-grid"></div>
-    <div class="section">YOUR KILLER (if chosen)</div>
-    <div class="char-grid k2" id="kill-grid"></div>
+    <canvas id="lobby-hub" width="440" height="240"></canvas>
+    <div class="hub-row">
+      <button id="open-shop-btn">🛒 Shop</button>
+      <button id="open-inv-btn">🎒 Inventory</button>
+    </div>
+    <!-- Old character grids kept but hidden; equipping now happens in the Inventory. -->
+    <div style="display:none">
+      <div class="char-grid" id="surv-grid"></div>
+      <div class="char-grid k2" id="kill-grid"></div>
+    </div>
     <div id="lobby-status" class="status"></div>
     <div class="row">
       <button id="start-btn" disabled>Start Round</button>
@@ -760,6 +796,27 @@
       <button id="save-download-lobby" class="secondary">⬇ Download save</button>
       <button id="save-load-lobby" class="secondary">⬆ Load save</button>
     </div>
+  </div>
+</div>
+
+<div id="shop-modal" class="store-modal hidden">
+  <div class="store-box">
+    <div class="store-head"><h2>🛒 Shop</h2><span class="coins" id="shop-coins">🪙 0</span><button id="shop-close">✕ Close</button></div>
+    <div class="store-tabs">
+      <button class="store-tab on" data-role="survivor">Survivors</button>
+      <button class="store-tab" data-role="killer">Killers</button>
+    </div>
+    <div class="store-grid" id="shop-grid"></div>
+  </div>
+</div>
+<div id="inv-modal" class="store-modal hidden">
+  <div class="store-box">
+    <div class="store-head"><h2>🎒 Inventory</h2><button id="inv-close">✕ Close</button></div>
+    <div class="store-tabs">
+      <button class="store-tab on" data-role="survivor">Survivors</button>
+      <button class="store-tab" data-role="killer">Killers</button>
+    </div>
+    <div class="store-grid" id="inv-grid"></div>
   </div>
 </div>
 
@@ -2864,6 +2921,172 @@ function chooseMap(cb) {
   document.body.appendChild(ov);
 }
 $("map-image-btn").addEventListener("click", () => chooseMap(downloadMapImage));
+
+// ================= Lobby hub + Shop / Inventory =================
+const storeRole = { shop: "survivor", inv: "survivor" };
+const _previews = [];   // {cv, charId, animate} — animated sprite icons in the grids
+const charListFor = (role) => (role === "killer" ? (G.killerChars || []) : (G.survivorChars || []));
+const equippedFor = (role) => (role === "killer" ? G.myChars.killer : G.myChars.survivor);
+
+function equipChar(role, id) {
+  if (!isUnlocked(id)) return;
+  if (role === "killer") { G.myChars.killer = id; sendMsg({ type: "pick_char", killerChar: id }); }
+  else { G.myChars.survivor = id; sendMsg({ type: "pick_char", survivorChar: id }); }
+  if (typeof renderCharSelection === "function") renderCharSelection();
+}
+
+function renderStore(which) {
+  const isShop = which === "shop";
+  const role = storeRole[which];
+  const grid = $(isShop ? "shop-grid" : "inv-grid");
+  _previews.length = 0;
+  grid.innerHTML = "";
+  let list = charListFor(role);
+  if (!isShop) list = list.filter(c => isUnlocked(c.id));   // inventory = owned only
+  if (!list.length) {
+    grid.innerHTML = `<div class="store-empty">${isShop ? "No characters available." : "No " + role + "s owned yet — buy some in the Shop!"}</div>`;
+    return;
+  }
+  const equipped = equippedFor(role);
+  for (const c of sortByCostThenName(list)) {
+    const owned = isUnlocked(c.id), isEq = c.id === equipped;
+    const cell = document.createElement("div");
+    cell.className = "store-cell" + (isEq ? " equipped" : "") + (owned ? "" : " locked");
+    const cv = document.createElement("canvas"); cv.width = 96; cv.height = 96;
+    _previews.push({ cv, charId: c.id, animate: isEq });   // equipped one plays its walk
+    cell.appendChild(cv);
+    const nm = document.createElement("div"); nm.className = "cname"; nm.textContent = c.name; cell.appendChild(nm);
+    if (isShop) {
+      const tag = document.createElement("div");
+      if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; }
+      else { tag.className = "cprice"; tag.textContent = "🪙 " + priceOf(c.id); }
+      cell.appendChild(tag);
+      cell.onclick = () => {
+        if (isUnlocked(c.id)) return;
+        const price = priceOf(c.id);
+        if (!window.confirm(`Buy ${c.name} for ${price} coins?\nYou have ${Account.coins}.`)) return;
+        if (!tryBuy(c.id)) { alert(`Not enough coins — you have ${Account.coins}, ${c.name} costs ${price}.`); return; }
+        showCoinToast(`Unlocked ${c.name}!  (−${price})`);
+        updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins;
+        renderStore("shop");
+      };
+    } else {
+      if (isEq) { const eq = document.createElement("div"); eq.className = "equipped-tag"; eq.textContent = "EQUIPPED"; cell.appendChild(eq); }
+      cell.onclick = () => { equipChar(role, c.id); renderStore("inv"); };
+    }
+    grid.appendChild(cell);
+  }
+}
+
+function drawPreviews(now) {
+  for (const p of _previews) {
+    const sh = sprites[p.charId]; if (!sh) continue;
+    const x = p.cv.getContext("2d");
+    x.clearRect(0, 0, p.cv.width, p.cv.height);
+    x.imageSmoothingEnabled = false;
+    let frame = p.animate ? ((Math.floor(now / 200) % 2 ? sh.walkB : sh.walkA) || sh.idle) : sh.idle;
+    if (!frame) continue;
+    const sc = Math.min(p.cv.width / frame.width, (p.cv.height - 8) / frame.height) * 0.92;
+    const w = frame.width * sc, h = frame.height * sc;
+    x.drawImage(frame, (p.cv.width - w) / 2, p.cv.height - h - 4, w, h);
+  }
+}
+
+function openShop() { $("shop-coins").textContent = "🪙 " + Account.coins; renderStore("shop"); $("shop-modal").classList.remove("hidden"); }
+function openInv() { renderStore("inv"); $("inv-modal").classList.remove("hidden"); }
+const closeShop = () => { $("shop-modal").classList.add("hidden"); _previews.length = 0; };
+const closeInv = () => { $("inv-modal").classList.add("hidden"); _previews.length = 0; };
+if ($("open-shop-btn")) $("open-shop-btn").onclick = openShop;
+if ($("open-inv-btn")) $("open-inv-btn").onclick = openInv;
+$("shop-close").onclick = closeShop;
+$("inv-close").onclick = closeInv;
+$("shop-modal").addEventListener("click", (e) => { if (e.target.id === "shop-modal") closeShop(); });
+$("inv-modal").addEventListener("click", (e) => { if (e.target.id === "inv-modal") closeInv(); });
+document.querySelectorAll("#shop-modal .store-tab").forEach(t => t.onclick = () => {
+  storeRole.shop = t.dataset.role;
+  document.querySelectorAll("#shop-modal .store-tab").forEach(x => x.classList.toggle("on", x === t));
+  renderStore("shop");
+});
+document.querySelectorAll("#inv-modal .store-tab").forEach(t => t.onclick = () => {
+  storeRole.inv = t.dataset.role;
+  document.querySelectorAll("#inv-modal .store-tab").forEach(x => x.classList.toggle("on", x === t));
+  renderStore("inv");
+});
+
+// ---- Walkable hub ----
+const HUB_W = 440, HUB_H = 240, HUB_SPEED = 95;
+const hub = { x: 220, y: 195, facing: 1, walking: false, frame: 0, accum: 0, lastT: 0, _wasShown: false };
+const hubStations = [
+  { id: "shop", x: 120, y: 78, w: 96, h: 56, label: "🛒 SHOP", open: openShop },
+  { id: "inv",  x: 320, y: 78, w: 96, h: 56, label: "🎒 INVENTORY", open: openInv },
+];
+let curStation = null;
+function anyStoreOpen() { return !$("shop-modal").classList.contains("hidden") || !$("inv-modal").classList.contains("hidden"); }
+function updateHub(dt) {
+  let dx = 0, dy = 0;
+  if (keys["w"] || keys["arrowup"]) dy -= 1;
+  if (keys["s"] || keys["arrowdown"]) dy += 1;
+  if (keys["a"] || keys["arrowleft"]) dx -= 1;
+  if (keys["d"] || keys["arrowright"]) dx += 1;
+  const m = Math.hypot(dx, dy);
+  hub.walking = m > 0;
+  if (m > 0) {
+    dx /= m; dy /= m;
+    if (dx < -0.2) hub.facing = -1; else if (dx > 0.2) hub.facing = 1;
+    hub.x = Math.max(16, Math.min(HUB_W - 16, hub.x + dx * HUB_SPEED * dt));
+    hub.y = Math.max(28, Math.min(HUB_H - 16, hub.y + dy * HUB_SPEED * dt));
+    hub.accum += dt * 1000; if (hub.accum >= 180) { hub.accum -= 180; hub.frame ^= 1; }
+  } else hub.accum = 0;
+  let inSt = null;
+  for (const st of hubStations) if (Math.abs(hub.x - st.x) < st.w / 2 && Math.abs(hub.y - st.y) < st.h / 2) inSt = st;
+  if (inSt && inSt !== curStation) inSt.open();
+  curStation = inSt;
+}
+function renderHub(now) {
+  const cv = $("lobby-hub"); if (!cv) return;
+  const x = cv.getContext("2d");
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = "#1a1e2a"; x.fillRect(0, 0, HUB_W, HUB_H);
+  x.strokeStyle = "rgba(255,255,255,0.05)"; x.lineWidth = 1;
+  for (let gx = 0; gx <= HUB_W; gx += 40) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, HUB_H); x.stroke(); }
+  for (let gy = 0; gy <= HUB_H; gy += 40) { x.beginPath(); x.moveTo(0, gy); x.lineTo(HUB_W, gy); x.stroke(); }
+  for (const st of hubStations) {
+    x.fillStyle = "rgba(80,110,160,0.35)"; x.fillRect(st.x - st.w / 2, st.y - st.h / 2, st.w, st.h);
+    x.strokeStyle = "#7aa0d0"; x.lineWidth = 2; x.strokeRect(st.x - st.w / 2, st.y - st.h / 2, st.w, st.h);
+    x.fillStyle = "#fff"; x.font = "bold 12px system-ui"; x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText(st.label, st.x, st.y);
+  }
+  const sh = sprites[G.myChars.survivor];
+  if (sh) {
+    let frame = hub.walking ? (hub.frame ? sh.walkB : sh.walkA) : sh.idle;
+    frame = frame || sh.idle;
+    if (frame) {
+      const scale = 1.5, w = frame.width * scale, h = frame.height * scale;
+      x.save(); x.translate(hub.x, hub.y);
+      if (hub.facing < 0) x.scale(-1, 1);
+      x.drawImage(frame, -w / 2, -h + 6, w, h);
+      x.restore();
+    }
+  }
+  x.fillStyle = "rgba(255,255,255,0.5)"; x.font = "11px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
+  x.fillText("WASD / arrows to walk · step into (or click) a station", HUB_W / 2, HUB_H - 4);
+}
+if ($("lobby-hub")) $("lobby-hub").addEventListener("click", (e) => {
+  const cv = $("lobby-hub"), r = cv.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * (cv.width / r.width), cy = (e.clientY - r.top) * (cv.height / r.height);
+  for (const st of hubStations) if (Math.abs(cx - st.x) < st.w / 2 && Math.abs(cy - st.y) < st.h / 2) st.open();
+});
+function uiLoop(now) {
+  const lobbyShown = lobbyEl && !lobbyEl.classList.contains("hidden");
+  if (anyStoreOpen()) drawPreviews(now);
+  if (lobbyShown) {
+    if (!hub._wasShown) { hub.x = 220; hub.y = 195; hub.lastT = 0; hub._wasShown = true; curStation = null; }
+    if (!anyStoreOpen()) { const dt = hub.lastT ? Math.min(0.05, (now - hub.lastT) / 1000) : 0; updateHub(dt); hub.lastT = now; }
+    renderHub(now);
+  } else { hub._wasShown = false; }
+  requestAnimationFrame(uiLoop);
+}
+requestAnimationFrame(uiLoop);
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("random-killer-toggle").addEventListener("click", () => {
