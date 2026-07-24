@@ -2440,6 +2440,8 @@ function onMessage(msg) {
       updateMySkin();                   // role is known now — sync the right (survivor/killer) skin
       // Clear any queued input so nothing auto-fires on the first frame.
       G.abilityQueued = [false, false, false]; G.attackQueued = false; G.skillQueued = false;
+      G.reachedLMS = false;             // did I make it to last-man-standing this round?
+      G.coins = [];
       G.gens = msg.gens.map(g => ({ ...g }));
       G.timer = msg.timer;
       G.winner = null;
@@ -2559,6 +2561,7 @@ function onMessage(msg) {
       G.clovers   = msg.clovers   || [];
       G.stations  = msg.stations  || [];
       G.standees  = msg.standees  || [];
+      G.coins     = msg.coins     || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
         G.portals = msg.portals || [];
@@ -2673,7 +2676,17 @@ function onMessage(msg) {
     }
     case "lms":
       if (typeof msg.timer === "number") G.timer = msg.timer;
+      { const me = G.players.get(G.myId); if (me && me.alive && me.role === "survivor") G.reachedLMS = true; }
       enterLMSMode();
+      break;
+    case "reward":
+      earnRoundCoins(msg.coins || 0, msg.reason || "");
+      break;
+    case "coin_pickup":
+      G.coins = (G.coins || []).filter(c => c.id !== msg.id);
+      G.coinPickFx = G.coinPickFx || [];
+      G.coinPickFx.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
+      if (msg.by === G.myId) { earnRoundCoins(msg.coins || 5, "Coin!"); playCoinSound(); }
       break;
     case "over":
       G.phase = "over"; G.winner = msg.winner;
@@ -2694,6 +2707,8 @@ function onMessage(msg) {
     case "stun": {
       const v = G.players.get(msg.id);
       if (v) v.stunnedUntil = performance.now() + (msg.duration || 0) * 1000;
+      // I stunned the killer → +2 coins.
+      if (msg.by === G.myId && v && v.role === "killer") earnRoundCoins(2, "Stunned the killer");
       // If I'm the one stunned during a dash, drop the local dash
       // prediction so my speed boost doesn't outlive the stun.
       if (msg.id === G.myId) {
@@ -3599,7 +3614,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { lunar: 150, sly: 150, sniper: 75, engineer: 115, runner: 100, angel: 80, pollen: 225, whamo: 180 };
+const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600 };
 const DEFAULT_PRICE = 100;
 const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
@@ -3890,6 +3905,24 @@ function playSFX(name) {
   a.volume = Math.max(0, Math.min(1, Settings.musicVolume * 1.2));
   const p = a.play();
   if (p && p.catch) p.catch(() => {});
+}
+// Synthesized "ding-ding" coin pickup sound (no audio file needed).
+let _coinCtx = null;
+function playCoinSound() {
+  try {
+    _coinCtx = _coinCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _coinCtx, now = ctx.currentTime;
+    const vol = Math.max(0, Math.min(1, (Settings.musicVolume || 0.5) * 1.2));
+    for (const [freq, t] of [[988, 0], [1319, 0.075]]) {   // B5 → E6
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = "square"; osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, now + t);
+      g.gain.exponentialRampToValueAtTime(vol * 0.22, now + t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.18);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(now + t); osc.stop(now + t + 0.2);
+    }
+  } catch {}
 }
 loadSFX();
 
@@ -4562,14 +4595,25 @@ function awardRoundPayout(winner) {
   if (G.testMode) return;               // No payout in the sandbox.
   const me = G.players.get(G.myId);
   if (!me || (me.role !== "survivor" && me.role !== "killer")) return;
-  const won = (me.role === "survivor" && winner === "survivors")
-           || (me.role === "killer"   && winner === "killer");
-  const amount = PAYOUT[me.role][won ? "win" : "loss"] || 0;
+  let amount = 0;
+  if (me.role === "killer") {
+    amount = (winner === "killer") ? 65 : 20;         // win 65, loss 20
+  } else if (winner === "survivors") {
+    amount = me.alive ? 50 : 25;                       // won: 50 if alive, 25 if downed
+  } else {
+    amount = G.reachedLMS ? 25 : 10;                   // lost: 25 if you were last standing, else 10
+  }
   if (amount <= 0) return;
   Account.coins += amount;
   saveAccount();
   showCoinToast(`+${amount} coins  (you now have ${Account.coins})`);
   updateCoinDisplay();
+}
+// In-round coin rewards (stun / heal / station / coin pickup) with a popup.
+function earnRoundCoins(amount, reason) {
+  if (G.testMode || !(amount > 0)) return;
+  Account.coins += amount; saveAccount(); updateCoinDisplay();
+  showCoinToast(`+${amount} 🪙  ${reason || ""}`.trim());
 }
 
 function renderCharSelection() {
@@ -5649,6 +5693,7 @@ function render() {
   drawPortals();
   drawTraps();
   drawStandees();
+  drawCoins();
   drawSpawnPads();
   drawStations();
   drawSlowFields();
@@ -5977,6 +6022,28 @@ function drawConveyors() {
   }
 }
 
+const COIN_IMG = new Image();
+COIN_IMG.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAE8AAABNCAYAAADn/DmNAAAEuUlEQVR4AdyWiW3cMBBFHTfmvlyA+3JlCZ6Rcbg0jzklbgJ8UCLn+PPERfz6ctO/j4+P3zvdZE3d9nJ4AkzjUGLbVZN3VUw5vHZwnqODUWOkaF1Pfhk8GdBjypMj/Vg9+Z6cdHiYRx4zWTn0F2XVHNVJhYfhUZM79/CEKjykwMMcqjCYVRN/oqyaIXjZZrKG2tXB9y5Gc26GR2ORpsGpMRkzmODR8FQYXl/MhDz5anjeBlpTb29vL0gbnx3nmU8Fz1NYMxywRBIv7+0qZ9UrcyJtny08S7Fd0xYIz7t4OSe2l5xVrMyM/taeLkt4mgLTys2BDN5shR+lpqzhgoMCu/mX8Ab1zFsM9/n5+dLLXGiTQB/RJtR0vAI4hbdK0nSXQYA2ip/tj2Kte9LbmjeLn7EYwpsFz4r3+5hnbwdod06NiPAhitQhd8TkB7xREMk7iUlWYrVgtHHUjEh8RWr0uQ/wPOAwhfrC3ndgeqTph0+kiR3F9Hwe4I0SVnsRI23dFla7b3mmhjY+4rsFGIKnNXtVnBWgF6IA/IYnG9pBd41359o+1jgLQGpHfH7Do5BW2obaOG3fqjh8Imv9L3jWW2dt8j/Gw+wLnmU46xeyxlu8ZMdavZrhZRvOrmcF8K+//ckEz2vMm2cdJ6OPpcYrv12ryRPjLUNn+TfdPG9T658PbR+gaNTmXPVcDi8K7ioQnj5qeHx9T4P/OUcNzwMhcuvoF82nRqXK4J0+eAbUMngZ5qhx8kcogXfywHyQLJXAyzIndU79GE8BTyCetj4NvBNv363wbvnbMfH63govcY5bSqnhVf1sLLevyoOXvBqet8EqzwPDk7PyEDm7FV7E+Am5t8PjJll+uidAEw+v7+/vv+TlWVaAn+C15OZ5bpIn526AJnhVX5y66G4Y1v4meBTXDll9k1Y+OGuF7wqZ4VWYyKi5gsWZtocl9gue9T8NbYMrbh9e0A6OJmZXoz//gsemFSA5z6ZsgN/wrCC0Rqpv38y3Z187k9R2w5MCmvWZAGrmIYZf6gM8NjjQyvKlTgdomUX4PMCTTctqaXoqQMsMsJFL9gOeHBCklaX5nQBHvS3eex4/4PUBFe8MgSpqz2qO+nnAtZdrCK8NmJnp9zGC+v3VOwOhVUzGWd8DnyhaewiPoh6A5GEK8awVw4m0Oas4qSVrG2v11ub2TKbwSOqD2dPKa3I0sLYnceSzjuT1RK0RiyW8WRL7GmEWaWL7GCCI+jPrOx6QNU/iR+A428IjaJbMmUYR45r6q5ho79XsKniYWxXhfKfIENzAXf3ReaQn9XYzq+FpihGzEsOgVczsTAOQGOqLZrU0+ztw1DDBI0FTlLiVvMMBp6v78Erdhw3ni3ZGMzz8aIsTuxLDilZx7dkOYBvrebbM5oKHKUsT4ncSiO3a5sz225jIM/MgSw03PJpYm5FjUTUwvDAD4tmqEDya0Rjx/GyK+g7DE2BRI1LnqjXDbxo8hsYQ4vlkZXlMhSfAssxJvcw101sJPIbFJOL5BOEFZXopgycmsw1LXe1Kf6SNt8SVw8MM5kW8V0t6sVb2ugReOwADidr96LPUZI3W0uZfDq81xqC92vPZc5/D+yy2cv8PAAAA///IDLPsAAAABklEQVQDAClxhdIQQlZLAAAAAElFTkSuQmCC";
+function drawCoins() {
+  const now = performance.now();
+  for (const c of (G.coins || [])) {
+    const bob = Math.sin(now * 0.004 + (c.id || 0)) * 3;
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.beginPath(); ctx.ellipse(c.x, c.y + 13, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+    if (COIN_IMG.complete && COIN_IMG.naturalWidth) {
+      const w = 30, h = 30 * COIN_IMG.naturalHeight / COIN_IMG.naturalWidth;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(COIN_IMG, Math.round(c.x - w / 2), Math.round(c.y - h / 2 + bob), w, h);
+    } else {
+      ctx.fillStyle = "#ffd84a"; ctx.beginPath(); ctx.arc(c.x, c.y + bob, 12, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  G.coinPickFx = (G.coinPickFx || []).filter(f => now < f.until);
+  for (const f of G.coinPickFx) {
+    const t = (f.until - now) / 500;
+    ctx.fillStyle = `rgba(255,216,74,${t.toFixed(2)})`;
+    for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2, r = (1 - t) * 22; ctx.fillRect(f.x + Math.cos(a) * r - 2, f.y + Math.sin(a) * r - 2, 3, 3); }
+  }
+}
 function drawStandees() {
   const now = performance.now();
   for (const st of (G.standees || [])) {

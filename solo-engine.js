@@ -220,6 +220,15 @@ function positionBlocked(x, y, r) {
   for (const o of OBSTACLES) if (circleRectOverlap(x, y, r, o)) return true;
   return false;
 }
+// A random open spot on the current map (not inside a wall/obstacle).
+function randomFreeSpot() {
+  for (let i = 0; i < 30; i++) {
+    const x = 120 + Math.random() * (MAP.w - 240);
+    const y = 120 + Math.random() * (MAP.h - 240);
+    if (!positionBlocked(x, y, 24)) return { x: Math.round(x), y: Math.round(y) };
+  }
+  return null;
+}
 
 // ---- Characters ----
 const SURVIVOR_CHARS = [
@@ -376,6 +385,10 @@ const TIME_PER_GEN = -20;
 const TIME_PER_DOWN = +25;
 const RESULT_HOLD_MS = 5000;
 const REJOIN_FALLBACK_MS = 90000;   // auto-return to lobby if nobody votes for 90s
+const COIN_MAX = 3;                 // max collectable coins on the map at once
+const COIN_INTERVAL_MS = 30000;     // a new coin every 30s (up to the cap)
+const COIN_VALUE = 5;               // coins granted per pickup
+const COIN_PICKUP_R = 30;           // pickup radius
 
 // ---- Skill check ----
 const SKILL_PROGRESS = { green: 0.13, yellow: 0.05, red: -0.10 };
@@ -406,6 +419,8 @@ const state = {
   clovers: [],     // Pollen's clover trail
   stations: [],    // Pollen's heal + defence stations
   standees: [],    // Whamo's cardboard standees
+  coins: [],       // collectable coin pickups on the map
+  nextCoinAt: 0,   // Date.now() when the next coin may spawn
   nextEntityId: 1,
 };
 
@@ -1206,8 +1221,10 @@ function applyAbility(p, ab, slot, msg) {
         if (!other.alive) continue;
         if (Math.hypot(other.x - p.x, other.y - p.y) > R) continue;
         if (other.role === "survivor") {
+          const before = other.hp;
           other.hp = Math.min(SURVIVOR_HP_MAX, other.hp + ab.healAmount);
           broadcast({ type: "heal", id: other.id, hp: Math.round(other.hp), by: p.id, amount: ab.healAmount });
+          if (other.id !== p.id && other.hp > before) sendReward(p.id, 2, "Healed a teammate");
         } else if (other.role === "killer") {
           other.effects.slowMult = Math.min(other.effects.slowMult || 1, ab.slowMult);
           other.effects.slowUntil = Math.max(other.effects.slowUntil || 0, now + ab.slowDuration * 1000);
@@ -1432,6 +1449,7 @@ function startRound() {
   state.clovers = [];
   state.stations = [];
   state.standees = [];
+  state.coins = []; state.nextCoinAt = Date.now() + COIN_INTERVAL_MS;
 
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
@@ -1473,6 +1491,7 @@ function startRound() {
     p.malice = 0;
     p.respawned = false;
     p._lastCloverX = null; p._lastCloverY = null;
+    p._stationCoin = 0;
   });
 
   state.phase = "playing";
@@ -1540,6 +1559,7 @@ function returnToLobby() {
   state.clovers = [];
   state.stations = [];
   state.standees = [];
+  state.coins = []; state.nextCoinAt = Date.now() + COIN_INTERVAL_MS;
   for (const p of state.players.values()) {
     p.role = "unassigned";
     p.alive = true;
@@ -1762,6 +1782,26 @@ function tick() {
       }
     }
 
+    // Map coin pickups: spawn one every 30s up to 3 on the map; any player who
+    // walks over one collects 5 coins.
+    if (state.coins.length < COIN_MAX && now >= state.nextCoinAt) {
+      const spot = randomFreeSpot();
+      if (spot) state.coins.push({ id: state.nextEntityId++, x: spot.x, y: spot.y });
+      state.nextCoinAt = now + COIN_INTERVAL_MS;
+    }
+    if (state.coins.length) {
+      state.coins = state.coins.filter(coin => {
+        for (const pl of state.players.values()) {
+          if (!pl.alive) continue;
+          if (Math.hypot(pl.x - coin.x, pl.y - coin.y) < COIN_PICKUP_R) {
+            broadcast({ type: "coin_pickup", id: coin.id, x: coin.x, y: coin.y, by: pl.id, coins: COIN_VALUE });
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
     // Pollen passive: drop a clover every CLOVER_SPACING px traveled
     // since the last drop. Clovers live for CLOVER_TTL seconds and heal
     // 0.5 HP/s to any OTHER survivor standing on them.
@@ -1809,6 +1849,14 @@ function tick() {
       for (const s of state.players.values()) {
         if (s.role !== "survivor" || !s.alive) continue;
         if (Math.hypot(s.x - st.x, s.y - st.y) > st.radius) continue;
+        // Pollen earns 2 coins for every 8 seconds a teammate spends in a station.
+        if (s.id !== st.ownerId) {
+          const owner = state.players.get(st.ownerId);
+          if (owner) {
+            owner._stationCoin = (owner._stationCoin || 0) + dt;
+            if (owner._stationCoin >= 8) { owner._stationCoin -= 8; sendReward(owner.id, 2, "Station in use"); }
+          }
+        }
         if (st.kind === "heal") {
           if (s.hp < SURVIVOR_HP_MAX) {
             s.hp = Math.min(SURVIVOR_HP_MAX, s.hp + (st.healPerSec || 0) * dt);
@@ -1901,6 +1949,7 @@ function tick() {
           s.hp = Math.min(SURVIVOR_HP_MAX, s.hp + b.healAmount);
           broadcast({ type: "heal", id: s.id, hp: Math.round(s.hp), amount: s.hp - before });
           broadcast({ type: "burger_eat", id: b.id, x: b.x, y: b.y, by: s.id });
+          if (s.hp > before) sendReward(b.ownerId, 2, "Fed a teammate");
           return false;
         }
       }
@@ -1958,6 +2007,7 @@ function tick() {
         clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
         stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),
         standees: state.standees.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId })),
+        coins: state.coins.map(c => ({ id: c.id, x: c.x, y: c.y })),
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
@@ -2006,6 +2056,11 @@ function broadcast(msg) {
 function send(ws, msg) {
   if (ws.readyState !== 1) return;
   try { ws.send(JSON.stringify(msg)); } catch {}
+}
+// Tell a player's client to award in-round coins (coins live client-side).
+function sendReward(id, coins, reason) {
+  const p = state.players.get(id);
+  if (p && p.ws && coins > 0) send(p.ws, { type: "reward", coins, reason: reason || "" });
 }
 function survivorCharOf(p) {
   return SURVIVOR_CHARS.find(c => c.id === p.survivorChar) || SURVIVOR_CHARS[0];
