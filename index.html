@@ -5769,9 +5769,17 @@ function drawConveyors() {
 
 function drawStandees() {
   const now = performance.now();
+  const art = ITEM_ART["standee"] && ITEM_ART["standee"]["sprite"];
   for (const st of (G.standees || [])) {
     const sx = Math.round(st.x), sy = Math.round(st.y);
-    if (drawItemArt("standee", "sprite", sx, sy)) continue;
+    if (art) {
+      // Custom art stands on the ground (bottom-aligned), not centered.
+      const w = art._dw || art.width, h = art._dh || art.height;
+      ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.fillRect(sx - 10, sy + 6, 20, 3);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(art, Math.round(sx - w / 2), Math.round(sy + 6 - h), w, h);
+      continue;
+    }
     // ground shadow
     ctx.fillStyle = "rgba(0,0,0,0.32)"; ctx.fillRect(sx - 10, sy + 6, 20, 3);
     // easel legs
@@ -7679,7 +7687,8 @@ function applyCustomArt() {
 
   // Item (world-entity) art — bake each to roughly its in-game display size.
   const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90],
-    knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42] };
+    knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42],
+    standee: [34, 46] };
   for (const id of Object.keys(ITEM_BOX)) {
     if (!data[id]) continue;
     const [bw, bh] = ITEM_BOX[id];
