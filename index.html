@@ -832,6 +832,7 @@
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
       <button class="store-tab" data-role="pet">🐾 Pets</button>
+      <button class="store-tab" data-role="skin">✨ Skins</button>
     </div>
     <div class="store-grid" id="shop-grid"></div>
   </div>
@@ -843,6 +844,7 @@
       <button class="store-tab on" data-role="survivor">Survivors</button>
       <button class="store-tab" data-role="killer">Killers</button>
       <button class="store-tab" data-role="pet">🐾 Pets</button>
+      <button class="store-tab" data-role="skin">✨ Skins</button>
     </div>
     <div class="store-grid" id="inv-grid"></div>
   </div>
@@ -2376,6 +2378,7 @@ function onMessage(msg) {
       G.timer = msg.roundDuration;
       buildCharGrids();
       if (G.myPet) sendMsg({ type: "set_pet", pet: G.myPet });   // tell others our equipped pet
+      updateMySkin();                                            // and our equipped skin
       break;
     case "lobby": {
       const wasOver = G.phase === "over";
@@ -2406,6 +2409,7 @@ function onMessage(msg) {
     case "start":
       reapplyCustomArt();               // keep custom sprites (esp. the dino) every round
       mergeRoster(msg.players);
+      updateMySkin();                   // role is known now — sync the right (survivor/killer) skin
       // Clear any queued input so nothing auto-fires on the first frame.
       G.abilityQueued = [false, false, false]; G.attackQueued = false; G.skillQueued = false;
       G.gens = msg.gens.map(g => ({ ...g }));
@@ -2738,6 +2742,7 @@ function mergeRoster(list) {
     p.survivorChar = sp.survivorChar;
     p.killerChar = sp.killerChar;
     p.pet = sp.pet || null;
+    p.skin = sp.skin || null;
     if (sp.id !== G.myId) {
       if (!remoteLerp.has(sp.id)) remoteLerp.set(sp.id, { x: sp.x, y: sp.y, fx: 1, fy: 0 });
     } else if (isNew || G.phase !== "playing") {
@@ -3006,6 +3011,7 @@ function equipChar(role, id) {
   if (!isUnlocked(id)) return;
   if (role === "killer") { G.myChars.killer = id; sendMsg({ type: "pick_char", killerChar: id }); }
   else { G.myChars.survivor = id; sendMsg({ type: "pick_char", survivorChar: id }); }
+  updateMySkin();   // the equipped skin is per-character
   if (typeof renderCharSelection === "function") renderCharSelection();
 }
 
@@ -3016,6 +3022,7 @@ function renderStore(which) {
   _previews.length = 0;
   grid.innerHTML = "";
   if (role === "pet") return renderPetStore(which, isShop, grid);
+  if (role === "skin") return renderSkinStore(which, isShop, grid);
   let list = charListFor(role);
   if (!isShop) list = list.filter(c => isUnlocked(c.id));   // inventory = owned only
   if (!list.length) {
@@ -3100,6 +3107,63 @@ function renderPetStore(which, isShop, grid) {
         : () => { equipPet(isEq ? null : pet.id); renderStore("inv"); });
   }
 }
+// Skins store tab: buy any skin in the shop; equip per-character in the inventory.
+function renderSkinStore(which, isShop, grid) {
+  const charName = (id) => {
+    const c = (G.survivorChars || []).concat(G.killerChars || []).find(x => x.id === id);
+    return c ? c.name : id;
+  };
+  let list = SKINS.slice();
+  if (!isShop) list = list.filter(s => isSkinOwned(s.id));
+  list.sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : (a.price - b.price)));
+  if (!list.length) {
+    const d = document.createElement("div"); d.className = "store-empty";
+    d.textContent = SKINS.length === 0 ? "No skins yet — make some in the art tool!" : (isShop ? "No skins available." : "No skins owned yet — buy some in the Shop!");
+    grid.appendChild(d); return;
+  }
+  for (const skin of list) {
+    const owned = isSkinOwned(skin.id), isEq = Account.equippedSkins[skin.base] === skin.id;
+    const cell = document.createElement("div");
+    cell.className = "store-cell" + (isEq ? " equipped" : "") + (isShop && !owned ? " locked" : "");
+    const cv = document.createElement("canvas"); cv.width = 96; cv.height = 96;
+    _previews.push({ cv, skinId: skin.id, animate: isEq });
+    cell.appendChild(cv);
+    const nm = document.createElement("div"); nm.className = "cname"; nm.textContent = skin.name; cell.appendChild(nm);
+    const sub = document.createElement("div"); sub.className = "cprice"; sub.style.opacity = ".7"; sub.textContent = charName(skin.base); cell.appendChild(sub);
+    if (isShop) {
+      const tag = document.createElement("div");
+      if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; } else { tag.className = "cprice"; tag.textContent = "🪙 " + skin.price; }
+      cell.appendChild(tag);
+      cell.onclick = () => {
+        if (isSkinOwned(skin.id)) return;
+        if (!window.confirm(`Buy ${skin.name} for ${skin.price} coins?\nYou have ${Account.coins}.`)) return;
+        if (!tryBuySkin(skin.id)) { alert(`Not enough coins — you have ${Account.coins}, ${skin.name} costs ${skin.price}.`); return; }
+        showCoinToast(`Unlocked ${skin.name}!  (−${skin.price})`);
+        updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins;
+        renderStore("shop");
+      };
+    } else {
+      if (isEq) { const eq = document.createElement("div"); eq.className = "equipped-tag"; eq.textContent = "EQUIPPED"; cell.appendChild(eq); }
+      cell.onclick = () => { equipSkin(skin.base, isEq ? null : skin.id); renderStore("inv"); };
+    }
+    grid.appendChild(cell);
+  }
+}
+function drawSkinPreview(cv, skinId, now) {
+  const skin = SKIN_BY_ID[skinId]; const x = cv.getContext("2d");
+  x.clearRect(0, 0, cv.width, cv.height);
+  if (!skin) return;
+  const sheets = SKIN_SPRITES[skinId] || {};
+  const sh = sheets[skin.base] || {};
+  const base = sprites[skin.base] || {};
+  const frame = sh.idle || base.idle;
+  if (!frame) return;
+  x.imageSmoothingEnabled = !!frame._custom;
+  const fw = frame._dw || frame.width, fh = frame._dh || frame.height;
+  const sc = Math.min(cv.width / fw, (cv.height - 8) / fh) * 0.92;
+  const w = fw * sc, h = fh * sc;
+  x.drawImage(frame, (cv.width - w) / 2, cv.height - h - 4, w, h);
+}
 function drawPetPreview(cv, petId, now) {
   const pet = PET_BY_ID[petId], spr = pet && pet.sprite;
   const x = cv.getContext("2d"); x.clearRect(0, 0, cv.width, cv.height);
@@ -3113,6 +3177,7 @@ function drawPetPreview(cv, petId, now) {
 function drawPreviews(now) {
   for (const p of _previews) {
     if (p.petId) { drawPetPreview(p.cv, p.petId, now); continue; }
+    if (p.skinId) { drawSkinPreview(p.cv, p.skinId, now); continue; }
     const sh = sprites[p.charId]; if (!sh) continue;
     const x = p.cv.getContext("2d");
     x.clearRect(0, 0, p.cv.width, p.cv.height);
@@ -3200,8 +3265,10 @@ function updateHub(dt, now) {
     sendMsg({ type: "pos", x: hub.x, y: hub.y, facing: { x: hub.facing, y: 0 } });
   }
 }
-function drawHubPlayer(x, sprId, px, py, faceX, walking, wframe) {
-  const sh = sprites[sprId] || sprites["scout"]; if (!sh) return;
+function drawHubPlayer(x, sprId, px, py, faceX, walking, wframe, skinId) {
+  let sh = sprites[sprId] || sprites["scout"]; if (!sh) return;
+  // Merge in an equipped skin's frames over the base char, if baked.
+  if (skinId && SKIN_SPRITES[skinId] && SKIN_SPRITES[skinId][sprId]) sh = Object.assign({}, sh, SKIN_SPRITES[skinId][sprId]);
   let frame = walking ? (wframe ? sh.walkB : sh.walkA) : sh.idle;
   frame = frame || sh.idle; if (!frame) return;
   const bw = frame._dw || frame.width, bh = frame._dh || frame.height;
@@ -3240,7 +3307,7 @@ function renderHub(now) {
   for (const it of list) {
     if (!it.p) {
       drawPetForOwner(x, "lob:me", now, HUB_SCALE);
-      drawHubPlayer(x, G.myChars.survivor, hub.x, hub.y, hub.facing, hub.walking, hub.frame);
+      drawHubPlayer(x, G.myChars.survivor, hub.x, hub.y, hub.facing, hub.walking, hub.frame, equippedSkinFor(G.myChars.survivor));
     } else {
       const p = it.p;
       // Detect movement from position changes between lobby updates so remote
@@ -3251,7 +3318,7 @@ function renderHub(now) {
       const walking = now < a.movingUntil;
       const wframe = (Math.floor(now / 180) & 1);   // alternate walk-1 / walk-2
       drawPetForOwner(x, "lob:" + p.id, now, HUB_SCALE);
-      drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, walking, wframe);
+      drawHubPlayer(x, p.survivorChar || "scout", p.x, p.y, (p.fx || 1) < 0 ? -1 : 1, walking, wframe, p.skin);
       x.fillStyle = "#cfe0ff"; x.font = "bold 18px system-ui"; x.textAlign = "center"; x.textBaseline = "bottom";
       x.fillText(p.name || "Player", p.x, p.y - 76);
     }
@@ -3453,6 +3520,8 @@ const Account = {
   unlocks: [...DEFAULT_UNLOCKS],
   pets: [],                 // owned pet ids
   equippedPet: null,        // currently equipped pet id (or null)
+  skins: [],                // owned skin ids
+  equippedSkins: {},        // charId -> equipped skin id
 };
 const ACCOUNT_KEY = "fk:account";
 const ACCOUNT_VERSION = 6;
@@ -3497,11 +3566,15 @@ function loadAccount() {
     Account.unlocks = [...set];
     Account.pets = Array.isArray(saved.pets) ? saved.pets.filter(x => typeof x === "string") : [];
     Account.equippedPet = (typeof saved.equippedPet === "string" && Account.pets.includes(saved.equippedPet)) ? saved.equippedPet : null;
+    Account.skins = Array.isArray(saved.skins) ? saved.skins.filter(x => typeof x === "string") : [];
+    Account.equippedSkins = (saved.equippedSkins && typeof saved.equippedSkins === "object") ? { ...saved.equippedSkins } : {};
   } else {
     Account.coins = 0;
     Account.unlocks = [...DEFAULT_UNLOCKS];
     Account.pets = [];
     Account.equippedPet = null;
+    Account.skins = [];
+    Account.equippedSkins = {};
   }
   Account.loaded = true;
   saveAccount();
@@ -3513,11 +3586,43 @@ function saveAccount() {
     unlocks: Account.unlocks,
     pets: Account.pets,
     equippedPet: Account.equippedPet,
+    skins: Account.skins,
+    equippedSkins: Account.equippedSkins,
   }));
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
 G.myPet = Account.equippedPet;   // currently equipped pet, sent to the server on join
+
+// ---- Skin economy (uses SKIN_BY_ID from the skin module) ----
+function isSkinOwned(id) { return Account.skins.includes(id); }
+function skinPrice(id) { const s = (typeof SKIN_BY_ID !== "undefined") && SKIN_BY_ID[id]; return s ? s.price : 0; }
+function tryBuySkin(id) {
+  if (isSkinOwned(id)) return true;
+  const price = skinPrice(id);
+  if (Account.coins < price) return false;
+  Account.coins -= price; Account.skins.push(id); saveAccount(); return true;
+}
+function equippedSkinFor(charId) {
+  const id = Account.equippedSkins[charId];
+  return (id && isSkinOwned(id) && typeof SKIN_BY_ID !== "undefined" && SKIN_BY_ID[id]) ? id : null;
+}
+function equipSkin(charId, skinId) {
+  if (skinId && (!isSkinOwned(skinId) || !SKIN_BY_ID[skinId] || SKIN_BY_ID[skinId].base !== charId)) return;
+  if (skinId) Account.equippedSkins[charId] = skinId; else delete Account.equippedSkins[charId];
+  saveAccount(); updateMySkin();
+}
+// The char whose skin currently applies (killer's in a round, else survivor).
+function currentSkinChar() {
+  const me = G.players.get(G.myId);
+  if (me && me.role === "killer") return me.killerChar || G.myChars.killer;
+  return (me && me.survivorChar) || G.myChars.survivor;
+}
+function updateMySkin() {
+  const sk = equippedSkinFor(currentSkinChar());
+  G.mySkin = sk;
+  sendMsg({ type: "set_skin", skin: sk });
+}
 
 // ---- Pet economy (uses PET_BY_ID, defined with the pet render module) ----
 function isPetOwned(id) { return Account.pets.includes(id); }
@@ -3543,6 +3648,8 @@ function downloadSave() {
     unlocks: Account.unlocks,
     pets: Account.pets,
     equippedPet: Account.equippedPet,
+    skins: Account.skins,
+    equippedSkins: Account.equippedSkins,
     exportedAt: new Date().toISOString(),
   }, null, 2);
   const blob = new Blob([data], { type: "text/plain" });
@@ -3587,8 +3694,11 @@ function loadSaveFromFile(file) {
     // Pets (older saves may not have them — default to none).
     Account.pets = Array.isArray(data.pets) ? data.pets.filter(id => typeof id === "string") : [];
     Account.equippedPet = (typeof data.equippedPet === "string" && Account.pets.includes(data.equippedPet)) ? data.equippedPet : null;
+    Account.skins = Array.isArray(data.skins) ? data.skins.filter(id => typeof id === "string") : [];
+    Account.equippedSkins = (data.equippedSkins && typeof data.equippedSkins === "object") ? { ...data.equippedSkins } : {};
     G.myPet = Account.equippedPet;
     if (G.myPet) sendMsg({ type: "set_pet", pet: G.myPet });   // reflect to others if already in a room
+    updateMySkin();
     saveAccount();
     updateCoinDisplay();
     if (typeof buildCharGrids === "function" && G.survivorChars.length) buildCharGrids();
@@ -3738,14 +3848,20 @@ function killerLmsUrl(killerChar) {
   const ext = KILLER_MUSIC_EXT[killerChar] || "mp3";
   return `music/${killerChar}_lms.${ext}`;
 }
+const MUSIC_TIER_SLOT = ["stage1", "stage2", "stage3", "chase"];   // tiers 0..3 = killer_1..4
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "circus";
-  const key = killerChar + "|" + mapKey;
+  // The killer's equipped skin can override the chase tiers (stage 1-3 + chase).
+  const killer = [...G.players.values()].find(p => p.role === "killer");
+  const skinId = killer && killer.skin;
+  const skinMusic = (skinId && SKIN_MUSIC[skinId]) || null;
+  const key = killerChar + "|" + mapKey + "|" + (skinId || "");
   if (Music.loadedFor === key) { Music.mode = "round"; return; }
   stopMusic();
   Music.base = mkAudio(MAP_BASE_MUSIC[mapKey] || MAP_BASE_MUSIC.circus);
   for (let i = 0; i < 4; i++) {
-    Music.tier[i] = mkAudio(killerMusicUrl(killerChar, i + 1));
+    const custom = skinMusic && skinMusic[MUSIC_TIER_SLOT[i]];   // data-URI track or undefined
+    Music.tier[i] = mkAudio(custom || killerMusicUrl(killerChar, i + 1));
   }
   Music.lms = mkAudio(killerLmsUrl(killerChar));
   Music.loadedFor = key;
@@ -6778,7 +6894,7 @@ function fxFor(charId, actionAb) {
 function drawPlayer(p) {
   if (p.hiddenFromMe) return; // killer can't see survivors inside a smoke cloud
   const charId = spriteIdFor(p);
-  const sheet = sprites[charId];
+  const sheet = skinSheetFor(p, charId) || sprites[charId];
   if (!sheet) return;
   const now = performance.now();
 
@@ -7752,6 +7868,65 @@ function drawPetForOwner(c, key, now, scaleMul) {
   c.imageSmoothingEnabled = true;
   c.drawImage(spr, -w / 2, -h, w, h);                            // feet on the trail point
   c.restore();
+}
+
+// ---------- Skins (alternate costumes for a character; buyable) ----------
+const SKINS = [], SKIN_BY_ID = {}, SKIN_SPRITES = {}, SKIN_MUSIC = {};
+(function loadSkins() {
+  for (const sd of (window.FORSNAKEN_SKINS || [])) {
+    const skin = { id: sd.id, base: sd.base, name: sd.name || "Skin", price: +sd.price || 0,
+      art: sd.art || {}, music: sd.music || {} };
+    SKINS.push(skin); SKIN_BY_ID[skin.id] = skin;
+    if (skin.music && Object.keys(skin.music).length) SKIN_MUSIC[skin.id] = skin.music;
+  }
+})();
+// Map an art-tool slot to a target sheet + frame for a skin's base character.
+function skinTarget(base, slot) {
+  if (slot.startsWith("dino-")) {
+    const f = { "dino-idle": "idle", "dino-walk-1": "walkA", "dino-walk-2": "walkB", "dino-fire": "action_trap_fire" }[slot];
+    return f ? { sheet: "sly_dino", frame: f } : null;
+  }
+  const f = slot === "idle" ? "idle" : slot === "walk-1" ? "walkA" : slot === "walk-2" ? "walkB"
+          : slot === "attack" ? "action_attack" : slot.startsWith("ability-") ? "action_" + slot.slice(8) : null;
+  return f ? { sheet: base, frame: f } : null;
+}
+function bakeSkins() {
+  const loadImg = (url) => new Promise(r => { const im = new Image(); im.onload = () => r(im); im.onerror = () => r(null); im.src = url; });
+  let anyAction = false;
+  for (const skin of SKINS) {
+    const base = skin.base, art = skin.art || {}, slots = Object.keys(art);
+    if (slots.some(s => s === "attack" || s.startsWith("ability-"))) anyAction = true;
+    (async () => {
+      const imgs = {};
+      await Promise.all(slots.map(async s => { imgs[s] = await loadImg(art[s]); }));
+      const sheets = SKIN_SPRITES[skin.id] || (SKIN_SPRITES[skin.id] = {});
+      const refFor = (sheet) => {
+        const idleImg = imgs[sheet === "sly_dino" ? "dino-idle" : "idle"];
+        if (idleImg) return idleImg.naturalHeight;
+        for (const s of slots) { const t = skinTarget(base, s); if (t && t.sheet === sheet && imgs[s]) return imgs[s].naturalHeight; }
+        return null;
+      };
+      for (const s of slots) {
+        const t = skinTarget(base, s); if (!t || !imgs[s]) continue;
+        let ref = refFor(t.sheet); if (!ref) continue;
+        if (s === "ability-transform") ref = imgs[s].naturalHeight;
+        let scale = SPRITE_SIZE / ref;
+        if (imgs[s].naturalHeight * scale < SPRITE_SIZE * 0.65) scale = SPRITE_SIZE / imgs[s].naturalHeight;
+        const c = bakeNative(imgs[s], Math.round(imgs[s].naturalWidth * scale), Math.round(imgs[s].naturalHeight * scale));
+        const sh = sheets[t.sheet] || (sheets[t.sheet] = {});
+        sh[t.frame] = c;
+        if (t.sheet === "sly_dino" && t.frame === "action_trap_fire") sh["action_attack"] = c;
+      }
+    })();
+  }
+  if (anyAction) Settings.customAnims = true;
+}
+bakeSkins();
+// Return a base+skin merged sheet for a player if they have a baked skin, else null.
+function skinSheetFor(p, charId) {
+  const sk = p && p.skin; if (!sk) return null;
+  const skSheets = SKIN_SPRITES[sk]; if (!skSheets || !skSheets[charId]) return null;
+  return Object.assign({}, sprites[charId] || {}, skSheets[charId]);   // skin frames override base
 }
 </script>
 </body>

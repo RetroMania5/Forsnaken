@@ -36,6 +36,15 @@
   .charbtn .nm { flex:1; font-weight:600; font-size:14px; }
   .charbtn .cnt { font-size:11px; color:var(--dim); }
   .charbtn .cnt.full { color:var(--good); }
+  .charbtn.skinbtn { margin-left:18px; padding:6px 10px; width:calc(100% - 18px); }
+  .charbtn.skinbtn .nm { font-weight:500; font-size:13px; }
+  .newskinbtn { display:block; width:calc(100% - 18px); margin:0 0 6px 18px; text-align:left; color:var(--accent);
+    background:transparent; border:1px dashed var(--line); border-radius:7px; padding:5px 10px; font-size:12px; font-weight:600; cursor:pointer; }
+  .newskinbtn:hover { border-color:var(--accent); background:var(--panel2); }
+  .musicdrop { min-height:64px; aspect-ratio:auto; }
+  .musichas { display:flex; align-items:center; justify-content:space-between; padding:14px 12px; gap:8px; min-height:64px; font-size:12px; }
+  .musichas .fn { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .musichas .x { cursor:pointer; color:var(--dim); } .musichas .x:hover { color:#ff9db0; }
 
   /* Main */
   main { flex:1; overflow-y:auto; padding:20px 24px 60px; }
@@ -178,7 +187,7 @@ function slotsFor(c) {
   if (c.role === "killer") base.push({ id: "attack", label: "Attack", tag: "attack" });
   const abs = c.abilities.map(a => ({ id: "ability-" + a.id, label: a.name, tag: "ability" }));
   let slots = base.concat(abs);
-  if (c.id === "sly") slots = slots.concat([        // Sly's dino form is its own sprite set
+  if ((c._base || c.id) === "sly") slots = slots.concat([        // Sly's dino form is its own sprite set
     { id: "dino-idle",   label: "Dino Idle",   tag: "dino" },
     { id: "dino-walk-1", label: "Dino Walk 1", tag: "dino" },
     { id: "dino-walk-2", label: "Dino Walk 2", tag: "dino" },
@@ -192,13 +201,35 @@ const TOTAL = ENTITIES.reduce((n, c) => n + slotsFor(c).length, 0);
 let store = {};                      // store[charId][slotId] = {filename,w,h,dataURL}
 let flags = {};                      // flags[charId] = { floatWalk: true }
 let pets = [];                       // [{id,name,price,behavior:"walk"|"float",image:{filename,w,h,dataURL}}]
+let skins = [];                      // [{id,base,name,price,music:{stage1..chase:{filename,dataURL}}}] — art in store[id]
 let selected = ALL[0].id;
+// A skin's optional custom chase music: stages 1-3 + the closest (chase) tier.
+const MUSIC_SLOTS = [
+  { id: "stage1", label: "Stage 1 (far)" },
+  { id: "stage2", label: "Stage 2" },
+  { id: "stage3", label: "Stage 3" },
+  { id: "chase",  label: "Chase (closest)" },
+];
 let dbOK = true;
 const PET_W = 53, PET_H = 42;        // pets are auto-sized to fit this box (Blorb's size)
 const isPetSel = () => typeof selected === "string" && selected.startsWith("pet:");
 const curPet = () => isPetSel() ? pets.find(p => "pet:" + p.id === selected) : null;
 const escHtml = s => String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const escAttr = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// ── Skins: alternate costumes for a base character (art in store[id]) ──────────
+const isSkinSel = () => !!(byId[selected] && byId[selected]._skin);
+const curSkin = () => isSkinSel() ? skins.find(s => s.id === selected) : null;
+function registerSkin(s) {   // make a skin selectable like an entity (same slots as its base)
+  const base = byId[s.base]; if (!base || byId[s.id]) return;
+  byId[s.id] = { id: s.id, name: s.name, role: base.role, color: base.color, abilities: base.abilities, _skin: true, _base: s.base };
+}
+function newSkin(baseId) {
+  const base = byId[baseId]; if (!base) return;
+  const id = baseId + "__skin__" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
+  const s = { id, base: baseId, name: base.name + " Skin", price: 200, music: {} };
+  skins.push(s); registerSkin(s);
+  selected = id; save(); renderSidebar(); renderMain();
+}
 function idb(mode, fn) {
   return new Promise((res) => {
     let r;
@@ -211,10 +242,14 @@ function idb(mode, fn) {
     } catch { dbOK = false; res(null); } };
   });
 }
-const save = () => idb("readwrite", os => os.put({ store, flags, pets }, "state"));
+const save = () => idb("readwrite", os => os.put({ store, flags, pets, skins }, "state"));
 async function load() {
   const v = await idb("readonly", os => os.get("state"));
-  if (v && v.store) { store = v.store; flags = v.flags || {}; pets = v.pets || []; return; }
+  if (v && v.store) {
+    store = v.store; flags = v.flags || {}; pets = v.pets || []; skins = v.skins || [];
+    for (const s of skins) registerSkin(s);
+    return;
+  }
   const old = await idb("readonly", os => os.get("store"));   // migrate older saves
   if (old) store = old;
 }
@@ -225,14 +260,26 @@ const filledCount = cid => Object.keys(store[cid] || {}).length;
 const totalFilled = () => ENTITIES.reduce((n, c) => n + filledCount(c.id), 0);
 
 function renderSidebar() {
-  const group = (title, list) => `<div class="grouphead">${title}</div>` + list.map(c => {
+  const charBtn = c => {
     const f = filledCount(c.id), t = slotsFor(c).length;
     return `<button class="charbtn ${c.id === selected ? "sel" : ""}" data-char="${c.id}">
       <span class="dot" style="background:${c.color}"></span>
       <span class="nm">${c.name}</span>
       <span class="cnt ${f === t ? "full" : ""}">${f}/${t}</span>
     </button>`;
-  }).join("");
+  };
+  const skinBtn = s => {
+    const c = byId[s.base];
+    return `<button class="charbtn skinbtn ${s.id === selected ? "sel" : ""}" data-char="${s.id}">
+      <span class="dot" style="background:${c ? c.color : "#888"};opacity:.55"></span>
+      <span class="nm">${escHtml(s.name)}</span>
+      <span class="cnt">${(+s.price || 0)}🪙</span>
+    </button>`;
+  };
+  const withSkins = c => charBtn(c) + skins.filter(s => s.base === c.id).map(skinBtn).join("")
+    + `<button class="newskinbtn" data-newskin="${c.id}">＋ Skin</button>`;
+  const group = (title, list, skinnable) => `<div class="grouphead">${title}</div>` +
+    list.map(skinnable ? withSkins : charBtn).join("");
   const petGroup = `<div class="grouphead">Pets</div>` + pets.map(p =>
     `<button class="charbtn ${("pet:" + p.id) === selected ? "sel" : ""}" data-char="pet:${p.id}">
       <span class="dot" style="background:#59d0ff"></span>
@@ -240,18 +287,20 @@ function renderSidebar() {
       <span class="cnt">${(+p.price || 0)}🪙</span>
     </button>`).join("") +
     `<button class="newpetbtn" id="newPetBtn">＋ New pet</button>`;
-  $("sidebar").innerHTML = group("Survivors", DATA.survivors) + group("Killers", DATA.killers)
-    + group("Items", ITEMS) + petGroup;
+  $("sidebar").innerHTML = group("Survivors", DATA.survivors, true) + group("Killers", DATA.killers, true)
+    + group("Items", ITEMS, false) + petGroup;
   $("sidebar").querySelectorAll(".charbtn").forEach(b =>
     b.onclick = () => { selected = b.dataset.char; renderSidebar(); renderMain(); });
+  $("sidebar").querySelectorAll("[data-newskin]").forEach(b =>
+    b.onclick = e => { e.stopPropagation(); newSkin(b.dataset.newskin); });
   const npb = $("newPetBtn"); if (npb) npb.onclick = newPet;
   $("prog").innerHTML = `<b>${totalFilled()}</b> / ${TOTAL} slots`;
 }
 
-function renderMain() {
-  if (isPetSel()) return renderPet();
-  const c = byId[selected], slots = slotsFor(c), cs = store[c.id] || {};
-  const cards = slots.map(s => {
+// Build the pose/slot cards for an entity (character, item, or skin).
+function slotCardsHTML(c) {
+  const slots = slotsFor(c), cs = store[c.id] || {};
+  return slots.map(s => {
     const it = cs[s.id];
     const isAbility = s.tag === "ability";
     const isNo = it && it.noCostume;
@@ -265,28 +314,14 @@ function renderMain() {
     } else {
       body = `<div class="drop empty" data-slot="${s.id}"><span class="plus">＋<br>drop / click<br>to add image</span></div>`;
     }
-    // Ability slots get a "no costume" toggle (that ability doesn't need its own art).
     const capRight = isAbility
       ? `<button class="nocosbtn ${isNo ? "on" : ""}" data-nocos="${s.id}" title="This ability doesn't need its own art">${isNo ? "no costume ✓" : "no costume"}</button>`
       : `<span class="tag">${s.tag}</span>`;
-    return `<div class="slot">
-      <div class="cap"><span class="lbl">${s.label}</span>${capRight}</div>
-      ${body}
-    </div>`;
+    return `<div class="slot"><div class="cap"><span class="lbl">${s.label}</span>${capRight}</div>${body}</div>`;
   }).join("");
-  const floatOn = !!(flags[c.id] && flags[c.id].floatWalk);
-  $("main").innerHTML =
-    `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
-       <h2>${c.name}</h2><span class="role">${c.role}</span>
-       <button id="exportOneBtn" class="floatbtn" title="Export just this character's art (one file)">⬇ Export this one</button>
-       ${c.role !== "item" ? `<button id="floatToggle" class="floatbtn ${floatOn ? "on" : ""}" title="Make this character's walk a floating hover (carries into the game)">🎈 Floating walk${floatOn ? " ✓" : ""}</button>` : ""}
-     </div>
-     <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
-       If an ability doesn't need its own look, hit <b>no costume</b> on that card.
-       Everything autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
-       When finished, click <b>Export file</b> and send it to me.</div>
-     <div class="grid">${cards}</div>`;
-  // wire uploads / drops / clears
+}
+// Wire the art drop/clear/no-costume controls in the current #main (uses `selected`).
+function wireSlotDrops() {
   $("main").querySelectorAll(".drop").forEach(d => {
     d.onclick = () => pickFile(d.dataset.slot);
     d.ondragover = e => { e.preventDefault(); d.classList.add("over"); };
@@ -298,6 +333,26 @@ function renderMain() {
     x.onclick = e => { e.stopPropagation(); clearSlot(x.dataset.clear); });
   $("main").querySelectorAll("[data-nocos]").forEach(b =>
     b.onclick = e => { e.stopPropagation(); toggleNoCostume(b.dataset.nocos); });
+}
+function renderMain() {
+  if (isPetSel()) return renderPet();
+  if (isSkinSel()) return renderSkin();
+  const c = byId[selected];
+  const cards = slotCardsHTML(c);
+  const floatOn = !!(flags[c.id] && flags[c.id].floatWalk);
+  $("main").innerHTML =
+    `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
+       <h2>${c.name}</h2><span class="role">${c.role}</span>
+       <button id="exportOneBtn" class="floatbtn" title="Export just this character's art (one file)">⬇ Export this one</button>
+       ${c.role !== "item" ? `<button id="floatToggle" class="floatbtn ${floatOn ? "on" : ""}" title="Make this character's walk a floating hover (carries into the game)">🎈 Floating walk${floatOn ? " ✓" : ""}</button>` : ""}
+     </div>
+     <div class="hint">Add art for each pose — Idle, Walk 1, Walk 2, and one per ability.
+       If an ability doesn't need its own look, hit <b>no costume</b> on that card.
+       Skins live under each character (<b>＋ Skin</b> in the sidebar).
+       Everything autosaves${dbOK ? "" : " <b style='color:#ffb9c4'>(autosave off — export to save!)</b>"}.
+       When finished, click <b>Export file</b> and send it to me.</div>
+     <div class="grid">${cards}</div>`;
+  wireSlotDrops();
   const eo = $("exportOneBtn"); if (eo) eo.onclick = exportOne;
   const ft = $("floatToggle");
   if (ft) ft.onclick = () => {
@@ -305,6 +360,66 @@ function renderMain() {
     else (flags[selected] || (flags[selected] = {})).floatWalk = true;
     save(); renderMain();
   };
+}
+// ── Skin editor ────────────────────────────────────────────────────────────
+function renderSkin() {
+  const s = curSkin();
+  if (!s) { selected = ALL[0].id; return renderMain(); }
+  const c = byId[s.id], base = byId[s.base], baseName = base ? base.name : s.base;
+  const cards = slotCardsHTML(c);
+  const musicCards = MUSIC_SLOTS.map(ms => {
+    const m = (s.music || {})[ms.id];
+    const body = m
+      ? `<div class="musichas"><span class="fn" title="${escAttr(m.filename)}">🎵 ${escHtml(m.filename)}</span><span class="x" data-mclear="${ms.id}" title="Remove">✕</span></div>`
+      : `<div class="drop empty musicdrop" data-mslot="${ms.id}"><span class="plus">＋ add track<br><small>blank = default</small></span></div>`;
+    return `<div class="slot"><div class="cap"><span class="lbl">${ms.label}</span><span class="tag">music</span></div>${body}</div>`;
+  }).join("");
+  $("main").innerHTML =
+    `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
+       <h2>${escHtml(s.name)}</h2><span class="role">skin · ${escHtml(baseName)}</span>
+       <button id="exportOneBtn" class="floatbtn" title="Export just this skin (one file)">⬇ Export this one</button>
+     </div>
+     <div class="petrow" style="align-items:flex-end;gap:16px;margin:4px 0 8px;">
+       <div class="petfield" style="margin:0"><label>Skin name</label>
+         <input class="petinput" id="skinName" value="${escAttr(s.name)}" maxlength="28"></div>
+       <div class="petfield" style="margin:0"><label>Price (coins)</label>
+         <input class="petinput" id="skinPrice" type="number" min="0" step="10" value="${+s.price || 0}" style="max-width:150px;"></div>
+       <button class="danger" id="skinDelete">Delete skin</button>
+     </div>
+     <div class="hint">Re-skins <b>${escHtml(baseName)}</b> — fill the same poses (a blank slot falls back to
+       ${escHtml(baseName)}'s look). Buyable in the Shop at your price.</div>
+     <div class="grid">${cards}</div>
+     <div class="grouphead" style="margin:22px 6px 8px;">Custom chase music (optional — blank = normal)</div>
+     <div class="grid">${musicCards}</div>`;
+  wireSlotDrops();
+  $("skinName").oninput = e => { s.name = e.target.value; if (byId[s.id]) byId[s.id].name = s.name; save(); renderSidebar(); };
+  $("skinPrice").oninput = e => { s.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); };
+  $("skinDelete").onclick = () => {
+    if (!confirm(`Delete the skin "${s.name}"?`)) return;
+    skins = skins.filter(x => x.id !== s.id); delete byId[s.id]; delete store[s.id];
+    selected = s.base; save(); renderSidebar(); renderMain();
+  };
+  const eo = $("exportOneBtn"); if (eo) eo.onclick = exportOne;
+  $("main").querySelectorAll("[data-mslot]").forEach(d => {
+    d.onclick = () => pickMusic(d.dataset.mslot);
+    d.ondragover = e => { e.preventDefault(); d.classList.add("over"); };
+    d.ondragleave = () => d.classList.remove("over");
+    d.ondrop = e => { e.preventDefault(); d.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setMusic(d.dataset.mslot, f); };
+  });
+  $("main").querySelectorAll("[data-mclear]").forEach(x =>
+    x.onclick = () => { const sk = curSkin(); if (sk) { delete sk.music[x.dataset.mclear]; save(); renderSkin(); } });
+}
+function pickMusic(slot) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "audio/*";
+  inp.onchange = () => { if (inp.files[0]) setMusic(slot, inp.files[0]); };
+  inp.click();
+}
+function setMusic(slot, file) {
+  const s = curSkin(); if (!s) return;
+  if (!file.type.startsWith("audio/")) { toast("That's not an audio file."); return; }
+  const fr = new FileReader();
+  fr.onload = () => { (s.music || (s.music = {}))[slot] = { filename: file.name, dataURL: fr.result }; save(); renderSkin(); };
+  fr.readAsDataURL(file);
 }
 
 // ── Pets ─────────────────────────────────────────────────────────────────────
@@ -554,14 +669,33 @@ function downloadJSON(obj, name) {
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+function serializeSkin(s) {
+  const c = byId[s.id], slots = slotsFor(c), cs = store[s.id] || {};
+  const entries = slots.filter(sl => cs[sl.id]).map(sl => {
+    const v = cs[sl.id];
+    return v.noCostume
+      ? { slot: sl.id, kind: sl.tag, noCostume: true }
+      : { slot: sl.id, kind: sl.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
+  });
+  const music = {};
+  for (const ms of MUSIC_SLOTS) { const m = (s.music || {})[ms.id]; if (m) music[ms.id] = { filename: m.filename, audio: m.dataURL }; }
+  return { id: s.id, base: s.base, name: s.name, price: +s.price || 0, slots: entries, music };
+}
 function exportFile() {
   const characters = ENTITIES.map(serializeChar);
-  downloadJSON({ app: "forsnaken-art", version: 1, totalSlots: TOTAL, filledSlots: totalFilled(), characters }, "forsnaken-art.json");
-  toast(`Exported ${totalFilled()} images. Send me forsnaken-art.json`);
+  const out = { app: "forsnaken-art", version: 1, totalSlots: TOTAL, filledSlots: totalFilled(), characters };
+  if (skins.length) out.skins = skins.map(serializeSkin);
+  downloadJSON(out, "forsnaken-art.json");
+  toast(`Exported ${totalFilled()} images${skins.length ? ` + ${skins.length} skin(s)` : ""}. Send me forsnaken-art.json`);
 }
-// Export ONLY the selected character (same file format, one entry). Imports back
-// via the normal Import button, and the game bakes it the same way.
+// Export ONLY the selected character or skin (same file format, one entry).
 function exportOne() {
+  if (isSkinSel()) {
+    const s = curSkin(); if (!s) return;
+    downloadJSON({ app: "forsnaken-art", version: 1, single: true, skins: [serializeSkin(s)] }, `forsnaken-skin-${s.id}.json`);
+    toast(`Exported skin "${s.name}": forsnaken-skin-${s.id}.json`);
+    return;
+  }
   const c = byId[selected];
   if (!c) { toast("Pick a character first (pets have their own export)."); return; }
   const entry = serializeChar(c);
@@ -581,7 +715,22 @@ function importFile(file) {
           image: p.image ? { filename: p.filename || "pet.png", w: p.w, h: p.h, dataURL: p.image } : null });
       }
       save(); renderSidebar(); renderMain();
-      if (!d.characters) return toast(`Imported ${d.pets.length} pet(s).`);
+      if (!d.characters && !d.skins) return toast(`Imported ${d.pets.length} pet(s).`);
+    }
+    // Skins (from a full export or a single-skin file).
+    if (Array.isArray(d.skins)) {
+      for (const sk of d.skins) {
+        if (!skins.some(x => x.id === sk.id)) {
+          const music = {};
+          for (const k in (sk.music || {})) if (sk.music[k]) music[k] = { filename: sk.music[k].filename || "track", dataURL: sk.music[k].audio };
+          const rec = { id: sk.id, base: sk.base, name: sk.name || "Skin", price: +sk.price || 0, music };
+          skins.push(rec); registerSkin(rec);
+        }
+        for (const s of (sk.slots || []))
+          (store[sk.id] ||= {})[s.slot] = s.noCostume ? { noCostume: true } : { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
+      }
+      save(); renderSidebar(); renderMain();
+      if (!d.characters) return toast(`Imported ${d.skins.length} skin(s).`);
     }
     if (!d.characters) return toast("Unrecognized file.");
     for (const c of d.characters) {
@@ -623,7 +772,7 @@ function modesFor(c) {
   ];
   if (c.role === "killer") m.push({ id: "attack", label: "Attack", kind: "action", ab: "attack", slot: "attack", base: "idle" });
   c.abilities.forEach(a => m.push({ id: "ability-" + a.id, label: a.name, kind: "action", ab: a.id, slot: "ability-" + a.id, base: "idle" }));
-  if (c.id === "sly") {
+  if ((c._base || c.id) === "sly") {
     m.push({ id: "dino-idle", label: "Dino Idle", kind: "static", slot: "dino-idle", base: "dino-idle" });
     m.push({ id: "dino-walk", label: "Dino Walk", kind: "walk", slots: ["dino-walk-1", "dino-walk-2"], base: "dino-idle" });
     m.push({ id: "dino-fire", label: "Dino Fire", kind: "action", ab: "dino_fire", slot: "dino-fire", base: "dino-idle" });
@@ -765,8 +914,9 @@ $("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textCo
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
 $("importFile").onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
-$("clearBtn").onclick = () => { if (confirm("Remove ALL added art? (Export first if you want to keep it.)"))
-  { store = {}; flags = {}; save(); renderSidebar(); renderMain(); } };
+$("clearBtn").onclick = () => { if (confirm("Remove ALL added art + skins? (Export first if you want to keep it.)"))
+  { store = {}; flags = {}; for (const s of skins) delete byId[s.id]; skins = [];
+    if (isSkinSel()) selected = ALL[0].id; save(); renderSidebar(); renderMain(); } };
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 load().then(() => { renderSidebar(); renderMain(); });

@@ -517,6 +517,7 @@ function handle(id, ws, msg) {
     case "dash_wall_hit": return onDashWallHit(id);
     case "skill":     return onSkill(id, msg);
     case "set_pet":   return onSetPet(id, msg);
+    case "set_skin":  return onSetSkin(id, msg);
     case "rejoin":    return onRejoinVote(id);
     case "leave":     return removePlayer(id);
   }
@@ -525,6 +526,12 @@ function onSetPet(id, msg) {
   const p = state.players.get(id);
   if (!p) return;
   p.pet = (typeof msg.pet === "string" && msg.pet) ? msg.pet.slice(0, 40) : null;
+  broadcastLobby();
+}
+function onSetSkin(id, msg) {
+  const p = state.players.get(id);
+  if (!p) return;
+  p.skin = (typeof msg.skin === "string" && msg.skin) ? msg.skin.slice(0, 80) : null;
   broadcastLobby();
 }
 
@@ -570,6 +577,7 @@ function onJoin(id, ws, msg) {
     survivorChar: "scout",
     killerChar: "slasher",
     pet: null,               // equipped pet id (cosmetic companion)
+    skin: null,              // equipped skin id (cosmetic alt costume)
     kills: 0,                // survivors downed this round (gates Sly's transform)
     color: SURVIVOR_CHARS.find(c => c.id === "scout").color,
     x: MAP.w / 2, y: MAP.h - 200,
@@ -1958,7 +1966,7 @@ function tick() {
     // Sync hub positions so lobby players see each other move.
     broadcast({ type: "lobby_state", players: [...state.players.values()].map(p => ({
       id: p.id, x: Math.round(p.x), y: Math.round(p.y), fx: +p.facing.x.toFixed(2),
-      survivorChar: p.survivorChar, name: p.name, pet: p.pet || null,
+      survivorChar: p.survivorChar, name: p.name, pet: p.pet || null, skin: p.skin || null,
     })) });
   }
 }
@@ -1985,6 +1993,7 @@ function serializePlayers() {
     survivorChar: p.survivorChar,
     killerChar: p.killerChar,
     pet: p.pet || null,
+    skin: p.skin || null,
   }));
 }
 
