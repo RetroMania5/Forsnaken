@@ -3514,6 +3514,8 @@ function downloadSave() {
     version: ACCOUNT_VERSION,
     coins: Account.coins,
     unlocks: Account.unlocks,
+    pets: Account.pets,
+    equippedPet: Account.equippedPet,
     exportedAt: new Date().toISOString(),
   }, null, 2);
   const blob = new Blob([data], { type: "text/plain" });
@@ -3538,10 +3540,11 @@ function loadSaveFromFile(file) {
       alert("That save is missing required fields (coins / unlocks).");
       return;
     }
+    const incPets = Array.isArray(data.pets) ? data.pets.length : 0;
     const ok = confirm(
       `Replace your current save?\n\n` +
-      `   Current:  ${Account.coins} coins, ${Account.unlocks.length} chars unlocked\n` +
-      `   Incoming: ${data.coins} coins, ${data.unlocks.length} chars unlocked\n\n` +
+      `   Current:  ${Account.coins} coins, ${Account.unlocks.length} chars, ${Account.pets.length} pets\n` +
+      `   Incoming: ${data.coins} coins, ${data.unlocks.length} chars, ${incPets} pets\n\n` +
       `This cannot be undone.`
     );
     if (!ok) return;
@@ -3554,10 +3557,15 @@ function loadSaveFromFile(file) {
       valid = applyMigration(valid, ACCOUNT_MIGRATIONS[v]);
     }
     Account.unlocks = [...new Set([...DEFAULT_UNLOCKS, ...valid])];
+    // Pets (older saves may not have them — default to none).
+    Account.pets = Array.isArray(data.pets) ? data.pets.filter(id => typeof id === "string") : [];
+    Account.equippedPet = (typeof data.equippedPet === "string" && Account.pets.includes(data.equippedPet)) ? data.equippedPet : null;
+    G.myPet = Account.equippedPet;
+    if (G.myPet) sendMsg({ type: "set_pet", pet: G.myPet });   // reflect to others if already in a room
     saveAccount();
     updateCoinDisplay();
     if (typeof buildCharGrids === "function" && G.survivorChars.length) buildCharGrids();
-    alert(`Loaded: ${Account.coins} coins, ${Account.unlocks.length} unlocked.`);
+    alert(`Loaded: ${Account.coins} coins, ${Account.unlocks.length} unlocked, ${Account.pets.length} pets.`);
   };
   reader.onerror = () => alert("Could not read that file.");
   reader.readAsText(file);
