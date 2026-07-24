@@ -746,7 +746,7 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#ff9a3c"></span><b>Whamo</b><span class="gd-muted">standees + megaphone; speeds up near the killer</span></div>
-      <div class="gd-ab"><b>Passive — Speedy</b>: a meter (0–100%) that becomes speed — <b>1× at 0%, up to 3× at 100%</b>. It climbs <b>+4%/s</b> while the killer lingers near one of your standees and <b>+18%</b> whenever the killer breaks one. It only drains (<b>−1%/s</b>) while the killer is <b>off your screen</b>.</div>
+      <div class="gd-ab"><b>Passive — Speedy</b>: a meter (0–100%) that becomes speed — <b>1× at 0%, up to 2× at 100%</b>. It climbs <b>+4%/s</b> while the killer lingers near one of your standees and <b>+18%</b> whenever the killer breaks one. It only drains (<b>−1%/s</b>) while the killer is <b>off your screen</b>.</div>
       <div class="gd-ab"><b>Z — Standee</b>: drop a cardboard cutout of yourself. Up to <b>3</b> out at once — you can't place a 4th until one is broken (the killer walks into it). CD 30s.</div>
       <div class="gd-ab"><b>X — Megaphone</b>: a <b>1s wind-up</b> (you stand still, shaking as you heft it) then <b>stuns every enemy nearby for 2s</b>. CD 30s (a fixed timer — your speed boost never changes it).</div>
     </div>
@@ -5363,7 +5363,7 @@ function updatePlayerAnim(p, dt) {
 // off Whamo's screen. Speed = 1x at 0%, up to 3x at 100%. Computed locally on
 // Whamo's own client (movement is client-authoritative).
 const SPEEDY_NEAR_R = 200;              // "near a standee"
-function speedyMult() { return 1 + 2 * (Math.max(0, Math.min(100, G.speedyPct || 0)) / 100); }
+function speedyMult() { return 1 + (Math.max(0, Math.min(100, G.speedyPct || 0)) / 100); }   // 1x at 0%, 2x at 100%
 function updateSpeedy(me, dt) {
   if (!me || me.survivorChar !== "whamo" || me.role !== "survivor" || !me.alive) return;
   const killer = [...G.players.values()].find(k => k.role === "killer" && k.alive);
@@ -7594,7 +7594,7 @@ function updateAbilitySlots(me) {
       speedyBar.classList.remove("hidden");
       const pct = Math.max(0, Math.min(100, G.speedyPct || 0));
       speedyBar.querySelector(".fill").style.width = pct + "%";
-      speedyBar.querySelector(".label").textContent = "SPEEDY " + (1 + 2 * pct / 100).toFixed(1) + "×";
+      speedyBar.querySelector(".label").textContent = "SPEEDY " + (1 + pct / 100).toFixed(1) + "×";
     } else {
       speedyBar.classList.add("hidden");
     }
