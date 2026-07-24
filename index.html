@@ -195,6 +195,7 @@
   .hud-banner .sub { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; opacity: 0.8; margin-top: 8px; }
   .hud-banner #banner-rejoin { margin-top: 22px; font-size: 20px; padding: 10px 36px; pointer-events: auto; cursor: pointer; }
   .hud-banner #banner-rejoin.hidden { display: none; }
+  .hud-banner #banner-rejoin:disabled { opacity: 0.6; cursor: default; }
   /* Disconnect prompt — shown over the current screen (e.g. the win/defeat banner) */
   #disconnect-prompt { position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
     padding-bottom: 14vh; z-index: 500; pointer-events: none; }
@@ -2355,7 +2356,8 @@ function onMessage(msg) {
       G.timer = msg.roundDuration;
       buildCharGrids();
       break;
-    case "lobby":
+    case "lobby": {
+      const wasOver = G.phase === "over";
       G.phase = msg.phase || "lobby";
       G.designatedKillerId = msg.designatedKillerId;
       G.randomKillerEnabled = !!msg.randomKillerEnabled;
@@ -2365,12 +2367,18 @@ function onMessage(msg) {
       // Round is over or hasn't started — stop the round mix and start
       // the lobby ambient.
       if (G.phase === "lobby") { stopMusic(); startLobbyMusic(); }
-      if (hudEl.classList.contains("hidden")) {
+      // Show the lobby screen when we're not already on a menu, OR when a round
+      // just ended (the rejoin vote passed / fallback fired) — otherwise a mid-
+      // round roster update shouldn't yank an in-game player out.
+      if (G.phase === "lobby" && (hudEl.classList.contains("hidden") || wasOver)) {
+        $("hud-banner").classList.add("hidden");
+        $("banner-rejoin").classList.add("hidden");
         showOnly(lobbyEl); renderLobby();
       } else {
         renderLobby();
       }
       break;
+    }
     case "lobby_state":
       G.lobbyPlayers = msg.players || [];   // other players' hub positions
       break;
@@ -2610,6 +2618,7 @@ function onMessage(msg) {
     case "over":
       G.phase = "over"; G.winner = msg.winner;
       G.aiming = false;
+      G.rejoinStatus = null;   // fresh vote tally for this results screen
       for (const p of G.players.values()) { p.channelUntil = 0; p.channelType = null; p.sodaUntil = 0; }
       G.portalMenu = "closed";
       $("portal-bar").classList.add("hidden");
@@ -2617,6 +2626,10 @@ function onMessage(msg) {
       $("spectator-bar").classList.add("hidden");
       awardRoundPayout(msg.winner);
       showBanner(msg.winner);
+      break;
+    case "rejoin_status":
+      G.rejoinStatus = { votes: msg.votes, needed: msg.needed, total: msg.total };
+      updateRejoinBtn();
       break;
     case "stun": {
       const v = G.players.get(msg.id);
@@ -4332,10 +4345,28 @@ function showBanner(winner) {
     else s.textContent = "You survived";
   }
   b.classList.remove("hidden");
-  // Rejoin button lives right here on the end-game screen.
+  // Rejoin is a VOTE — 2/3 of the room must click to send everyone back to the
+  // lobby. (A genuine disconnect is handled separately in the ws "close" handler,
+  // which re-points this button at connect().)
   const rj = $("banner-rejoin");
   rj.classList.remove("hidden");
-  rj.onclick = () => connect();
+  rj.disabled = false;
+  G.rejoinVoted = false;
+  updateRejoinBtn();
+  rj.onclick = () => {
+    if (G.rejoinVoted) return;
+    G.rejoinVoted = true;
+    rj.disabled = true;
+    sendMsg({ type: "rejoin" });
+    updateRejoinBtn();
+  };
+}
+// Reflect the live rejoin-vote tally on the button.
+function updateRejoinBtn() {
+  const rj = $("banner-rejoin"); if (!rj) return;
+  const st = G.rejoinStatus || {};
+  const votes = st.votes || 0, needed = (st.needed != null) ? st.needed : "?";
+  rj.textContent = G.rejoinVoted ? `Waiting… ${votes}/${needed}` : `Rejoin ${votes}/${needed}`;
 }
 
 function randomName() {

@@ -173,7 +173,12 @@ window.ForsakenSolo = (function () {
         case "down":
           if (m.id === this.id) this.alive = false; break;
         case "lms": case "over":
-          if (m.type === "over") this.playing = false; break;
+          if (m.type === "over") { this.playing = false; this._rejVoted = false; } break;
+        case "rejoin_status":
+          // Follow the human: once anyone votes to rejoin, the bots vote too so
+          // a solo player can send everyone back to the lobby with one click.
+          if (!this._rejVoted && m.votes >= 1) { this._rejVoted = true; this.emit({ type: "rejoin" }); }
+          break;
       }
     }
     updateRoster(players) {

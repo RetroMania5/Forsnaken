@@ -366,6 +366,7 @@ const ROUND_DURATION = 360;   // 6 minutes
 const TIME_PER_GEN = -20;
 const TIME_PER_DOWN = +25;
 const RESULT_HOLD_MS = 5000;
+const REJOIN_FALLBACK_MS = 90000;   // auto-return to lobby if nobody votes for 90s
 
 // ---- Skill check ----
 const SKILL_PROGRESS = { green: 0.13, yellow: 0.05, red: -0.10 };
@@ -383,6 +384,7 @@ const state = {
   roundTimer: ROUND_DURATION,
   winner: null,
   resetAt: 0,
+  rejoinVotes: new Set(),       // player ids who voted to rejoin after a round
   lastSkill: new Map(),
   projectiles: [],
   smokes: [],
@@ -501,8 +503,34 @@ function handle(id, ws, msg) {
     case "ability":   return onAbility(id, msg);
     case "dash_wall_hit": return onDashWallHit(id);
     case "skill":     return onSkill(id, msg);
+    case "rejoin":    return onRejoinVote(id);
     case "leave":     return removePlayer(id);
   }
+}
+
+// ---- Post-round rejoin vote: 2/3 of players must vote to return everyone ----
+function rejoinNeeded() {
+  const total = state.players.size;
+  return { total, needed: Math.max(1, Math.ceil(total * 2 / 3)) };
+}
+function countRejoinVotes() {
+  // Drop votes from players who have since left.
+  for (const vid of [...state.rejoinVotes]) if (!state.players.has(vid)) state.rejoinVotes.delete(vid);
+  return state.rejoinVotes.size;
+}
+function broadcastRejoinStatus() {
+  const votes = countRejoinVotes();
+  const { total, needed } = rejoinNeeded();
+  broadcast({ type: "rejoin_status", votes, needed, total });
+}
+function onRejoinVote(id) {
+  if (state.phase !== "over") return;
+  if (!state.players.has(id)) return;
+  state.rejoinVotes.add(id);
+  broadcastRejoinStatus();
+  const votes = countRejoinVotes();
+  const { needed } = rejoinNeeded();
+  if (votes >= needed) returnToLobby();
 }
 
 function onJoin(id, ws, msg) {
@@ -633,6 +661,13 @@ function removePlayer(id) {
     endRound("survivors");
   } else if (state.phase === "playing") {
     checkRoundEnd();
+  } else if (state.phase === "over") {
+    // Someone left the results screen — recount the rejoin vote (a smaller
+    // group lowers the 2/3 threshold, which may now be met).
+    state.rejoinVotes.delete(id);
+    broadcastRejoinStatus();
+    const { needed } = rejoinNeeded();
+    if (state.players.size > 0 && countRejoinVotes() >= needed) returnToLobby();
   }
   broadcastLobby();
 }
@@ -1409,8 +1444,44 @@ function endRound(winner) {
   if (state.phase !== "playing") return;
   state.phase = "over";
   state.winner = winner;
-  state.resetAt = Date.now() + RESULT_HOLD_MS;
+  state.rejoinVotes.clear();
+  // Return to the lobby only when 2/3 vote to rejoin; keep a long fallback so a
+  // fully-idle results screen still recycles instead of hanging forever.
+  state.resetAt = Date.now() + REJOIN_FALLBACK_MS;
   broadcast({ type: "over", winner });
+  broadcastRejoinStatus();
+}
+
+// Reset the room back to the lobby for the next round (from a rejoin vote or the
+// fallback timer).
+function returnToLobby() {
+  state.phase = "lobby";
+  state.rejoinVotes.clear();
+  state.generators = freshGens();
+  state.roundTimer = ROUND_DURATION;
+  state.projectiles = [];
+  state.smokes = [];
+  state.slowFields = [];
+  state.portals = [];
+  state.burgers = [];
+  state.robots = [];
+  state.traps = [];
+  state.spawnPads = [];
+  state.clovers = [];
+  state.stations = [];
+  for (const p of state.players.values()) {
+    p.role = "unassigned";
+    p.alive = true;
+    p.hp = SURVIVOR_HP_MAX;
+    p.cooldowns = [0, 0, 0];
+    p.effects = freshEffects();
+    p.malice = 0;
+    p.respawned = false;
+    p._lastCloverX = null; p._lastCloverY = null;
+    const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
+    if (sc) p.color = sc.color;
+  }
+  broadcastLobby();
 }
 
 let lastTickTime = Date.now();
@@ -1803,32 +1874,7 @@ function tick() {
       });
     }
   } else if (state.phase === "over" && now >= state.resetAt) {
-    state.phase = "lobby";
-    state.generators = freshGens();
-    state.roundTimer = ROUND_DURATION;
-    state.projectiles = [];
-    state.smokes = [];
-    state.slowFields = [];
-    state.portals = [];
-    state.burgers = [];
-    state.robots = [];
-    state.traps = [];
-    state.spawnPads = [];
-    state.clovers = [];
-    state.stations = [];
-    for (const p of state.players.values()) {
-      p.role = "unassigned";
-      p.alive = true;
-      p.hp = SURVIVOR_HP_MAX;
-      p.cooldowns = [0, 0, 0];
-      p.effects = freshEffects();
-      p.malice = 0;
-      p.respawned = false;
-      p._lastCloverX = null; p._lastCloverY = null;
-      const sc = SURVIVOR_CHARS.find(c => c.id === p.survivorChar);
-      if (sc) p.color = sc.color;
-    }
-    broadcastLobby();
+    returnToLobby();   // fallback if nobody voted within REJOIN_FALLBACK_MS
   } else if (state.phase === "lobby") {
     // Sync hub positions so lobby players see each other move.
     broadcast({ type: "lobby_state", players: [...state.players.values()].map(p => ({
