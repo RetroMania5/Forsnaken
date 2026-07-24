@@ -303,7 +303,7 @@ const ABILITIES = {
     { id: "standee", name: "Standee", cd: 30, type: "standee", maxStandees: 3, breakRadius: 30 },
     // Megaphone: 1s wind-up (rooted, shaking) then stuns every killer on
     // screen (approximated by a big radius) for 2s.
-    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", windupDuration: 1.0, stunDuration: 2.0, radius: 800 },
+    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", windupDuration: 1.0, stunDuration: 2.0, radius: 480 },
   ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
