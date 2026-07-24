@@ -7013,7 +7013,10 @@ function applyCustomArt() {
       };
       for (const s of slots) {
         const t = target(charId, s); if (!t || !imgs[s]) continue;
-        const ref = refFor(t.sheet); if (!ref) continue;
+        let ref = refFor(t.sheet); if (!ref) continue;
+        // Sly's transform pose is drawn small in the source — fit it to the
+        // sprite size so it reads as big as the idle.
+        if (s === "ability-transform") ref = imgs[s].naturalHeight;
         const c = bakeAt(imgs[s], SPRITE_SIZE / ref);
         const sh = sprites[t.sheet] || (sprites[t.sheet] = {});
         sh[t.frame] = c;
