@@ -1585,6 +1585,10 @@ function startRound() {
     timer: state.roundTimer,
     mapId: state.currentMap,
   });
+  // With a single survivor there's nobody left to whittle down, so evaluate
+  // immediately — this is what drops a 1v1 straight into LMS. Ordered after the
+  // start broadcast so clients have the roster before the lms message lands.
+  checkRoundEnd();
 }
 
 function checkRoundEnd() {
@@ -1597,9 +1601,10 @@ function checkRoundEnd() {
   }
   if (!anySurv) return;
   if (!anyActive) { endRound("killer"); return; }
-  // Last-Man-Standing: exactly one survivor left, the round started with
-  // at least two, and we haven't already triggered it.
-  if (!state.lmsTriggered && aliveCount === 1 && (state.survivorStartCount || 0) >= 2) {
+  // Last-Man-Standing: exactly one survivor left and we haven't triggered it.
+  // A 1v1 qualifies from the opening whistle — the lone survivor IS the last
+  // one standing, so a two-player game starts straight in LMS.
+  if (!state.lmsTriggered && aliveCount === 1) {
     state.lmsTriggered = true;
     state.roundTimer = 60;
     const killer = [...state.players.values()].find(p => p.role === "killer" && p.alive);
