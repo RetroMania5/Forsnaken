@@ -917,7 +917,8 @@
   <div class="save-paste-box">
     <h3>Paste save</h3>
     <div class="save-paste-hint">Paste the contents of a downloaded save file, then Load.
-      You'll get the same confirmation before anything is replaced.</div>
+      You'll get the same confirmation before anything is replaced.
+      <br><span style="opacity:0.55">build <span id="build-stamp"></span></span></div>
     <textarea id="save-paste-text" spellcheck="false" placeholder='{"version":6,"coins":0,"unlocks":[...]}'></textarea>
     <div class="save-paste-row">
       <button id="save-paste-cancel" class="secondary">Cancel</button>
@@ -2946,6 +2947,11 @@ $("save-download").addEventListener("click", downloadSave);
 $("save-load").addEventListener("click", () => $("save-file").click());
 $("save-download-lobby").addEventListener("click", downloadSave);
 $("save-load-lobby").addEventListener("click", () => $("save-file").click());
+// Bumped whenever the client changes, so "is my page stale?" is answerable at
+// a glance instead of by guesswork. Shown in the paste box and logged on boot.
+const BUILD = "2026-07-25c";
+console.log("Forsnaken build " + BUILD);
+if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 // Paste a save instead of picking a file. Same loader, same confirm prompt.
 function openSavePaste() {
   $("save-paste-text").value = "";
