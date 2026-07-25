@@ -66,22 +66,22 @@ const CIRCUS_GEN_POOL = [
 // Factory gens: tucked into the clear pockets of the factory maze
 // (between walls and below the top conveyor / above the bottom conveyor).
 const FACTORY_GEN_POOL = [
-  { x: 200,  y: 240 },
-  { x: 1000, y: 240 },
-  { x: 1400, y: 240 },
-  { x: 2200, y: 240 },
-  { x: 200,  y: 1360 },
-  { x: 1000, y: 1360 },
-  { x: 1400, y: 1360 },
-  { x: 2200, y: 1360 },
-  { x: 200,  y: 700 },
-  { x: 1000, y: 800 },
-  { x: 1400, y: 800 },
-  { x: 2200, y: 700 },
-  { x: 600,  y: 1100 },
-  { x: 1900, y: 1100 },
-  { x: 700,  y: 500 },
-  { x: 1700, y: 500 },
+  { x: 220, y: 220 },
+  { x: 620, y: 220 },
+  { x: 1020, y: 220 },
+  { x: 1420, y: 220 },
+  { x: 1820, y: 220 },
+  { x: 220, y: 580 },
+  { x: 620, y: 580 },
+  { x: 1020, y: 580 },
+  { x: 1420, y: 580 },
+  { x: 1820, y: 580 },
+  { x: 220, y: 940 },
+  { x: 620, y: 940 },
+  { x: 1020, y: 940 },
+  { x: 1420, y: 940 },
+  { x: 1820, y: 940 },
+  { x: 220, y: 1300 }
 ];
 const GENS_PER_ROUND = 5;
 
@@ -115,37 +115,86 @@ const CIRCUS_WALLS = [
 // between y=300 and y=1300 so the top and bottom corridors stay clear
 // for the belts.
 const FACTORY_WALLS = [
-  { x: MAP.w / 2, y: WALL_T / 2, w: MAP.w, h: WALL_T },
-  { x: MAP.w / 2, y: MAP.h - WALL_T / 2, w: MAP.w, h: WALL_T },
-  { x: WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
-  { x: MAP.w - WALL_T / 2, y: MAP.h / 2, w: WALL_T, h: MAP.h },
-  // Vertical maze walls
-  { x: 400,  y: 450,  w: WALL_T, h: 300 },
-  { x: 400,  y: 950,  w: WALL_T, h: 300 },
-  { x: 800,  y: 700,  w: WALL_T, h: 400 },
-  { x: 800,  y: 1200, w: WALL_T, h: 200 },
-  { x: 1200, y: 400,  w: WALL_T, h: 200 },
-  { x: 1200, y: 900,  w: WALL_T, h: 600 },
-  { x: 1600, y: 700,  w: WALL_T, h: 400 },
-  { x: 1600, y: 1200, w: WALL_T, h: 200 },
-  { x: 2000, y: 450,  w: WALL_T, h: 300 },
-  { x: 2000, y: 950,  w: WALL_T, h: 300 },
-  // Horizontal maze walls
-  { x: 600,  y: 600,  w: 380, h: WALL_T },
-  { x: 1400, y: 600,  w: 380, h: WALL_T },
-  { x: 1000, y: 1000, w: 380, h: WALL_T },
-  { x: 1800, y: 1000, w: 380, h: WALL_T },
-  { x: 400,  y: 800,  w: 600, h: WALL_T },
-  { x: 2000, y: 800,  w: 600, h: WALL_T },
-  { x: 600,  y: 1200, w: 280, h: WALL_T },
-  { x: 1800, y: 400,  w: 280, h: WALL_T },
+  { x: 938, y: 61, w: 25, h: 122 },
+  { x: 1450, y: 49, w: 50, h: 97 },
+  { x: 912, y: 61, w: 25, h: 73 },
+  { x: 962, y: 61, w: 25, h: 73 },
+  { x: 1412, y: 37, w: 25, h: 24 },
+  { x: 1075, y: 110, w: 200, h: 73 },
+  { x: 1438, y: 110, w: 25, h: 24 },
+  { x: 1038, y: 170, w: 125, h: 49 },
+  { x: 325, y: 195, w: 150, h: 49 },
+  { x: 1038, y: 207, w: 75, h: 24 },
+  { x: 2075, y: 219, w: 150, h: 49 },
+  { x: 375, y: 840, w: 50, h: 1242 },
+  { x: 650, y: 304, w: 150, h: 122 },
+  { x: 2025, y: 536, w: 50, h: 584 },
+  { x: 1800, y: 365, w: 50, h: 195 },
+  { x: 1350, y: 414, w: 100, h: 146 },
+  { x: 650, y: 377, w: 100, h: 24 },
+  { x: 1412, y: 426, w: 25, h: 122 },
+  { x: 950, y: 426, w: 50, h: 73 },
+  { x: 1450, y: 426, w: 50, h: 73 },
+  { x: 1862, y: 438, w: 75, h: 49 },
+  { x: 62, y: 524, w: 75, h: 170 },
+  { x: 1138, y: 463, w: 325, h: 49 },
+  { x: 12, y: 536, w: 25, h: 146 },
+  { x: 112, y: 499, w: 25, h: 73 },
+  { x: 962, y: 475, w: 25, h: 24 },
+  { x: 1438, y: 475, w: 25, h: 24 },
+  { x: 2100, y: 536, w: 100, h: 97 },
+  { x: 312, y: 572, w: 75, h: 73 },
+  { x: 800, y: 633, w: 50, h: 195 },
+  { x: 1600, y: 804, w: 50, h: 536 },
+  { x: 262, y: 572, w: 25, h: 24 },
+  { x: 2088, y: 609, w: 75, h: 49 },
+  { x: 2350, y: 621, w: 100, h: 24 },
+  { x: 2338, y: 645, w: 75, h: 24 },
+  { x: 1200, y: 804, w: 250, h: 244 },
+  { x: 2338, y: 852, w: 75, h: 97 },
+  { x: 800, y: 938, w: 50, h: 219 },
+  { x: 2288, y: 865, w: 25, h: 73 },
+  { x: 2388, y: 840, w: 25, h: 24 },
+  { x: 2388, y: 889, w: 25, h: 24 },
+  { x: 2038, y: 1205, w: 25, h: 609 },
+  { x: 2325, y: 913, w: 50, h: 24 },
+  { x: 2012, y: 1205, w: 25, h: 560 },
+  { x: 300, y: 1096, w: 100, h: 146 },
+  { x: 50, y: 1072, w: 100, h: 49 },
+  { x: 2062, y: 1084, w: 25, h: 73 },
+  { x: 2100, y: 1096, w: 50, h: 49 },
+  { x: 2350, y: 1096, w: 100, h: 49 },
+  { x: 238, y: 1145, w: 25, h: 49 },
+  { x: 1212, y: 1145, w: 525, h: 49 },
+  { x: 600, y: 1169, w: 100, h: 49 },
+  { x: 325, y: 1181, w: 50, h: 24 },
+  { x: 538, y: 1181, w: 25, h: 24 },
+  { x: 662, y: 1254, w: 25, h: 170 },
+  { x: 975, y: 1193, w: 50, h: 49 },
+  { x: 1450, y: 1193, w: 50, h: 49 },
+  { x: 625, y: 1205, w: 50, h: 24 },
+  { x: 1075, y: 1242, w: 100, h: 97 },
+  { x: 638, y: 1279, w: 25, h: 122 },
+  { x: 50, y: 1339, w: 100, h: 97 },
+  { x: 1800, y: 1352, w: 150, h: 122 },
+  { x: 112, y: 1339, w: 25, h: 49 },
+  { x: 338, y: 1327, w: 25, h: 24 },
+  { x: 2112, y: 1425, w: 75, h: 170 },
+  { x: 2062, y: 1400, w: 25, h: 73 },
+  { x: 2162, y: 1412, w: 25, h: 49 },
+  { x: 300, y: 1437, w: 100, h: 49 },
+  { x: 1812, y: 1425, w: 75, h: 24 },
+  { x: 238, y: 1449, w: 25, h: 24 },
+  { x: 262, y: 1473, w: 25, h: 24 },
+  { x: 2062, y: 1486, w: 25, h: 49 },
+  { x: 975, y: 1534, w: 50, h: 97 },
+  { x: 1462, y: 1534, w: 25, h: 97 },
+  { x: 1488, y: 1546, w: 25, h: 73 }
 ];
 // Conveyors: { x, y, w, h, vx, vy } — pushes any entity standing inside.
 const FACTORY_CONVEYORS = [
-  // Top east-bound belt (full-width top corridor, y < 200 is clear)
-  { x: MAP.w / 2, y: 150, w: 2200, h: 80, vx: 110, vy: 0 },
-  // Bottom west-bound belt
-  { x: MAP.w / 2, y: MAP.h - 150, w: 2200, h: 80, vx: -110, vy: 0 },
+  { x: 465, y: 806, w: 80, h: 1339, vx: 0, vy: 130 },
+  { x: 1942, y: 852, w: 85, h: 1344, vx: 0, vy: -130 }
 ];
 const CIRCUS_OBSTACLES = [
   { x: 300,  y: 360,  w: 50, h: 50 },
@@ -174,22 +223,7 @@ const CIRCUS_OBSTACLES = [
 // Factory obstacles: scattered industrial props in the corridors and
 // rooms. Types reused (crate / barrel / locker) — client rerenders them
 // with an industrial palette when G.mapId === "factory".
-const FACTORY_OBSTACLES = [
-  { x: 300,  y: 240,  w: 50, h: 50 },
-  { x: 2100, y: 240,  w: 50, h: 50 },
-  { x: 300,  y: 1360, w: 50, h: 50 },
-  { x: 2100, y: 1360, w: 50, h: 50 },
-  { x: 500,  y: 700,  w: 36, h: 36 },
-  { x: 1900, y: 700,  w: 36, h: 36 },
-  { x: 500,  y: 1000, w: 32, h: 70 },
-  { x: 1900, y: 1000, w: 32, h: 70 },
-  { x: 1100, y: 350,  w: 50, h: 50 },
-  { x: 1300, y: 350,  w: 50, h: 50 },
-  { x: 1100, y: 1250, w: 36, h: 36 },
-  { x: 1300, y: 1250, w: 36, h: 36 },
-  { x: 250,  y: 1100, w: 50, h: 50 },
-  { x: 2150, y: 1100, w: 50, h: 50 },
-];
+const FACTORY_OBSTACLES = [];
 const MAPS = {
   circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  gens: CIRCUS_GEN_POOL,  conveyors: [] },
   factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, gens: FACTORY_GEN_POOL, conveyors: FACTORY_CONVEYORS },
@@ -488,6 +522,9 @@ const server = http.createServer((req, res) => {
   }
   if (url === "/pets-data.js") {
     return sendFile(res, "pets-data.js", "application/javascript; charset=utf-8");
+  }
+  if (url === "/factory-bg.js") {
+    return sendFile(res, "factory-bg.js", "application/javascript; charset=utf-8");
   }
   res.writeHead(404); res.end("not found");
 });
