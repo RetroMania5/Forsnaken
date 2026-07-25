@@ -574,8 +574,24 @@ function handle(id, ws, msg) {
     case "set_pet":   return onSetPet(id, msg);
     case "set_skin":  return onSetSkin(id, msg);
     case "rejoin":    return onRejoinVote(id);
+    case "chat":      return onChat(id, msg);
     case "leave":     return removePlayer(id);
   }
+}
+const CHAT_MAX_LEN = 120;
+const CHAT_MIN_GAP_MS = 600;    // simple flood guard, per player
+function onChat(id, msg) {
+  const p = state.players.get(id);
+  if (!p) return;
+  // Collapse whitespace so nobody can paste a wall of newlines into the log.
+  const text = (typeof msg.text === "string" ? msg.text : "")
+    .replace(/\s+/g, " ").trim().slice(0, CHAT_MAX_LEN);
+  if (!text) return;
+  const now = Date.now();
+  if (now - (p.lastChatAt || 0) < CHAT_MIN_GAP_MS) return;
+  p.lastChatAt = now;
+  // The client renders with textContent, so the text is never parsed as HTML.
+  broadcast({ type: "chat", id, name: p.name, role: p.role, text });
 }
 function onSetPet(id, msg) {
   const p = state.players.get(id);

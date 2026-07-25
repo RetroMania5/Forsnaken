@@ -279,6 +279,28 @@
   @media (max-width:640px) { .store-body { flex-direction:column; } .store-detail { width:auto; border-left:none; border-top:1px solid #333a52; } }
 
   /* Touch controls */
+  /* Chat lives top-left: the joystick owns bottom-left on touch and the
+     ability buttons own bottom-right, so this is the one free corner. */
+  #chat { position: fixed; left: 12px; top: 12px; z-index: 7; width: min(340px, 46vw);
+    display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  #chat.hidden { display: none; }
+  #chat-open { width: 40px; height: 40px; padding: 0; margin: 0; border-radius: 12px;
+    background: rgba(10,12,20,0.62); border: 1px solid #333a52; color: #fff;
+    font-size: 18px; line-height: 1; pointer-events: auto; flex: none; align-self: flex-start; }
+  #chat-log { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: hidden; }
+  .chat-msg { background: rgba(10,12,20,0.62); border: 1px solid #2a3049; border-radius: 10px;
+    padding: 5px 9px; font-size: 13px; line-height: 1.35; word-break: break-word;
+    animation: chatIn 140ms ease-out; transition: opacity 500ms linear; }
+  .chat-msg .who { font-weight: 700; margin-right: 6px; }
+  .chat-msg .who.killer { color: #e94560; }
+  .chat-msg .who.survivor { color: #6cb6ff; }
+  .chat-msg.fading { opacity: 0; }
+  @keyframes chatIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  #chat-bar { position: fixed; left: 50%; transform: translateX(-50%); z-index: 62;
+    bottom: calc(24px + env(safe-area-inset-bottom)); width: min(560px, 92vw); }
+  #chat-bar.hidden { display: none; }
+  #chat-input { width: 100%; padding: 11px 14px; border-radius: 12px; font-size: 15px;
+    background: rgba(10,12,20,0.92); color: #fff; border: 1px solid #4a5578; outline: none; }
   #save-paste-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.65);
     display: flex; align-items: center; justify-content: center; padding: 20px; }
   #save-paste-modal.hidden { display: none; }
@@ -699,6 +721,7 @@
 
     <div class="gd-h">CONTROLS</div>
     <div class="gd-line"><b>WASD</b> / joystick — move</div>
+    <div class="gd-line"><b>Enter</b> / 💬 button — chat (works in the lobby and mid-round; Esc cancels)</div>
     <div class="gd-line"><b>Shift</b> / push joystick far — sprint (drains stamina)</div>
     <div class="gd-line"><b>E</b> / tap FIX — attempt a skill check on a nearby generator (survivor)</div>
     <div class="gd-line"><b>Q</b> / tap ATK — basic attack (killer)</div>
@@ -911,6 +934,15 @@
     <div class="dc-title">Disconnected</div>
     <button id="dc-rejoin">Rejoin</button>
   </div>
+</div>
+
+<div id="chat" class="hidden">
+  <button id="chat-open" title="Chat (Enter)">💬</button>
+  <div id="chat-log"></div>
+</div>
+<div id="chat-bar" class="hidden">
+  <input id="chat-input" maxlength="120" autocomplete="off" autocapitalize="sentences"
+         placeholder="Say something…  (Enter to send, Esc to cancel)">
 </div>
 
 <div id="save-paste-modal" class="hidden">
@@ -1220,6 +1252,7 @@ const actionBtnState = { down: false };
 
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
+  if (chatIsOpen()) return;      // typing a message, not driving the player
   keys[e.key.toLowerCase()] = true;
 });
 window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
@@ -2773,6 +2806,9 @@ function onMessage(msg) {
     case "reward":
       earnRoundCoins(msg.coins || 0, msg.reason || "");
       break;
+    case "chat":
+      addChatMessage(msg.name, msg.text, msg.role);
+      break;
     // Server overriding a cooldown we already predicted (Angel's Stab costs
     // more when it actually connects). Duration, not an absolute time — the
     // two clocks aren't the same.
@@ -2947,9 +2983,67 @@ $("save-download").addEventListener("click", downloadSave);
 $("save-load").addEventListener("click", () => $("save-file").click());
 $("save-download-lobby").addEventListener("click", downloadSave);
 $("save-load-lobby").addEventListener("click", () => $("save-file").click());
+// ---------- Chat ----------
+// Usable in the lobby and mid-round. Messages fade out on their own so the log
+// never covers the map, and typing never leaks into movement.
+const CHAT_FADE_MS = 14000, CHAT_MAX_SHOWN = 7;
+const chatEl = $("chat"), chatBarEl = $("chat-bar"), chatInputEl = $("chat-input");
+function chatIsOpen() { return chatBarEl && !chatBarEl.classList.contains("hidden"); }
+function chatUsable() {
+  // Anywhere you're actually in a game: the lobby hub or a live round.
+  const inLobby = lobbyEl && !lobbyEl.classList.contains("hidden");
+  const inRound = hudEl && !hudEl.classList.contains("hidden");
+  return (inLobby || inRound) && !G.testMode;
+}
+function openChat() {
+  if (!chatUsable()) return;
+  // Drop every held key, or W/A/S/D stay "down" for the whole conversation.
+  for (const k in keys) keys[k] = false;
+  chatBarEl.classList.remove("hidden");
+  chatInputEl.value = "";
+  chatInputEl.focus();
+}
+function closeChat() {
+  chatBarEl.classList.add("hidden");
+  chatInputEl.blur();
+}
+function sendChat() {
+  const text = chatInputEl.value.replace(/\s+/g, " ").trim().slice(0, 120);
+  closeChat();
+  if (text) sendMsg({ type: "chat", text });
+}
+function addChatMessage(name, text, role) {
+  if (!$("chat-log")) return;
+  const row = document.createElement("div");
+  row.className = "chat-msg";
+  const who = document.createElement("span");
+  who.className = "who" + (role === "killer" ? " killer" : role === "survivor" ? " survivor" : "");
+  who.textContent = (name || "?") + ":";
+  const body = document.createElement("span");
+  body.textContent = text;            // never innerHTML — chat is untrusted
+  row.appendChild(who); row.appendChild(body);
+  const log = $("chat-log");
+  log.appendChild(row);
+  while (log.children.length > CHAT_MAX_SHOWN) log.removeChild(log.firstChild);
+  setTimeout(() => { row.classList.add("fading"); setTimeout(() => row.remove(), 600); }, CHAT_FADE_MS);
+}
+if ($("chat-open")) $("chat-open").addEventListener("click", openChat);
+chatInputEl.addEventListener("keydown", (e) => {
+  // Keep typing out of the game's key handler entirely.
+  e.stopPropagation();
+  if (e.key === "Enter") { e.preventDefault(); sendChat(); }
+  else if (e.key === "Escape") { e.preventDefault(); closeChat(); }
+});
+window.addEventListener("keydown", (e) => {
+  if (chatIsOpen()) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;   // name box, paste box
+  if (e.key === "Enter" && chatUsable()) { e.preventDefault(); openChat(); }
+});
+
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25c";
+const BUILD = "2026-07-25d";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 // Paste a save instead of picking a file. Same loader, same confirm prompt.
@@ -3659,6 +3753,13 @@ if ($("lobby-menu")) $("lobby-menu").addEventListener("click", (e) => { if (e.ta
 function uiLoop(now) {
   const lobbyShown = lobbyEl && !lobbyEl.classList.contains("hidden");
   updateLobbyTouchUI(lobbyShown && !anyLobbyOverlay());
+  // Chat follows you between the lobby and a round, but stays out of the menus
+  // and behind any open shop/inventory/menu panel.
+  if (chatEl) {
+    const want = chatUsable() && !(lobbyShown && anyLobbyOverlay());
+    chatEl.classList.toggle("hidden", !want);
+    if (!want && chatIsOpen()) closeChat();
+  }
   if (anyStoreOpen()) drawPreviews(now);
   if (lobbyShown) {
     if (!hub._wasShown) { hub.x = HUB_SPAWN_X; hub.y = HUB_SPAWN_Y; hub.lastT = 0; hub._wasShown = true; }
