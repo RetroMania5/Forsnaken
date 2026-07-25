@@ -148,6 +148,7 @@
     <textarea id="pasteText" spellcheck="false" placeholder='{"app":"forsnaken-art", ...}'></textarea>
     <div class="pasterow">
       <span id="pasteMsg"></span>
+      <button id="pasteClip" title="Read the clipboard directly — best for very large exports">📥 Clipboard</button>
       <button id="pasteCancel">Cancel</button>
       <button id="pasteLoad" class="primary">Load</button>
     </div>
@@ -1039,6 +1040,30 @@ $("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textCo
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
 $("importFile").onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
+// Pasted text picks up junk that JSON.parse won't forgive: a BOM, zero-width
+// characters, ``` fences, or smart quotes if it came through a rich-text app.
+function cleanPasted(t) {
+  t = t.replace(/^﻿/, "").replace(/[​-‍⁠]/g, "").trim();
+  if (t.startsWith("```")) t = t.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/, "").trim();
+  return t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+}
+// Say something useful instead of just "invalid". Truncation is the usual
+// cause: a multi-MB export often gets cut off on its way through a textarea.
+function diagnosePaste(t, err) {
+  const n = t.length.toLocaleString();
+  const tail = t.slice(-1);
+  if (tail !== "}" && tail !== "]") {
+    return `Looks cut off — got ${n} characters ending in "${tail}". Large exports `
+         + `often truncate when pasted; use Import… or 📥 Clipboard instead.`;
+  }
+  const m = /position (\d+)/.exec(err.message || "");
+  if (m) {
+    const at = +m[1];
+    return `Not valid JSON at character ${(+m[1]).toLocaleString()} of ${n}: `
+         + `…${t.slice(Math.max(0, at - 24), at + 24).replace(/\s+/g, " ")}…`;
+  }
+  return `Not valid JSON (${n} characters). ${err.message || ""}`;
+}
 // Paste-an-export: same importer, text instead of a file.
 function openPaste() {
   $("pasteMsg").textContent = "";
@@ -1050,14 +1075,29 @@ function closePaste() { $("pasteWrap").style.display = "none"; }
 $("pasteBtn").onclick = openPaste;
 $("pasteCancel").onclick = closePaste;
 $("pasteWrap").onclick = e => { if (e.target.id === "pasteWrap") closePaste(); };
-$("pasteLoad").onclick = () => {
-  const text = $("pasteText").value.trim();
+function runPaste(raw) {
+  const text = cleanPasted(raw || "");
   if (!text) { $("pasteMsg").textContent = "Nothing pasted yet."; return; }
+  try { JSON.parse(text); }
+  catch (e) { $("pasteMsg").textContent = diagnosePaste(text, e); return; }
   let err;
   try { err = importJSONText(text); }
   catch (e) { err = "Import failed: " + e.message; }
   if (err) { $("pasteMsg").textContent = err; return; }
   closePaste();
+}
+$("pasteLoad").onclick = () => runPaste($("pasteText").value);
+// Reading the clipboard directly skips the textarea, which is what actually
+// chokes on multi-megabyte exports.
+$("pasteClip").onclick = async () => {
+  $("pasteMsg").textContent = "Reading clipboard…";
+  try {
+    const t = await navigator.clipboard.readText();
+    $("pasteMsg").textContent = `Read ${t.length.toLocaleString()} characters.`;
+    runPaste(t);
+  } catch (e) {
+    $("pasteMsg").textContent = "Couldn't read the clipboard (" + (e.message || e) + ") — paste into the box instead.";
+  }
 };
 $("clearBtn").onclick = () => { if (confirm("Remove ALL added art + skins? (Export first if you want to keep it.)"))
   { store = {}; flags = {}; for (const s of skins) delete byId[s.id]; skins = [];

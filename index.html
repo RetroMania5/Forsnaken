@@ -2959,9 +2959,24 @@ $("save-paste-cancel").addEventListener("click", closeSavePaste);
 $("save-paste-modal").addEventListener("click", (e) => {
   if (e.target.id === "save-paste-modal") closeSavePaste();
 });
+// Pasted text picks up junk JSON.parse won't forgive — a BOM, zero-width
+// characters, ``` fences, or smart quotes from a rich-text app.
+function cleanPastedText(t) {
+  t = (t || "").replace(/^﻿/, "").replace(/[​-‍⁠]/g, "").trim();
+  if (t.startsWith("```")) t = t.replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/, "").trim();
+  return t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+}
 $("save-paste-load").addEventListener("click", () => {
-  const text = $("save-paste-text").value.trim();
+  const text = cleanPastedText($("save-paste-text").value);
   if (!text) { alert("Paste your save text first."); return; }
+  try { JSON.parse(text); }
+  catch (e) {
+    const tail = text.slice(-1);
+    alert(tail !== "}" && tail !== "]"
+      ? `That looks cut off — ${text.length.toLocaleString()} characters ending in "${tail}". Try Load save with the file instead.`
+      : `That isn't valid JSON (${text.length.toLocaleString()} characters).\n\n${e.message}`);
+    return;
+  }
   closeSavePaste();
   loadSaveFromText(text);
 });
