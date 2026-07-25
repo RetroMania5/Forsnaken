@@ -403,25 +403,36 @@ function renderSkin() {
   $("main").innerHTML =
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
        <h2>${escHtml(s.name)}</h2><span class="role">skin · ${escHtml(baseName)}</span>
+       <button id="masteryToggle" class="floatbtn ${s.mastery ? "on" : ""}" title="Earned by mastering the character (not bought)">⭐ Mastery${s.mastery ? " ✓" : ""}</button>
        <button id="exportOneBtn" class="floatbtn" title="Export just this skin (one file)">⬇ Export this one</button>
      </div>
      <div class="petrow" style="align-items:flex-end;gap:16px;margin:4px 0 8px;">
        <div class="petfield" style="margin:0"><label>Skin name</label>
          <input class="petinput" id="skinName" value="${escAttr(s.name)}" maxlength="28"></div>
-       <div class="petfield" style="margin:0"><label>Price (coins)</label>
-         <input class="petinput" id="skinPrice" type="number" min="0" step="10" value="${+s.price || 0}" style="max-width:150px;"></div>
+       ${s.mastery
+         ? `<div class="petfield" style="margin:0"><label>Price</label><div style="color:var(--dim);font-size:13px;padding:9px 0;">⭐ Earned by mastery</div></div>`
+         : `<div class="petfield" style="margin:0"><label>Price (coins)</label><input class="petinput" id="skinPrice" type="number" min="0" step="10" value="${+s.price || 0}" style="max-width:150px;"></div>`}
        <button class="danger" id="skinDelete">Delete skin</button>
      </div>
      <div class="hint">Re-skins <b>${escHtml(baseName)}</b> — fill the same poses (a blank slot falls back to
-       ${escHtml(baseName)}'s look). Buyable in the Shop at your price.</div>
+       ${escHtml(baseName)}'s look). ${s.mastery ? "<b>⭐ Mastery skin</b> — earned by playing the character (75 kills / 50 wins); its Master Pet unlocks earlier (35 kills / 25 wins)." : "Buyable in the Shop at your price."}</div>
      <div class="grid">${cards}</div>
      ${itemCards ? `<div class="grouphead" style="margin:22px 6px 8px;">Item costumes (optional — blank = normal)</div>
      <div class="grid">${itemCards}</div>` : ""}
+     ${s.mastery ? masterPetSectionHTML(s) : ""}
      <div class="grouphead" style="margin:22px 6px 8px;">Custom chase music (optional — blank = normal)</div>
      <div class="grid">${musicCards}</div>`;
   wireSlotDrops();
   $("skinName").oninput = e => { s.name = e.target.value; if (byId[s.id]) byId[s.id].name = s.name; save(); renderSidebar(); };
-  $("skinPrice").oninput = e => { s.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); };
+  { const sp = $("skinPrice"); if (sp) sp.oninput = e => { s.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); }; }
+  $("masteryToggle").onclick = () => { s.mastery = !s.mastery; if (s.mastery && !s.masterPet) s.masterPet = { behavior: "float" }; save(); renderSidebar(); renderSkin(); };
+  // Master Pet editor (mastery skins only)
+  const mpd = $("mpDrop");
+  if (mpd) { mpd.onclick = () => pickMasterPet(); mpd.ondragover = e => { e.preventDefault(); mpd.classList.add("over"); };
+    mpd.ondragleave = () => mpd.classList.remove("over"); mpd.ondrop = e => { e.preventDefault(); mpd.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setMasterPet(f); }; }
+  const mpc = $("mpClear"); if (mpc) mpc.onclick = () => { if (s.masterPet) { delete s.masterPet.dataURL; delete s.masterPet.filename; delete s.masterPet.w; delete s.masterPet.h; } save(); renderSkin(); };
+  const mpn = $("mpName"); if (mpn) mpn.oninput = e => { (s.masterPet || (s.masterPet = {})).name = e.target.value; save(); };
+  const mpb = $("mpBehav"); if (mpb) mpb.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { (s.masterPet || (s.masterPet = {})).behavior = b.dataset.b; save(); renderSkin(); });
   $("skinDelete").onclick = () => {
     if (!confirm(`Delete the skin "${s.name}"?`)) return;
     skins = skins.filter(x => x.id !== s.id); delete byId[s.id]; delete store[s.id];
@@ -447,6 +458,44 @@ function setMusic(slot, file) {
   if (!file.type.startsWith("audio/")) { toast("That's not an audio file."); return; }
   const fr = new FileReader();
   fr.onload = () => { (s.music || (s.music = {}))[slot] = { filename: file.name, dataURL: fr.result }; save(); renderSkin(); };
+  fr.readAsDataURL(file);
+}
+// ---- Master Pet editor (embedded in a mastery skin) ----
+function masterPetSectionHTML(s) {
+  const mp = s.masterPet || {};
+  const drop = mp.dataURL
+    ? `<div class="drop" id="mpDrop"><img src="${mp.dataURL}" alt=""></div>
+       <div class="meta"><span class="fn" title="${escAttr(mp.filename)}">${escHtml(mp.filename)}</span><span>${mp.w}×${mp.h}</span><span class="x" id="mpClear" title="Remove">✕</span></div>`
+    : `<div class="drop empty" id="mpDrop"><span class="plus">＋<br>drop / click<br>pet image</span></div>`;
+  return `<div class="grouphead" style="margin:22px 6px 8px;">⭐ Master Pet (unlocks before the skin)</div>
+    <div class="petrow" style="align-items:flex-start;gap:18px;">
+      <div class="slot petdrop">${drop}</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="petfield" style="margin:0"><label>Pet name</label>
+          <input class="petinput" id="mpName" value="${escAttr(mp.name || "")}" placeholder="Master pet name" maxlength="24"></div>
+        <div class="petfield" style="margin:0"><label>Follow style</label>
+          <div class="behavtoggle" id="mpBehav">
+            <button data-b="walk" class="${mp.behavior === "walk" ? "on" : ""}">🚶 Walk</button>
+            <button data-b="float" class="${mp.behavior !== "walk" ? "on" : ""}">🎈 Float</button>
+          </div></div>
+      </div>
+    </div>`;
+}
+function pickMasterPet() {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = () => { if (inp.files[0]) setMasterPet(inp.files[0]); };
+  inp.click();
+}
+function setMasterPet(file) {
+  const s = curSkin(); if (!s) return;
+  if (!file.type.startsWith("image/")) { toast("That's not an image file."); return; }
+  const fr = new FileReader();
+  fr.onload = () => {
+    const img = new Image();
+    img.onload = () => { s.masterPet = { ...(s.masterPet || {}), filename: file.name, w: img.naturalWidth, h: img.naturalHeight, dataURL: fr.result };
+      if (!s.masterPet.behavior) s.masterPet.behavior = "float"; save(); renderSkin(); };
+    img.onerror = () => toast("Couldn't read that image."); img.src = fr.result;
+  };
   fr.readAsDataURL(file);
 }
 
@@ -707,7 +756,13 @@ function serializeSkin(s) {
   });
   const music = {};
   for (const ms of MUSIC_SLOTS) { const m = (s.music || {})[ms.id]; if (m) music[ms.id] = { filename: m.filename, audio: m.dataURL }; }
-  return { id: s.id, base: s.base, name: s.name, price: +s.price || 0, slots: entries, music };
+  const out = { id: s.id, base: s.base, name: s.name, price: +s.price || 0, slots: entries, music };
+  if (s.mastery) {
+    out.mastery = true;
+    const mp = s.masterPet || {};
+    if (mp.dataURL) out.masterPet = { name: mp.name || "", behavior: mp.behavior === "walk" ? "walk" : "float", filename: mp.filename || "pet.png", w: mp.w, h: mp.h, image: mp.dataURL };
+  }
+  return out;
 }
 function exportFile() {
   const characters = ENTITIES.map(serializeChar);
@@ -752,6 +807,7 @@ function importFile(file) {
           const music = {};
           for (const k in (sk.music || {})) if (sk.music[k]) music[k] = { filename: sk.music[k].filename || "track", dataURL: sk.music[k].audio };
           const rec = { id: sk.id, base: sk.base, name: sk.name || "Skin", price: +sk.price || 0, music };
+          if (sk.mastery) { rec.mastery = true; if (sk.masterPet) rec.masterPet = { name: sk.masterPet.name || "", behavior: sk.masterPet.behavior === "walk" ? "walk" : "float", filename: sk.masterPet.filename, w: sk.masterPet.w, h: sk.masterPet.h, dataURL: sk.masterPet.image }; }
           skins.push(rec); registerSkin(rec);
         }
         for (const s of (sk.slots || []))

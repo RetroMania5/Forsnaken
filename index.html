@@ -270,6 +270,12 @@
   .skin-chip .sc-price { color:#ffd84a; font-weight:700; font-size:12px; }
   .skin-chip .sc-eq { color:#66e08a; font-weight:700; font-size:11px; }
   .skin-chip .sc-own { color:#8a90a8; font-size:11px; }
+  .skin-chip.mastery { border-color:#c8a0ff; }
+  .skin-chip.mastery.locked { cursor:default; opacity:0.85; }
+  .mastery-bar { position:relative; height:10px; background:#20242f; border:1px solid #333a52; border-radius:6px; overflow:hidden; margin:2px 0 4px; }
+  .mastery-fill { height:100%; background:linear-gradient(90deg,#7db4ff,#c8a0ff); transition:width 0.2s; }
+  .mastery-mark { position:absolute; top:-2px; width:2px; height:14px; background:#ffd84a; }
+  .mastery-label { font-size:11px; color:#9aa0bd; margin-bottom:2px; }
   @media (max-width:640px) { .store-body { flex-direction:column; } .store-detail { width:auto; border-left:none; border-top:1px solid #333a52; } }
 
   /* Touch controls */
@@ -2745,6 +2751,7 @@ function onMessage(msg) {
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
       awardRoundPayout(msg.winner);
+      recordMasteryProgress(msg.winner);
       showBanner(msg.winner);
       break;
     case "rejoin_status":
@@ -3184,6 +3191,21 @@ function renderCharDetail(which, isShop, role, charId, detail) {
       wrap.appendChild(row);
     }
   }
+  // Mastery bar — only shown for characters that actually have mastery content.
+  const ms = masterySkinFor(charId);
+  if (ms) {
+    const th = MASTERY[role] || MASTERY.survivor;
+    const stat = (role === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0;
+    const unit = role === "killer" ? "kills" : "wins";
+    const h = document.createElement("div"); h.className = "detail-h"; h.textContent = "Mastery"; detail.appendChild(h);
+    const bar = document.createElement("div"); bar.className = "mastery-bar";
+    const fill = document.createElement("div"); fill.className = "mastery-fill"; fill.style.width = Math.min(100, stat / th.skin * 100) + "%"; bar.appendChild(fill);
+    const mk = document.createElement("div"); mk.className = "mastery-mark"; mk.style.left = (th.pet / th.skin * 100) + "%"; mk.title = "Master Pet"; bar.appendChild(mk);
+    detail.appendChild(bar);
+    const lab = document.createElement("div"); lab.className = "mastery-label";
+    lab.innerHTML = `${stat} / ${th.skin} ${unit} &nbsp; · &nbsp; ${stat >= th.pet ? "🐾 pet ✓" : "🐾 pet @ " + th.pet} &nbsp; ${stat >= th.skin ? "⭐ skin ✓" : "⭐ skin @ " + th.skin}`;
+    detail.appendChild(lab);
+  }
   // Skins — Default + each skin for this char; click to wear (buying first if needed).
   const mySkins = SKINS.filter(s => s.base === charId);
   const h2 = document.createElement("div"); h2.className = "detail-h"; h2.textContent = "Skins"; detail.appendChild(h2);
@@ -3195,18 +3217,29 @@ function renderCharDetail(which, isShop, role, charId, detail) {
   if (!mySkins.length) { const n = document.createElement("div"); n.className = "sc-own"; n.style.padding = "2px 2px"; n.textContent = "No skins yet."; chips.appendChild(n); }
   for (const sk of mySkins) {
     const skOwned = isSkinOwned(sk.id), skEq = Account.equippedSkins[charId] === sk.id;
-    const chip = document.createElement("div"); chip.className = "skin-chip" + (skEq ? " on" : "");
-    const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">Owned</span>' : `<span class="sc-price">🪙 ${sk.price}</span>`);
-    chip.innerHTML = `<span>${escapeHTML(sk.name)}</span>${right}`;
-    chip.onclick = () => {
-      if (!skOwned) {
-        if (!window.confirm(`Buy skin ${sk.name} for ${sk.price} coins?\nYou have ${Account.coins}.`)) return;
-        if (!tryBuySkin(sk.id)) { alert(`Not enough coins — ${sk.name} costs ${sk.price}.`); return; }
-        showCoinToast(`Unlocked ${sk.name}!  (−${sk.price})`); updateCoinDisplay(); if (isShop) $("shop-coins").textContent = "🪙 " + Account.coins;
-      }
-      equipSkin(charId, sk.id);   // wear it — the preview shows them moving with the skin
-      renderStore(which);
-    };
+    const chip = document.createElement("div");
+    if (sk.mastery) {
+      // Mastery skins aren't bought — earned by mastering the character.
+      const need = (MASTERY[role] || MASTERY.survivor).skin;
+      const stat = (role === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0;
+      chip.className = "skin-chip mastery" + (skEq ? " on" : "") + (skOwned ? "" : " locked");
+      const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">⭐ Mastery</span>' : `<span class="sc-own">🔒 ${stat}/${need}</span>`);
+      chip.innerHTML = `<span>⭐ ${escapeHTML(sk.name)}</span>${right}`;
+      chip.onclick = () => { if (skOwned) { equipSkin(charId, skEq ? null : sk.id); renderStore(which); } };
+    } else {
+      chip.className = "skin-chip" + (skEq ? " on" : "");
+      const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">Owned</span>' : `<span class="sc-price">🪙 ${sk.price}</span>`);
+      chip.innerHTML = `<span>${escapeHTML(sk.name)}</span>${right}`;
+      chip.onclick = () => {
+        if (!skOwned) {
+          if (!window.confirm(`Buy skin ${sk.name} for ${sk.price} coins?\nYou have ${Account.coins}.`)) return;
+          if (!tryBuySkin(sk.id)) { alert(`Not enough coins — ${sk.name} costs ${sk.price}.`); return; }
+          showCoinToast(`Unlocked ${sk.name}!  (−${sk.price})`); updateCoinDisplay(); if (isShop) $("shop-coins").textContent = "🪙 " + Account.coins;
+        }
+        equipSkin(charId, sk.id);   // wear it — the preview shows them moving with the skin
+        renderStore(which);
+      };
+    }
     chips.appendChild(chip);
   }
 }
@@ -3241,12 +3274,17 @@ function renderPetStore(which, isShop, grid) {
   }
   for (const pet of list) {
     const owned = isPetOwned(pet.id), isEq = pet.id === Account.equippedPet;
-    let tag = null;
-    if (isShop) { tag = document.createElement("div"); if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; } else { tag.className = "cprice"; tag.textContent = "🪙 " + pet.price; } }
-    else if (isEq) { tag = document.createElement("div"); tag.className = "equipped-tag"; tag.textContent = "EQUIPPED"; }
-    const cls = (isEq ? " equipped" : "") + (isShop && !owned ? " locked" : "");
+    let tag = document.createElement("div");
+    if (pet.mastery) {
+      // Master pets are earned by mastering their character, not bought.
+      const r = roleOfChar(pet.base), need = (MASTERY[r] || MASTERY.survivor).pet, stat = masteryStat(pet.base);
+      if (owned) { tag.className = "soldout"; tag.textContent = isEq ? "EQUIPPED" : "⭐ MASTERY"; }
+      else { tag.className = "cprice"; tag.textContent = "🔒 " + stat + "/" + need; }
+    } else if (isShop) { if (owned) { tag.className = "soldout"; tag.textContent = "SOLD OUT"; } else { tag.className = "cprice"; tag.textContent = "🪙 " + pet.price; } }
+    else if (isEq) { tag.className = "equipped-tag"; tag.textContent = "EQUIPPED"; } else tag = null;
+    const cls = (isEq ? " equipped" : "") + ((isShop && !owned) ? " locked" : "");
     addCell(cv => _previews.push({ cv, petId: pet.id, animate: true }), pet.name, tag, cls,
-      isShop
+      (isShop && !pet.mastery)
         ? () => {
             if (isPetOwned(pet.id)) return;
             if (!window.confirm(`Buy ${pet.name} for ${pet.price} coins?\nYou have ${Account.coins}.`)) return;
@@ -3255,7 +3293,7 @@ function renderPetStore(which, isShop, grid) {
             updateCoinDisplay(); $("shop-coins").textContent = "🪙 " + Account.coins;
             renderStore("shop");
           }
-        : () => { equipPet(isEq ? null : pet.id); renderStore("inv"); });
+        : (isShop ? null : () => { if (owned) { equipPet(isEq ? null : pet.id); renderStore("inv"); } }));
   }
 }
 // Skins store tab: buy any skin in the shop; equip per-character in the inventory.
@@ -3678,7 +3716,12 @@ const Account = {
   equippedPet: null,        // currently equipped pet id (or null)
   skins: [],                // owned skin ids
   equippedSkins: {},        // charId -> equipped skin id
+  charKills: {},            // killerCharId -> lifetime kills (for mastery)
+  charWins: {},             // survivorCharId -> lifetime wins (for mastery)
 };
+// Mastery thresholds: reach these on a character to earn its Master Pet, then
+// its Mastery Skin (only counts for characters that HAVE mastery content).
+const MASTERY = { killer: { pet: 35, skin: 75 }, survivor: { pet: 25, skin: 50 } };
 const ACCOUNT_KEY = "fk:account";
 const ACCOUNT_VERSION = 6;
 // Each entry is either an array of char ids to strip from old saves
@@ -3724,6 +3767,8 @@ function loadAccount() {
     Account.equippedPet = (typeof saved.equippedPet === "string" && Account.pets.includes(saved.equippedPet)) ? saved.equippedPet : null;
     Account.skins = Array.isArray(saved.skins) ? saved.skins.filter(x => typeof x === "string") : [];
     Account.equippedSkins = (saved.equippedSkins && typeof saved.equippedSkins === "object") ? { ...saved.equippedSkins } : {};
+    Account.charKills = (saved.charKills && typeof saved.charKills === "object") ? { ...saved.charKills } : {};
+    Account.charWins = (saved.charWins && typeof saved.charWins === "object") ? { ...saved.charWins } : {};
   } else {
     Account.coins = 0;
     Account.unlocks = [...DEFAULT_UNLOCKS];
@@ -3731,6 +3776,8 @@ function loadAccount() {
     Account.equippedPet = null;
     Account.skins = [];
     Account.equippedSkins = {};
+    Account.charKills = {};
+    Account.charWins = {};
   }
   Account.loaded = true;
   saveAccount();
@@ -3744,6 +3791,8 @@ function saveAccount() {
     equippedPet: Account.equippedPet,
     skins: Account.skins,
     equippedSkins: Account.equippedSkins,
+    charKills: Account.charKills,
+    charWins: Account.charWins,
   }));
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
@@ -3767,6 +3816,39 @@ function equipSkin(charId, skinId) {
   if (skinId && (!isSkinOwned(skinId) || !SKIN_BY_ID[skinId] || SKIN_BY_ID[skinId].base !== charId)) return;
   if (skinId) Account.equippedSkins[charId] = skinId; else delete Account.equippedSkins[charId];
   saveAccount(); updateMySkin();
+}
+// ---- Mastery: earn a character's Master Pet then Mastery Skin by playing it ----
+function masterySkinFor(charId) { return (typeof SKINS !== "undefined") ? SKINS.find(s => s.base === charId && s.mastery) : null; }
+function roleOfChar(charId) { return (G.killerChars || []).some(c => c.id === charId) ? "killer" : "survivor"; }
+function masteryStat(charId) { return (roleOfChar(charId) === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0; }
+function masterPetId(skinId) { return skinId + "__mp"; }
+function checkMastery(charId, role) {
+  const ms = masterySkinFor(charId); if (!ms) return;
+  const stat = (role === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0;
+  const th = MASTERY[role] || MASTERY.survivor;
+  const pid = masterPetId(ms.id);
+  if (stat >= th.pet && ms.masterPet && !Account.pets.includes(pid)) {
+    Account.pets.push(pid); saveAccount();
+    showCoinToast(`⭐ Master Pet unlocked: ${ms.masterPet.name || "Pet"}!`);
+  }
+  if (stat >= th.skin && !Account.skins.includes(ms.id)) {
+    Account.skins.push(ms.id); saveAccount();
+    showCoinToast(`⭐ Mastery Skin unlocked: ${ms.name}!`);
+  }
+}
+// Tally kills/wins toward the played character's mastery at round end.
+function recordMasteryProgress(winner) {
+  if (G.testMode) return;
+  const me = G.players.get(G.myId); if (!me) return;
+  if (me.role === "killer") {
+    const c = me.killerChar; if (!c) return;
+    Account.charKills[c] = (Account.charKills[c] || 0) + (me.kills || 0);
+    saveAccount(); checkMastery(c, "killer");
+  } else if (me.role === "survivor" && winner === "survivors") {
+    const c = me.survivorChar; if (!c) return;
+    Account.charWins[c] = (Account.charWins[c] || 0) + 1;
+    saveAccount(); checkMastery(c, "survivor");
+  }
 }
 // The char whose skin currently applies (killer's in a round, else survivor).
 function currentSkinChar() {
@@ -3806,6 +3888,8 @@ function downloadSave() {
     equippedPet: Account.equippedPet,
     skins: Account.skins,
     equippedSkins: Account.equippedSkins,
+    charKills: Account.charKills,
+    charWins: Account.charWins,
     exportedAt: new Date().toISOString(),
   }, null, 2);
   const blob = new Blob([data], { type: "text/plain" });
@@ -3852,6 +3936,8 @@ function loadSaveFromFile(file) {
     Account.equippedPet = (typeof data.equippedPet === "string" && Account.pets.includes(data.equippedPet)) ? data.equippedPet : null;
     Account.skins = Array.isArray(data.skins) ? data.skins.filter(id => typeof id === "string") : [];
     Account.equippedSkins = (data.equippedSkins && typeof data.equippedSkins === "object") ? { ...data.equippedSkins } : {};
+    Account.charKills = (data.charKills && typeof data.charKills === "object") ? { ...data.charKills } : {};
+    Account.charWins = (data.charWins && typeof data.charWins === "object") ? { ...data.charWins } : {};
     G.myPet = Account.equippedPet;
     if (G.myPet) sendMsg({ type: "set_pet", pet: G.myPet });   // reflect to others if already in a room
     updateMySkin();
@@ -8112,9 +8198,17 @@ const SKINS = [], SKIN_BY_ID = {}, SKIN_SPRITES = {}, SKIN_MUSIC = {}, SKIN_ITEM
 (function loadSkins() {
   for (const sd of (window.FORSNAKEN_SKINS || [])) {
     const skin = { id: sd.id, base: sd.base, name: sd.name || "Skin", price: +sd.price || 0,
-      art: sd.art || {}, music: sd.music || {} };
+      art: sd.art || {}, music: sd.music || {}, mastery: !!sd.mastery, masterPet: sd.masterPet || null };
     SKINS.push(skin); SKIN_BY_ID[skin.id] = skin;
     if (skin.music && Object.keys(skin.music).length) SKIN_MUSIC[skin.id] = skin.music;
+    // A mastery skin's Master Pet becomes a real (unlock-only) pet.
+    if (skin.mastery && skin.masterPet && skin.masterPet.image) {
+      const pet = { id: skin.id + "__mp", name: skin.masterPet.name || (skin.name + " Pet"), price: 0,
+        behavior: skin.masterPet.behavior === "walk" ? "walk" : "float", sprite: null,
+        mastery: true, base: skin.base };
+      PETS.push(pet); PET_BY_ID[pet.id] = pet;
+      const im = new Image(); im.onload = () => { pet.sprite = bakeFit(im, PET_FIT_W, PET_FIT_H); }; im.src = skin.masterPet.image;
+    }
   }
 })();
 // Map an art-tool slot to a target sheet + frame for a skin's base character.
