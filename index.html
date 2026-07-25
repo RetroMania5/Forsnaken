@@ -804,7 +804,7 @@
       <div class="gd-head"><span class="dot" style="background:#ff9a3c"></span><b>Whamo</b><span class="gd-muted">standees + megaphone; speeds up near the killer</span></div>
       <div class="gd-ab"><b>Passive — Speedy</b>: a meter (0–100%) that becomes speed — <b>1× at 0%, up to 2× at 100%</b>. It climbs <b>+4%/s</b> while the killer lingers near one of your standees and <b>+18%</b> whenever the killer breaks one. It only drains (<b>−1%/s</b>) while the killer is <b>off your screen</b>.</div>
       <div class="gd-ab"><b>Z — Standee</b>: drop a cardboard cutout of yourself. Up to <b>3</b> out at once — you can't place a 4th until one is broken (the killer walks into it). CD 30s.</div>
-      <div class="gd-ab"><b>X — Megaphone</b>: <b>tap once to aim</b> (you hold still and a cone appears), <b>tap again to blast</b> — no wind-up. Every killer caught in the <b>70° cone (520 px)</b> is <b>slowed to half speed for 4s</b>. It no longer stuns. Pressing your other ability backs out of the aim for free. CD 30s (a fixed timer — your speed boost never changes it).</div>
+      <div class="gd-ab"><b>X — Megaphone</b>: <b>tap once to aim</b> (you hold still and a cone appears), <b>tap again to blast</b> — no wind-up. Every killer caught in the <b>70° cone (520 px)</b> is <b>slowed to 35% speed for 4s</b>. It no longer stuns. Pressing your other ability backs out of the aim for free. CD 30s (a fixed timer — your speed boost never changes it).</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
@@ -3063,7 +3063,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25g";
+const BUILD = "2026-07-25h";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;

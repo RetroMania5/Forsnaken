@@ -378,7 +378,7 @@ const ABILITIES = {
     // Megaphone: aimed like the Sniper (tap to aim, tap again to blast) with
     // no wind-up. Hits a cone of coneDegrees wide out to range, and SLOWS every
     // killer caught in it to slowMult for slowDuration seconds — it no longer stuns.
-    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", range: 520, coneDegrees: 70, slowMult: 0.5, slowDuration: 4.0 },
+    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", range: 520, coneDegrees: 70, slowMult: 0.35, slowDuration: 4.0 },
   ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
