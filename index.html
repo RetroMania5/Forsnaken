@@ -3065,7 +3065,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25l";
+const BUILD = "2026-07-25n";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3461,10 +3461,17 @@ function renderCharDetail(which, isShop, role, charId, detail) {
     const h = document.createElement("div"); h.className = "detail-h"; h.textContent = "Mastery"; detail.appendChild(h);
     const bar = document.createElement("div"); bar.className = "mastery-bar";
     const fill = document.createElement("div"); fill.className = "mastery-fill"; fill.style.width = Math.min(100, stat / th.skin * 100) + "%"; bar.appendChild(fill);
-    const mk = document.createElement("div"); mk.className = "mastery-mark"; mk.style.left = (th.pet / th.skin * 100) + "%"; mk.title = "Master Pet"; bar.appendChild(mk);
+    // Not every mastery skin ships a Master Pet — don't promise a milestone
+    // that has nothing behind it.
+    const hasPet = !!(masterySkinFor(charId) || {}).masterPet;
+    if (hasPet) {
+      const mk = document.createElement("div"); mk.className = "mastery-mark";
+      mk.style.left = (th.pet / th.skin * 100) + "%"; mk.title = "Master Pet"; bar.appendChild(mk);
+    }
     detail.appendChild(bar);
     const lab = document.createElement("div"); lab.className = "mastery-label";
-    lab.innerHTML = `${stat} / ${th.skin} ${unit} &nbsp; · &nbsp; ${stat >= th.pet ? "🐾 pet ✓" : "🐾 pet @ " + th.pet} &nbsp; ${stat >= th.skin ? "⭐ skin ✓" : "⭐ skin @ " + th.skin}`;
+    const petPart = hasPet ? `&nbsp; · &nbsp; ${stat >= th.pet ? "🐾 pet ✓" : "🐾 pet @ " + th.pet}` : "";
+    lab.innerHTML = `${stat} / ${th.skin} ${unit} ${petPart} &nbsp; ${stat >= th.skin ? "⭐ skin ✓" : "⭐ skin @ " + th.skin}`;
     detail.appendChild(lab);
   }
   // Skins — clicking a chip only PREVIEWS it in the panel above; wearing and
@@ -3545,10 +3552,13 @@ function renderCharDetail(which, isShop, role, charId, detail) {
 // Pets store tab: buy in the shop, equip in the inventory (+ a "None" to unequip).
 function renderPetStore(which, isShop, grid) {
   let list = PETS.slice();
+  // Pets pulled from sale. Hidden from the shop but left working for anyone who
+  // already owns one, so a past purchase never silently disappears.
+  const RETIRED_PETS = ["pmryftzrl208u"];   // Fakerbot
   // Master Pets are earned, never sold — keep them out of the shop entirely.
   // They still appear in the inventory once unlocked, and the character's
   // mastery bar is where you track progress toward them.
-  if (isShop) list = list.filter(p => !p.mastery);
+  if (isShop) list = list.filter(p => !p.mastery && !RETIRED_PETS.includes(p.id));
   else list = list.filter(p => isPetOwned(p.id));
   list.sort((a, b) => (a.price - b.price) || a.name.localeCompare(b.name));
   const addCell = (canvasDraw, name, tagEl, cls, onclick) => {
