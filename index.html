@@ -263,6 +263,8 @@
   .power-row { display:flex; align-items:center; gap:9px; font-size:13px; }
   .power-row canvas { width:36px; height:36px; flex:none; background:#20242f; border:1px solid #333a52; border-radius:8px; image-rendering:pixelated; }
   .skin-chips { display:flex; flex-direction:column; gap:6px; }
+  .skin-actions { margin-top:8px; }
+  .skin-chip { cursor:pointer; }
   .skin-chip { display:flex; align-items:center; justify-content:space-between; gap:8px; background:#20242f;
     border:1px solid #333a52; border-radius:10px; padding:8px 10px; cursor:pointer; font-size:13px; }
   .skin-chip:hover { border-color:#556; }
@@ -3063,7 +3065,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25h";
+const BUILD = "2026-07-25i";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3329,6 +3331,14 @@ $("map-image-btn").addEventListener("click", () => chooseMap(downloadMapImage));
 // ================= Lobby hub + Shop / Inventory =================
 const storeRole = { shop: "survivor", inv: "survivor" };
 const storeSel = { shop: null, inv: null };   // selected char per store (drives the detail panel)
+// Which skin the detail preview is showing, per store, per character. Clicking a
+// skin only previews it — buying and wearing are their own buttons. A stored
+// null means "Default"; absent means "whatever is equipped".
+const storeSkinPv = { shop: {}, inv: {} };
+function previewSkinFor(which, charId) {
+  const m = storeSkinPv[which] || {};
+  return Object.prototype.hasOwnProperty.call(m, charId) ? m[charId] : equippedSkinFor(charId);
+}
 const _previews = [];   // {cv, charId, skinId, animate, frame} — animated sprite icons
 const charListFor = (role) => (role === "killer" ? (G.killerChars || []) : (G.survivorChars || []));
 const equippedFor = (role) => (role === "killer" ? G.myChars.killer : G.myChars.survivor);
@@ -3384,10 +3394,11 @@ function renderCharDetail(which, isShop, role, charId, detail) {
   const c = charListFor(role).find(x => x.id === charId); if (!c) return;
   const owned = isUnlocked(charId), isEq = equippedFor(role) === charId;
   const skinEq = equippedSkinFor(charId);
+  const skinPv = previewSkinFor(which, charId);   // what the big preview shows
   detail.innerHTML = "";
   const pv = document.createElement("canvas"); pv.className = "detail-prev"; pv.width = 220; pv.height = 200;
   detail.appendChild(pv);
-  _previews.push({ cv: pv, charId, skinId: skinEq, animate: true });   // always walking
+  _previews.push({ cv: pv, charId, skinId: skinPv, animate: true });   // always walking
   const nm = document.createElement("div"); nm.className = "detail-name"; nm.textContent = c.name; detail.appendChild(nm);
   const sub = document.createElement("div"); sub.className = "detail-sub"; sub.textContent = role === "killer" ? "Killer" : "Survivor"; detail.appendChild(sub);
   // Buy (shop) / Equip (inventory) / status.
@@ -3413,7 +3424,7 @@ function renderCharDetail(which, isShop, role, charId, detail) {
     for (const r of rows) {
       const row = document.createElement("div"); row.className = "power-row";
       const ic = document.createElement("canvas"); ic.width = 36; ic.height = 36;
-      _previews.push({ cv: ic, charId, skinId: skinEq, frame: "action_" + r.id });
+      _previews.push({ cv: ic, charId, skinId: skinPv, frame: "action_" + r.id });
       row.appendChild(ic);
       const t = document.createElement("span"); t.textContent = r.name; row.appendChild(t);
       wrap.appendChild(row);
@@ -3434,13 +3445,17 @@ function renderCharDetail(which, isShop, role, charId, detail) {
     lab.innerHTML = `${stat} / ${th.skin} ${unit} &nbsp; · &nbsp; ${stat >= th.pet ? "🐾 pet ✓" : "🐾 pet @ " + th.pet} &nbsp; ${stat >= th.skin ? "⭐ skin ✓" : "⭐ skin @ " + th.skin}`;
     detail.appendChild(lab);
   }
-  // Skins — Default + each skin for this char; click to wear (buying first if needed).
-  const mySkins = SKINS.filter(s => s.base === charId);
+  // Skins — clicking a chip only PREVIEWS it in the panel above; wearing and
+  // buying are separate buttons underneath. The inventory lists what you own;
+  // the shop lists everything so you can look before paying.
+  let mySkins = SKINS.filter(s => s.base === charId);
+  if (!isShop) mySkins = mySkins.filter(s => isSkinOwned(s.id));
   const h2 = document.createElement("div"); h2.className = "detail-h"; h2.textContent = "Skins"; detail.appendChild(h2);
   const chips = document.createElement("div"); chips.className = "skin-chips"; detail.appendChild(chips);
-  const def = document.createElement("div"); def.className = "skin-chip" + (!skinEq ? " on" : "");
+  const setPv = (id) => { storeSkinPv[which][charId] = id; renderStore(which); };
+  const def = document.createElement("div"); def.className = "skin-chip" + (skinPv === null ? " on" : "");
   def.innerHTML = `<span>Default</span>${!skinEq ? '<span class="sc-eq">WEARING</span>' : ""}`;
-  def.onclick = () => { equipSkin(charId, null); renderStore(which); };
+  def.onclick = () => setPv(null);
   chips.appendChild(def);
   if (!mySkins.length) { const n = document.createElement("div"); n.className = "sc-own"; n.style.padding = "2px 2px"; n.textContent = "No skins yet."; chips.appendChild(n); }
   for (const sk of mySkins) {
@@ -3450,25 +3465,51 @@ function renderCharDetail(which, isShop, role, charId, detail) {
       // Mastery skins aren't bought — earned by mastering the character.
       const need = (MASTERY[role] || MASTERY.survivor).skin;
       const stat = (role === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0;
-      chip.className = "skin-chip mastery" + (skEq ? " on" : "") + (skOwned ? "" : " locked");
+      chip.className = "skin-chip mastery" + (skinPv === sk.id ? " on" : "") + (skOwned ? "" : " locked");
       const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">⭐ Mastery</span>' : `<span class="sc-own">🔒 ${stat}/${need}</span>`);
       chip.innerHTML = `<span>⭐ ${escapeHTML(sk.name)}</span>${right}`;
-      chip.onclick = () => { if (skOwned) { equipSkin(charId, skEq ? null : sk.id); renderStore(which); } };
+      chip.onclick = () => setPv(sk.id);          // locked ones still preview
     } else {
-      chip.className = "skin-chip" + (skEq ? " on" : "");
+      chip.className = "skin-chip" + (skinPv === sk.id ? " on" : "");
       const right = skEq ? '<span class="sc-eq">WEARING</span>' : (skOwned ? '<span class="sc-own">Owned</span>' : `<span class="sc-price">🪙 ${sk.price}</span>`);
       chip.innerHTML = `<span>${escapeHTML(sk.name)}</span>${right}`;
-      chip.onclick = () => {
-        if (!skOwned) {
-          if (!window.confirm(`Buy skin ${sk.name} for ${sk.price} coins?\nYou have ${Account.coins}.`)) return;
-          if (!tryBuySkin(sk.id)) { alert(`Not enough coins — ${sk.name} costs ${sk.price}.`); return; }
-          showCoinToast(`Unlocked ${sk.name}!  (−${sk.price})`); updateCoinDisplay(); if (isShop) $("shop-coins").textContent = "🪙 " + Account.coins;
-        }
-        equipSkin(charId, sk.id);   // wear it — the preview shows them moving with the skin
-        renderStore(which);
-      };
+      chip.onclick = () => setPv(sk.id);
     }
     chips.appendChild(chip);
+  }
+
+  // Action row for whichever skin is being previewed.
+  const act = document.createElement("div"); act.className = "skin-actions"; detail.appendChild(act);
+  const mkBtn = (label, fn, cls) => {
+    const b = document.createElement("button");
+    b.className = "detail-act" + (cls ? " " + cls : "");
+    b.textContent = label; b.onclick = fn; act.appendChild(b); return b;
+  };
+  const pvSkin = skinPv ? SKIN_BY_ID[skinPv] : null;
+  if (!pvSkin) {
+    // Default costume.
+    if (skinEq) mkBtn("Wear Default", () => { equipSkin(charId, null); renderStore(which); });
+    else { const d = document.createElement("div"); d.className = "detail-owned"; d.textContent = "Wearing ✓"; act.appendChild(d); }
+  } else if (isSkinOwned(pvSkin.id)) {
+    if (equippedSkinFor(charId) === pvSkin.id) {
+      const d = document.createElement("div"); d.className = "detail-owned"; d.textContent = "Wearing ✓"; act.appendChild(d);
+    } else {
+      mkBtn(`Wear ${pvSkin.name}`, () => { equipSkin(charId, pvSkin.id); renderStore(which); });
+    }
+  } else if (pvSkin.mastery) {
+    const need = (MASTERY[role] || MASTERY.survivor).skin;
+    const stat = (role === "killer" ? Account.charKills[charId] : Account.charWins[charId]) || 0;
+    const d = document.createElement("div"); d.className = "detail-owned";
+    d.textContent = `⭐ Earned by mastery — ${stat}/${need} ${role === "killer" ? "kills" : "wins"}`;
+    act.appendChild(d);
+  } else if (isShop) {
+    mkBtn(`Buy — 🪙 ${pvSkin.price}`, () => {
+      if (!tryBuySkin(pvSkin.id)) { alert(`Not enough coins — ${pvSkin.name} costs ${pvSkin.price}, you have ${Account.coins}.`); return; }
+      showCoinToast(`Unlocked ${pvSkin.name}!  (−${pvSkin.price})`);
+      updateCoinDisplay();
+      if ($("shop-coins")) $("shop-coins").textContent = "🪙 " + Account.coins;
+      renderStore(which);          // buying alone — "Wear" appears next
+    });
   }
 }
 
