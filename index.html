@@ -2496,7 +2496,8 @@ function connect() {
     $("disconnect-prompt").classList.add("hidden");
     $("banner-rejoin").classList.add("hidden");
     $("menu-status").textContent = "";
-    G.ws.send(JSON.stringify({ type: "join", name: G.name, clientId: CLIENT_ID }));
+    G.ws.send(JSON.stringify({ type: "join", name: G.name, clientId: CLIENT_ID,
+      survivorChar: G.myChars.survivor, killerChar: G.myChars.killer }));
   });
   G.ws.addEventListener("message", (e) => {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
@@ -3065,7 +3066,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25p";
+const BUILD = "2026-07-25q";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3347,6 +3348,7 @@ function equipChar(role, id) {
   if (!isUnlocked(id)) return;
   if (role === "killer") { G.myChars.killer = id; sendMsg({ type: "pick_char", killerChar: id }); }
   else { G.myChars.survivor = id; sendMsg({ type: "pick_char", survivorChar: id }); }
+  Account.chars[role] = id; saveAccount();   // survive a reload
   updateMySkin();   // the equipped skin is per-character
   if (typeof renderCharSelection === "function") renderCharSelection();
 }
@@ -4057,6 +4059,7 @@ const Account = {
   skins: [],                // owned skin ids
   equippedSkins: {},        // charId -> equipped skin id
   charKills: {},            // killerCharId -> lifetime kills (for mastery)
+  chars: { survivor: "scout", killer: "slasher" },   // picks, so a reload keeps them
   charWins: {},             // survivorCharId -> lifetime wins (for mastery)
 };
 // Mastery thresholds: reach these on a character to earn its Master Pet, then
@@ -4111,6 +4114,10 @@ function loadAccount() {
     Account.equippedSkins = (saved.equippedSkins && typeof saved.equippedSkins === "object") ? { ...saved.equippedSkins } : {};
     Account.charKills = (saved.charKills && typeof saved.charKills === "object") ? { ...saved.charKills } : {};
     Account.charWins = (saved.charWins && typeof saved.charWins === "object") ? { ...saved.charWins } : {};
+    if (saved.chars && typeof saved.chars === "object") {
+      if (typeof saved.chars.survivor === "string") Account.chars.survivor = saved.chars.survivor;
+      if (typeof saved.chars.killer === "string") Account.chars.killer = saved.chars.killer;
+    }
   } else {
     Account.coins = 0;
     Account.unlocks = [...DEFAULT_UNLOCKS];
@@ -4135,11 +4142,18 @@ function saveAccount() {
     equippedSkins: Account.equippedSkins,
     charKills: Account.charKills,
     charWins: Account.charWins,
+    chars: Account.chars,
   }));
 }
 // Auto-load on script start so coins/unlocks are ready before any UI shows.
 loadAccount();
 G.myPet = Account.equippedPet;   // currently equipped pet, sent to the server on join
+// Restore the saved character picks. A locked character (save reset, or one
+// that became priced) falls back to the default rather than sticking.
+if (isUnlocked(Account.chars.survivor)) G.myChars.survivor = Account.chars.survivor;
+else Account.chars.survivor = G.myChars.survivor;
+if (isUnlocked(Account.chars.killer)) G.myChars.killer = Account.chars.killer;
+else Account.chars.killer = G.myChars.killer;
 
 // ---- Skin economy (uses SKIN_BY_ID from the skin module) ----
 function isSkinOwned(id) { return Account.skins.includes(id); }
@@ -4232,6 +4246,7 @@ function downloadSave() {
     equippedSkins: Account.equippedSkins,
     charKills: Account.charKills,
     charWins: Account.charWins,
+    chars: Account.chars,
     exportedAt: new Date().toISOString(),
   }, null, 2);
   const blob = new Blob([data], { type: "text/plain" });

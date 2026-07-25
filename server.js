@@ -635,6 +635,12 @@ function onJoin(id, ws, msg) {
     isHost,
     joinedAt: Date.now(),
   };
+  // Honour the picks the client remembered from last session, so a reload
+  // doesn't drop everyone back to Scout / Slasher. Validated against the real
+  // rosters — an unknown id just leaves the default in place.
+  if (SURVIVOR_CHARS.some(c => c.id === msg.survivorChar)) player.survivorChar = msg.survivorChar;
+  if (KILLER_CHARS.some(c => c.id === msg.killerChar)) player.killerChar = msg.killerChar;
+  player.color = survivorCharOf(player).color;
   state.players.set(id, player);
   send(ws, {
     type: "welcome",
