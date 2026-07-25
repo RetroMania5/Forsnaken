@@ -270,7 +270,7 @@ const SURVIVOR_CHARS = [
   { id: "engineer", name: "Engineer", color: "#ffd84a", speedMult: 1.00, repairMult: 1.30, blurb: "+30% repair" },
   { id: "scout",    name: "Scout",    color: "#6cb6ff", speedMult: 1.05, repairMult: 1.05, blurb: "balanced" },
   { id: "sentinel", name: "Frost Knight", color: "#4ad0c0", speedMult: 1.00, repairMult: 0.95, blurb: "slows the killer" },
-  { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 0.98, repairMult: 0.95, blurb: "stuns the killer" },
+  { id: "sniper",   name: "Sniper",   color: "#a070f0", speedMult: 1.08, repairMult: 0.95, blurb: "stuns the killer" },
   { id: "fencer",   name: "Fencer",   color: "#d04050", speedMult: 1.00, repairMult: 1.00, blurb: "melee stun + soda heal" },
   { id: "kacey",    name: "Kacey",    color: "#ff9050", speedMult: 1.00, repairMult: 1.00, blurb: "cat — burger + meow heals" },
   { id: "angel",    name: "Angel",    color: "#3a1860", speedMult: 1.00, repairMult: 1.00, blurb: "shady — dagger + duck + spawn pad" },

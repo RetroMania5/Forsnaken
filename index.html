@@ -780,7 +780,7 @@
       <div class="gd-ab"><b>X — Snow Field</b>: <b>0.7s summoning channel</b> (you're rooted), then a frost field drops where you stand, 220 radius. Killers inside it move at 60%, and the slow <b>lingers ~5s after they leave</b>. <b>Lasts 20s</b> or until the killer destroys it. <b>Max 3 active at a time</b> — placing a 4th pops the oldest. CD 18s.</div>
     </div>
     <div class="gd-card">
-      <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (-2% speed / -5% repair)</span></div>
+      <div class="gd-head"><span class="dot" style="background:#a070f0"></span><b>Sniper</b><span class="gd-muted">stuns the killer (+8% speed / -5% repair)</span></div>
       <div class="gd-ab"><b>Z — Shoot</b>: <b>tap once to aim</b> (you crouch and can't move; the camera shifts). On desktop, the reticle follows your <b>mouse</b>; on mobile the joystick steers. <b>Tap again to fire</b> a bullet at the reticle. <b>Hits the killer → 10s stun</b>. The bullet breaks on the first wall or obstacle. Generous hit radius. Costs 1 ammo. CD 25s on fire.</div>
       <div class="gd-ab"><b>X — Reload</b>: 5s channel to refill your 1 round. Only usable when empty. CD 20s. <b>While aiming, this button backs out</b> — your shot is unspent, but Shoot goes on a short <b>5s cooldown</b>.</div>
       <div class="gd-ab"><b>C — Sneak</b>: vanish for 6s — you're mostly invisible to everyone (the killer barely sees you). Great for repositioning after a missed shot. CD 20s.</div>
@@ -3066,7 +3066,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25s";
+const BUILD = "2026-07-25t";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -6261,7 +6261,10 @@ function render() {
   // players (z-sort by y); each player's pet is drawn just under them
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
   const _petNow = performance.now();
-  for (const p of sorted) { drawPetForOwner(ctx, "g:" + p.id, _petNow, 1); drawPlayer(p); }
+  for (const p of sorted) {
+    drawPetForOwner(ctx, "g:" + p.id, _petNow, 1, playerAlphaFor(p, _petNow));
+    drawPlayer(p);
+  }
 
   // Generator skill-check sparks (miss feedback)
   drawGenSparks();
@@ -7637,6 +7640,18 @@ function fxFor(charId, actionAb) {
   return ABILITY_FX[charId + ":" + actionAb] || null;
 }
 
+// How visible a player is right now. Sneak/Duck makes them near-invisible (self
+// keeps a clearer ghost so you can still track yourself), and smoke hides them
+// outright. Pets read the same value — a fully visible pet trailing an invisible
+// owner just paints a marker over them.
+function playerAlphaFor(p, now) {
+  if (!p) return 1;
+  if (p.hiddenFromMe) return 0;
+  if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
+    return (p.id === G.myId) ? 0.15 : 0.05;
+  }
+  return 1;
+}
 function drawPlayer(p) {
   if (p.hiddenFromMe) return; // killer can't see survivors inside a smoke cloud
   const charId = spriteIdFor(p);
@@ -7968,11 +7983,7 @@ function drawPlayer(p) {
   if (charId === "sly_dino") ctx.scale(5.4, 5.4);
   // Apply the action squash/stretch on top of any other scaling.
   if (actScaleX !== 1 || actScaleY !== 1) ctx.scale(actScaleX, actScaleY);
-  // Sniper Sneak: 95% invisible while active (alpha 0.05). Self gets a
-  // slightly clearer ghost so the player can still track themselves.
-  if (p.alive && (p.sneaking || (p.id === G.myId && now < (p._localSneakUntil || 0)))) {
-    ctx.globalAlpha *= (p.id === G.myId) ? 0.15 : 0.05;
-  }
+  ctx.globalAlpha *= playerAlphaFor(p, now);
   // Draw rect: custom sprites keep their own (possibly bigger) size, bottom-
   // aligned to the foot line so feet stay planted; procedural stays 44x44.
   const _foot = SPRITE_SIZE / 2 + 4;
@@ -8601,7 +8612,8 @@ function updatePetTrail(key, ownerX, ownerY, ownerFacing, dt, petId) {
   tr.moving = Math.hypot(tx - tr.x, ty - tr.y) > 3;   // still catching up = walking
   tr.petId = petId;
 }
-function drawPetForOwner(c, key, now, scaleMul) {
+function drawPetForOwner(c, key, now, scaleMul, alpha) {
+  if (alpha === 0) return;                      // owner is hidden — so is the pet
   const tr = G.petTrails[key]; if (!tr || !tr.petId) return;
   const pet = PET_BY_ID[tr.petId]; const spr = pet && pet.sprite; if (!spr) return;
   const s = scaleMul || 1;
@@ -8615,6 +8627,7 @@ function drawPetForOwner(c, key, now, scaleMul) {
     sway = Math.sin(ph) * 0.09;
   }
   c.save();
+  if (alpha != null && alpha < 1) c.globalAlpha *= alpha;
   c.translate(tr.x, tr.y + yoff);
   if (sway) c.rotate(sway);
   if (tr.facing < 0) c.scale(-1, 1);
