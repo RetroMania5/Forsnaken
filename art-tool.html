@@ -213,6 +213,13 @@ const MUSIC_SLOTS = [
   { id: "stage3", label: "Stage 3" },
   { id: "chase",  label: "Chase (closest)" },
 ];
+// A skin's optional Last-Man-Standing theme: plays for everyone once only one
+// survivor is left alive. Can live on any skin (survivor or killer); kept in its
+// own card, separate from the proximity chase tiers above.
+const LMS_MUSIC_SLOTS = [
+  { id: "lastman", label: "Last Man Standing" },
+];
+const ALL_MUSIC_SLOTS = MUSIC_SLOTS.concat(LMS_MUSIC_SLOTS);
 let dbOK = true;
 const PET_W = 53, PET_H = 42;        // pets are auto-sized to fit this box (Blorb's size)
 const isPetSel = () => typeof selected === "string" && selected.startsWith("pet:");
@@ -393,13 +400,15 @@ function renderSkin() {
   const cards = slotCardsHTML(c);
   const itemSlots = skinItemSlots(s.base);
   const itemCards = itemSlots.length ? slotCardsHTML(c, itemSlots) : "";
-  const musicCards = MUSIC_SLOTS.map(ms => {
+  const musicCard = ms => {
     const m = (s.music || {})[ms.id];
     const body = m
       ? `<div class="musichas"><span class="fn" title="${escAttr(m.filename)}">🎵 ${escHtml(m.filename)}</span><span class="x" data-mclear="${ms.id}" title="Remove">✕</span></div>`
       : `<div class="drop empty musicdrop" data-mslot="${ms.id}"><span class="plus">＋ add track<br><small>blank = default</small></span></div>`;
     return `<div class="slot"><div class="cap"><span class="lbl">${ms.label}</span><span class="tag">music</span></div>${body}</div>`;
-  }).join("");
+  };
+  const musicCards = MUSIC_SLOTS.map(musicCard).join("");
+  const lmsCards = LMS_MUSIC_SLOTS.map(musicCard).join("");
   $("main").innerHTML =
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
        <h2>${escHtml(s.name)}</h2><span class="role">skin · ${escHtml(baseName)}</span>
@@ -421,7 +430,10 @@ function renderSkin() {
      <div class="grid">${itemCards}</div>` : ""}
      ${s.mastery ? masterPetSectionHTML(s) : ""}
      <div class="grouphead" style="margin:22px 6px 8px;">Custom chase music (optional — blank = normal)</div>
-     <div class="grid">${musicCards}</div>`;
+     <div class="grid">${musicCards}</div>
+     <div class="grouphead" style="margin:22px 6px 8px;">Last Man Standing music (optional — blank = normal)</div>
+     <div class="hint" style="margin:0 0 12px;">Plays for everyone once only one survivor is left alive. Blank = the game's normal last-survivor theme.</div>
+     <div class="grid">${lmsCards}</div>`;
   wireSlotDrops();
   $("skinName").oninput = e => { s.name = e.target.value; if (byId[s.id]) byId[s.id].name = s.name; save(); renderSidebar(); };
   { const sp = $("skinPrice"); if (sp) sp.oninput = e => { s.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); }; }
@@ -755,7 +767,7 @@ function serializeSkin(s) {
       : { slot: sl.id, kind: sl.tag, filename: v.filename, w: v.w, h: v.h, image: v.dataURL };
   });
   const music = {};
-  for (const ms of MUSIC_SLOTS) { const m = (s.music || {})[ms.id]; if (m) music[ms.id] = { filename: m.filename, audio: m.dataURL }; }
+  for (const ms of ALL_MUSIC_SLOTS) { const m = (s.music || {})[ms.id]; if (m) music[ms.id] = { filename: m.filename, audio: m.dataURL }; }
   const out = { id: s.id, base: s.base, name: s.name, price: +s.price || 0, slots: entries, music };
   if (s.mastery) {
     out.mastery = true;

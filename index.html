@@ -4066,7 +4066,9 @@ loadSFX();
 const Music = {
   base: null,
   tier: [null, null, null, null],   // _1, _2, _3, _4
-  lms: null,                        // <killer>_lms — only audible during LMS
+  lms: null,                        // <killer>_lms (or a skin's theme) — only audible during LMS
+  lmsSrc: null,                     // the URL/data-URI Music.lms was built from (skin override tracking)
+  killerChar: null,                 // this round's killer, so LMS can re-resolve its theme
   lobby: null,                      // lobby ambient — only audible in lobby
   loadedFor: null,                  // killerChar|mapId combo we loaded for
   started: false,
@@ -4109,6 +4111,24 @@ function killerLmsUrl(killerChar) {
   return `music/${killerChar}_lms.${ext}`;
 }
 const MUSIC_TIER_SLOT = ["stage1", "stage2", "stage3", "chase"];   // tiers 0..3 = killer_1..4
+// The Last-Man-Standing theme may come from ANY equipped skin (survivor or
+// killer), and plays for everyone. The last surviving survivor's own skin wins
+// — it's their moment — then the killer's, then any other player's; otherwise
+// the built-in <killer>_lms track. A skin's `lastman` music is a bare data-URI.
+function resolveLmsTrack(killerChar) {
+  const players = [...G.players.values()];
+  const order = [
+    players.find(p => p.role === "survivor" && p.alive),   // the last one standing (once known)
+    players.find(p => p.role === "survivor"),               // any survivor
+    players.find(p => p.role === "killer"),                 // the killer
+    ...players,                                             // anyone else, deterministic
+  ];
+  for (const p of order) {
+    const m = p && p.skin && SKIN_MUSIC[p.skin];
+    if (m && m.lastman) return m.lastman;
+  }
+  return killerLmsUrl(killerChar);
+}
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "circus";
   // The killer's equipped skin can override the chase tiers (stage 1-3 + chase).
@@ -4123,7 +4143,11 @@ function setupMusic(killerChar, mapId) {
     const custom = skinMusic && skinMusic[MUSIC_TIER_SLOT[i]];   // data-URI track or undefined
     Music.tier[i] = mkAudio(custom || killerMusicUrl(killerChar, i + 1));
   }
-  Music.lms = mkAudio(killerLmsUrl(killerChar));
+  // Preload a best-guess LMS theme; enterLMSMode re-resolves once the last
+  // survivor is known and swaps in their skin's theme if it differs.
+  Music.killerChar = killerChar;
+  Music.lmsSrc = resolveLmsTrack(killerChar);
+  Music.lms = mkAudio(Music.lmsSrc);
   Music.loadedFor = key;
   Music.mode = "round";
 }
@@ -4144,6 +4168,7 @@ function stopMusic() {
   Music.base = null;
   Music.tier = [null, null, null, null];
   Music.lms = null;
+  Music.lmsSrc = null;
   Music.loadedFor = null;
   Music.started = false;
 }
@@ -4166,10 +4191,17 @@ function stopLobbyMusic() {
     try { Music.lobby.pause(); Music.lobby.currentTime = 0; } catch {}
   }
 }
-// LMS: from now until round end, only the killer's <killer>_lms track
-// plays. setupMusic already preloaded it.
+// LMS: from now until round end, only the LMS theme plays. setupMusic preloaded
+// a best guess; now that we know who the last survivor is, re-resolve so their
+// skin's theme (if any) takes over, swapping the track only if it changed.
 function enterLMSMode() {
   Music.mode = "lms";
+  const url = resolveLmsTrack(Music.killerChar);
+  if (url !== Music.lmsSrc || !Music.lms) {
+    try { if (Music.lms) { Music.lms.pause(); Music.lms.src = ""; } } catch {}
+    Music.lmsSrc = url;
+    Music.lms = mkAudio(url);   // volume starts at 0; updateMusic() fades it up
+  }
   if (Music.lms) {
     try { Music.lms.currentTime = 0; } catch {}
     const p = Music.lms.play();
