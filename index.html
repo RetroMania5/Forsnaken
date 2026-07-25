@@ -2971,10 +2971,21 @@ $("save-paste-load").addEventListener("click", () => {
   if (!text) { alert("Paste your save text first."); return; }
   try { JSON.parse(text); }
   catch (e) {
-    const tail = text.slice(-1);
-    alert(tail !== "}" && tail !== "]"
-      ? `That looks cut off — ${text.length.toLocaleString()} characters ending in "${tail}". Try Load save with the file instead.`
-      : `That isn't valid JSON (${text.length.toLocaleString()} characters).\n\n${e.message}`);
+    // Show what actually arrived — nine times in ten the text itself explains
+    // the failure (a file path, a half-copied file, the wrong file entirely).
+    const head = text.slice(0, 70).replace(/\s+/g, " ");
+    const tail = text.slice(-40).replace(/\s+/g, " ");
+    alert(
+      `Couldn't read that as a save.\n\n` +
+      `Got ${text.length.toLocaleString()} characters.\n` +
+      `Starts with:  ${head}\n` +
+      `Ends with:  ${tail}\n\n` +
+      `${e.message}\n\n` +
+      (text.slice(-1) !== "}"
+        ? `It doesn't end in "}" — so it's probably cut off or isn't the file's contents. ` +
+          `Open the .txt save, Select All, copy, and paste the whole thing.`
+        : `Use "Load save" with the file itself if this keeps failing.`)
+    );
     return;
   }
   closeSavePaste();
