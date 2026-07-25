@@ -281,6 +281,10 @@
   /* Touch controls */
   /* Chat lives top-left: the joystick owns bottom-left on touch and the
      ability buttons own bottom-right, so this is the one free corner. */
+  /* Always-visible build marker: makes a stale cached page obvious at a glance
+     on every screen, instead of something we have to deduce. */
+  #build-tag { position: fixed; right: 6px; bottom: 4px; z-index: 90; font-size: 10px;
+    color: rgba(255,255,255,0.45); pointer-events: none; letter-spacing: 0.04em; }
   /* Must outrank .overlay (10) or the lobby renders straight over it. Stays
      under the Guide (20) and Settings, which hide chat while they're open. */
   #chat { position: fixed; left: 12px; top: 12px; z-index: 11; width: min(340px, 46vw);
@@ -938,6 +942,7 @@
   </div>
 </div>
 
+<div id="build-tag"></div>
 <div id="chat" class="hidden">
   <button id="chat-open" title="Chat (Enter)">💬</button>
   <div id="chat-log"></div>
@@ -3045,9 +3050,10 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25e";
+const BUILD = "2026-07-25f";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
+if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
 // Paste a save instead of picking a file. Same loader, same confirm prompt.
 function openSavePaste() {
   $("save-paste-text").value = "";
