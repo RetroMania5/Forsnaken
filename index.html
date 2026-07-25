@@ -1346,7 +1346,20 @@ if (isTouchDevice()) document.body.classList.add("touch");
 
 // Track the mouse for desktop sniper aim.
 const mouse = { x: 0, y: 0, present: false };
+// Any real touch drops the mouse: it stops a synthetic cursor from hijacking
+// aim, and on a hybrid device (iPad + trackpad) the last input used wins.
+let lastTouchAt = 0;
+window.addEventListener("touchstart", () => {
+  lastTouchAt = Date.now();
+  mouse.present = false;
+}, { passive: true, capture: true });
 window.addEventListener("mousemove", (e) => {
+  // Phones synthesize a mousemove after every tap. Left unguarded that latches
+  // mouse.present on forever, and aiming then tracks a phantom cursor parked on
+  // whatever button was last tapped instead of the joystick. Ignore mouse
+  // events that follow a touch, and let touch clear the flag — so on a hybrid
+  // device whichever input you used most recently wins.
+  if (Date.now() - lastTouchAt < 800) return;
   mouse.x = e.clientX; mouse.y = e.clientY; mouse.present = true;
 });
 // Convert a screen coord to world space using the current camera params.
@@ -3050,7 +3063,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25f";
+const BUILD = "2026-07-25g";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
