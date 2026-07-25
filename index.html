@@ -3065,7 +3065,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25j";
+const BUILD = "2026-07-25k";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3389,6 +3389,22 @@ function renderStore(which) {
 }
 
 // The side detail panel: big walking preview, powers, and skin picker for a char.
+// Placeholder for a mastery skin you haven't earned yet.
+function drawLockedPreview(cv) {
+  const x = cv.getContext("2d");
+  x.clearRect(0, 0, cv.width, cv.height);
+  x.save();
+  x.translate(cv.width / 2, cv.height / 2);
+  x.fillStyle = "rgba(255,255,255,0.07)";
+  x.beginPath(); x.arc(0, 0, 62, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = "rgba(255,255,255,0.18)"; x.lineWidth = 2;
+  x.beginPath(); x.arc(0, 0, 62, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = "rgba(255,255,255,0.5)";
+  x.font = "700 84px system-ui, sans-serif";
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText("?", 0, 4);
+  x.restore();
+}
 function renderCharDetail(which, isShop, role, charId, detail) {
   if (!detail) return;
   const c = charListFor(role).find(x => x.id === charId); if (!c) return;
@@ -3398,7 +3414,12 @@ function renderCharDetail(which, isShop, role, charId, detail) {
   detail.innerHTML = "";
   const pv = document.createElement("canvas"); pv.className = "detail-prev"; pv.width = 220; pv.height = 200;
   detail.appendChild(pv);
-  _previews.push({ cv: pv, charId, skinId: skinPv, animate: true });   // always walking
+  // A mastery skin you haven't earned stays a surprise: the slot and name show,
+  // but the costume itself is a question mark until you unlock it.
+  const pvSk = skinPv ? SKIN_BY_ID[skinPv] : null;
+  const pvLocked = !!(pvSk && pvSk.mastery && !isSkinOwned(pvSk.id));
+  if (pvLocked) drawLockedPreview(pv);
+  else _previews.push({ cv: pv, charId, skinId: skinPv, animate: true });   // always walking
   const nm = document.createElement("div"); nm.className = "detail-name"; nm.textContent = c.name; detail.appendChild(nm);
   const sub = document.createElement("div"); sub.className = "detail-sub"; sub.textContent = role === "killer" ? "Killer" : "Survivor"; detail.appendChild(sub);
   // Buy (shop) / Equip (inventory) / status.
@@ -3424,7 +3445,8 @@ function renderCharDetail(which, isShop, role, charId, detail) {
     for (const r of rows) {
       const row = document.createElement("div"); row.className = "power-row";
       const ic = document.createElement("canvas"); ic.width = 36; ic.height = 36;
-      _previews.push({ cv: ic, charId, skinId: skinPv, frame: "action_" + r.id });
+      // Locked mastery art stays hidden here too — fall back to the base pose.
+      _previews.push({ cv: ic, charId, skinId: pvLocked ? null : skinPv, frame: "action_" + r.id });
       row.appendChild(ic);
       const t = document.createElement("span"); t.textContent = r.name; row.appendChild(t);
       wrap.appendChild(row);
