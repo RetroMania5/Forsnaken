@@ -279,9 +279,29 @@
   @media (max-width:640px) { .store-body { flex-direction:column; } .store-detail { width:auto; border-left:none; border-top:1px solid #333a52; } }
 
   /* Touch controls */
+  #save-paste-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.65);
+    display: flex; align-items: center; justify-content: center; padding: 20px; }
+  #save-paste-modal.hidden { display: none; }
+  .save-paste-box { background: var(--panel); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; padding: 18px; width: min(680px, 100%); max-height: 86vh;
+    display: flex; flex-direction: column; gap: 10px; }
+  .save-paste-box h3 { margin: 0; font-size: 17px; }
+  .save-paste-hint { font-size: 12px; opacity: 0.72; line-height: 1.45; }
+  #save-paste-text { flex: 1; min-height: 240px; resize: vertical; background: rgba(0,0,0,0.35);
+    color: #dfe4f2; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px;
+    font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre; overflow: auto; }
+  .save-paste-row { display: flex; gap: 10px; justify-content: flex-end; }
+  .save-paste-row button { width: auto; margin: 0; padding: 8px 18px; }
   #touch-controls { position: absolute; inset: 0; pointer-events: none; z-index: 6; display: none; }
   body.touch #touch-controls { display: block; }
   body.touch #key-hints { display: none; }
+  /* In the walkable lobby the same controls are reused, but only the joystick
+     makes sense there — no abilities, no action button. The lobby is an
+     .overlay (z-index 10), so the stick has to outrank it to be visible;
+     it's hidden again whenever a shop/inventory/menu panel opens. */
+  #touch-controls.lobby-only { z-index: 11; }
+  #touch-controls.lobby-only #mobile-abilities,
+  #touch-controls.lobby-only #action-btn { display: none; }
   #joystick {
     position: absolute; left: 0; bottom: 0;
     width: 40vw; height: 40vw; max-width: 220px; max-height: 220px;
@@ -638,6 +658,7 @@
     <div class="save-row">
       <button id="save-download" class="secondary">⬇ Download save</button>
       <button id="save-load" class="secondary">⬆ Load save</button>
+      <button id="save-paste" class="secondary">📋 Paste save</button>
       <input id="save-file" type="file" accept=".txt,.json,application/json,text/plain" style="display:none">
     </div>
   </div>
@@ -754,11 +775,11 @@
       <div class="gd-head"><span class="dot" style="background:#ff9a3c"></span><b>Whamo</b><span class="gd-muted">standees + megaphone; speeds up near the killer</span></div>
       <div class="gd-ab"><b>Passive — Speedy</b>: a meter (0–100%) that becomes speed — <b>1× at 0%, up to 2× at 100%</b>. It climbs <b>+4%/s</b> while the killer lingers near one of your standees and <b>+18%</b> whenever the killer breaks one. It only drains (<b>−1%/s</b>) while the killer is <b>off your screen</b>.</div>
       <div class="gd-ab"><b>Z — Standee</b>: drop a cardboard cutout of yourself. Up to <b>3</b> out at once — you can't place a 4th until one is broken (the killer walks into it). CD 30s.</div>
-      <div class="gd-ab"><b>X — Megaphone</b>: a <b>1s wind-up</b> (you stand still, shaking as you heft it) then <b>stuns every enemy nearby for 2s</b>. CD 30s (a fixed timer — your speed boost never changes it).</div>
+      <div class="gd-ab"><b>X — Megaphone</b>: <b>tap once to aim</b> (you hold still and a cone appears), <b>tap again to blast</b> — no wind-up. Every killer caught in the <b>70° cone (520 px)</b> is <b>slowed to half speed for 4s</b>. It no longer stuns. Pressing your other ability backs out of the aim for free. CD 30s (a fixed timer — your speed boost never changes it).</div>
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
-      <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px). On hit, the killer is <b>stunned 3s</b> (no damage). You gain <b>20% Malice</b> per hit — or <b>40%</b> if you stabbed out of a Duck. <b>Stabbing ends your Duck immediately</b> (hit or miss). CD 8s.</div>
+      <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px), no damage. It <b>only stuns (2.4s) if you strike out of a Duck</b> — stabbing upright never stuns. Malice per hit: <b>40% from a Duck</b>, <b>10% upright</b>. <b>Stabbing ends your Duck immediately</b> (hit or miss). CD <b>8s on a miss, 15s if you connect</b>.</div>
       <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. Stab applies its <b>doubled malice bonus</b> if you stab from inside it, then ends the Duck. CD 18s.</div>
       <div class="gd-ab"><b>C — Spawner</b>: <b>3s rooted channel</b>, then drops a spawn pad where you stand. <b>One pad per round</b> — the ability locks once you use it.</div>
       <div class="gd-ab"><b>Passive — Wings</b>: when you die with <b>100% Malice</b> AND you've placed a Spawner pad, you respawn at the pad with <b>65 HP</b> and angelic wings. Malice is consumed by the respawn, and you <b>stop gaining Malice afterward</b> — the passive is one-shot per round. With no pad placed, you die normally.</div>
@@ -790,7 +811,7 @@
       <div class="gd-ab"><b>Z — Strike</b>: 14 dmg melee, 75 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Trap</b> (human form): drops a bear trap at your feet. Any survivor that steps on it gets <b>stunned 4s</b> and the trap snaps. <b>Max 3 active</b> — placing a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>X — FIRE!!</b> (dino form): hurls a fireball in your facing direction. <b>10 dmg</b> on hit, ~800 px range. CD 3s.</div>
-      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>massive (5.4× size)</b>, hits for <b>21 damage</b> (1.5× normal) with a big <b>150 px reach</b> (covers the dino's whole body), and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also a bit <b>faster</b> (1.1× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s.</div>
+      <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>massive (5.4× size)</b>, hits for <b>21 damage</b> (1.5× normal) with a big <b>150 px reach</b> (covers the dino's whole body), and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also a bit <b>faster</b> (1.1× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s. <b>Every transform costs one down earned in your normal form</b> — kills made as the dino don't count toward the next one, so you always have to earn your way back in.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -850,6 +871,7 @@
       <button id="lobby-settings-btn" class="secondary">Settings</button>
       <button id="save-download-lobby" class="secondary">⬇ Download save</button>
       <button id="save-load-lobby" class="secondary">⬆ Load save</button>
+      <button id="save-paste-lobby" class="secondary">📋 Paste save</button>
       <button id="leave-lobby-btn" class="secondary">Leave</button>
     </div>
   </div>
@@ -888,6 +910,19 @@
   <div class="dc-box">
     <div class="dc-title">Disconnected</div>
     <button id="dc-rejoin">Rejoin</button>
+  </div>
+</div>
+
+<div id="save-paste-modal" class="hidden">
+  <div class="save-paste-box">
+    <h3>Paste save</h3>
+    <div class="save-paste-hint">Paste the contents of a downloaded save file, then Load.
+      You'll get the same confirmation before anything is replaced.</div>
+    <textarea id="save-paste-text" spellcheck="false" placeholder='{"version":6,"coins":0,"unlocks":[...]}'></textarea>
+    <div class="save-paste-row">
+      <button id="save-paste-cancel" class="secondary">Cancel</button>
+      <button id="save-paste-load">Load</button>
+    </div>
   </div>
 </div>
 
@@ -1156,8 +1191,9 @@ const G = {
   standees: [],        // Whamo's placed standees (from server)
   standeeBreaks: [],   // break VFX
   speedyPct: 0,        // Whamo's Speedy meter (0..100), local
-  // Sniper-specific local state.
+  // Aimed-ability local state (Sniper Shoot, Whamo Megaphone).
   aiming: false,
+  aimAb: null,         // ability *type* currently being aimed, drives the reticle shape
   aimDir: { x: 1, y: 0 },
   ammo: 1,
   reloadUntil: 0,      // perf.now() ms (mirrors server)
@@ -2526,7 +2562,7 @@ function onMessage(msg) {
       G.standees = [];
       G.standeeBreaks = [];
       G.speedyPct = 0;            // Whamo's Speedy meter resets each round
-      for (const p of G.players.values()) p.form = "human";
+      for (const p of G.players.values()) { p.form = "human"; p.transformKills = 0; }
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
       $("portal-bar").classList.add("hidden");
@@ -2570,7 +2606,8 @@ function onMessage(msg) {
           p.sneaking = !!s.sn;
           p.shielded = !!s.sh;
           p.form = s.fm ? "dino" : "human";
-          if (typeof s.kl === "number") p.kills = s.kl;   // for Sly's transform gate
+          if (typeof s.kl === "number") p.kills = s.kl;
+          if (typeof s.tk === "number") p.transformKills = s.tk;   // gates Sly's next transform
           p.ducking = !!s.du;
           p.malice = typeof s.ml === "number" ? s.ml : 0;
           p.respawned = !!s.wg;
@@ -2735,6 +2772,16 @@ function onMessage(msg) {
     case "reward":
       earnRoundCoins(msg.coins || 0, msg.reason || "");
       break;
+    // Server overriding a cooldown we already predicted (Angel's Stab costs
+    // more when it actually connects). Duration, not an absolute time — the
+    // two clocks aren't the same.
+    case "cooldown": {
+      const s = msg.slot | 0;
+      if (s >= 0 && s <= 2 && typeof msg.ms === "number") {
+        G.cooldowns[s] = Math.max(G.cooldowns[s] || 0, performance.now() + msg.ms);
+      }
+      break;
+    }
     case "coin_pickup":
       G.coins = (G.coins || []).filter(c => c.id !== msg.id);
       G.coinPickFx = G.coinPickFx || [];
@@ -2854,6 +2901,21 @@ function mergeRoster(list) {
   for (const id of [...G.players.keys()]) {
     if (!seen.has(id)) { G.players.delete(id); remoteLerp.delete(id); }
   }
+  resyncRoundMusicSkin();
+}
+// The killer's role-aware skin reaches everyone else a moment AFTER the round
+// starts, so the first setupMusic() can miss their custom chase tracks. Once a
+// roster update carries the real skin, rebuild the mix. setupMusic keys its
+// cache on the skin id, so this is a no-op whenever nothing changed.
+function resyncRoundMusicSkin() {
+  if (G.phase !== "playing" || Music.mode !== "round" || !Music.started) return;
+  const killer = [...G.players.values()].find(p => p.role === "killer");
+  if (!killer || !killer.killerChar) return;
+  const skinId = (killer.id === G.myId) ? G.mySkin : killer.skin;
+  const key = killer.killerChar + "|" + (G.mapId || "circus") + "|" + (skinId || "");
+  if (Music.loadedFor === key) return;
+  setupMusic(killer.killerChar, G.mapId);
+  startMusic();
 }
 
 // ---------- Screens ----------
@@ -2884,6 +2946,25 @@ $("save-download").addEventListener("click", downloadSave);
 $("save-load").addEventListener("click", () => $("save-file").click());
 $("save-download-lobby").addEventListener("click", downloadSave);
 $("save-load-lobby").addEventListener("click", () => $("save-file").click());
+// Paste a save instead of picking a file. Same loader, same confirm prompt.
+function openSavePaste() {
+  $("save-paste-text").value = "";
+  $("save-paste-modal").classList.remove("hidden");
+  $("save-paste-text").focus();
+}
+function closeSavePaste() { $("save-paste-modal").classList.add("hidden"); }
+$("save-paste").addEventListener("click", openSavePaste);
+$("save-paste-lobby").addEventListener("click", openSavePaste);
+$("save-paste-cancel").addEventListener("click", closeSavePaste);
+$("save-paste-modal").addEventListener("click", (e) => {
+  if (e.target.id === "save-paste-modal") closeSavePaste();
+});
+$("save-paste-load").addEventListener("click", () => {
+  const text = $("save-paste-text").value.trim();
+  if (!text) { alert("Paste your save text first."); return; }
+  closeSavePaste();
+  loadSaveFromText(text);
+});
 $("save-file").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (file) loadSaveFromFile(file);
@@ -3434,12 +3515,28 @@ function hubBlocked(px, py) {
 function anyStoreOpen() { return !$("shop-modal").classList.contains("hidden") || !$("inv-modal").classList.contains("hidden"); }
 function lobbyMenuOpen() { return !$("lobby-menu").classList.contains("hidden"); }
 function anyLobbyOverlay() { return anyStoreOpen() || lobbyMenuOpen(); }   // any of these pauses the hub
+// showOnly() hides #touch-controls whenever the lobby comes up, which left
+// phones with no way to walk the hub at all. Lend the joystick to the lobby
+// (abilities hidden via .lobby-only) and take it back when the hub goes away —
+// but never yank it out from under a round that has already claimed it.
+function updateLobbyTouchUI(show) {
+  if (!touchEl || !document.body.classList.contains("touch")) return;
+  if (show) { touchEl.classList.add("lobby-only"); touchEl.classList.remove("hidden"); return; }
+  if (!touchEl.classList.contains("lobby-only")) return;
+  touchEl.classList.remove("lobby-only");
+  if (hudEl.classList.contains("hidden")) touchEl.classList.add("hidden");
+  endJoystick();   // drop any half-held stick so the hub doesn't keep drifting
+}
 function updateHub(dt, now) {
   let dx = 0, dy = 0;
   if (keys["w"] || keys["arrowup"]) dy -= 1;
   if (keys["s"] || keys["arrowdown"]) dy += 1;
   if (keys["a"] || keys["arrowleft"]) dx -= 1;
   if (keys["d"] || keys["arrowright"]) dx += 1;
+  // Mobile: the joystick drives the hub too. Its vector is already deadzoned
+  // and clamped to length 1; the normalize below makes any push walk at full
+  // hub speed, since the lobby has no sprint/analog speed to vary.
+  if (joystick.active) { dx += joystick.x; dy += joystick.y; }
   const m = Math.hypot(dx, dy);
   hub.walking = m > 0;
   if (m > 0) {
@@ -3529,6 +3626,7 @@ if ($("lobby-menu-close")) $("lobby-menu-close").addEventListener("click", close
 if ($("lobby-menu")) $("lobby-menu").addEventListener("click", (e) => { if (e.target.id === "lobby-menu") closeLobbyMenu(); });
 function uiLoop(now) {
   const lobbyShown = lobbyEl && !lobbyEl.classList.contains("hidden");
+  updateLobbyTouchUI(lobbyShown && !anyLobbyOverlay());
   if (anyStoreOpen()) drawPreviews(now);
   if (lobbyShown) {
     if (!hub._wasShown) { hub.x = HUB_SPAWN_X; hub.y = HUB_SPAWN_Y; hub.lastT = 0; hub._wasShown = true; }
@@ -3906,10 +4004,16 @@ function downloadSave() {
 // Import a save file, replacing the current Account state.
 function loadSaveFromFile(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = (e) => loadSaveFromText(e.target.result);
+  reader.onerror = () => alert("Could not read that file.");
+  reader.readAsText(file);
+}
+// The save loader, driven by text — so a save can be pasted in as well as
+// picked from disk (handy on phones, or when the file is in a chat).
+function loadSaveFromText(text) {
     let data;
-    try { data = JSON.parse(e.target.result); }
-    catch { alert("That file isn't a valid save (couldn't parse it as JSON)."); return; }
+    try { data = JSON.parse(text); }
+    catch { alert("That isn't a valid save (couldn't parse it as JSON)."); return; }
     if (typeof data.coins !== "number" || !Array.isArray(data.unlocks)) {
       alert("That save is missing required fields (coins / unlocks).");
       return;
@@ -3945,9 +4049,6 @@ function loadSaveFromFile(file) {
     updateCoinDisplay();
     if (typeof buildCharGrids === "function" && G.survivorChars.length) buildCharGrids();
     alert(`Loaded: ${Account.coins} coins, ${Account.unlocks.length} unlocked, ${Account.pets.length} pets.`);
-  };
-  reader.onerror = () => alert("Could not read that file.");
-  reader.readAsText(file);
 }
 function isUnlocked(charId) { return Account.unlocks.includes(charId); }
 function priceOf(charId) {
@@ -4132,8 +4233,11 @@ function resolveLmsTrack(killerChar) {
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "circus";
   // The killer's equipped skin can override the chase tiers (stage 1-3 + chase).
+  // If I'm the killer, trust G.mySkin: the round starts before our own
+  // role-aware set_skin has round-tripped, so the broadcast copy of p.skin is
+  // still last phase's survivor skin (or null) and the custom tracks are missed.
   const killer = [...G.players.values()].find(p => p.role === "killer");
-  const skinId = killer && killer.skin;
+  const skinId = (killer && killer.id === G.myId) ? G.mySkin : (killer && killer.skin);
   const skinMusic = (skinId && SKIN_MUSIC[skinId]) || null;
   const key = killerChar + "|" + mapKey + "|" + (skinId || "");
   if (Music.loadedFor === key) { Music.mode = "round"; return; }
@@ -5337,8 +5441,8 @@ function tryFireAbility(slot, me) {
   const now = performance.now();
 
   // Sly can only shapeshift after he's downed a survivor this round.
-  if (ab.type === "transform" && (me.kills || 0) < 1) {
-    showCoinToast("Down a survivor first to transform!");
+  if (ab.type === "transform" && (me.transformKills || 0) < 1) {
+    showCoinToast("Down a survivor in normal form to transform!");
     return;
   }
   // Whamo: can't place a 4th standee until one of the three breaks.
@@ -5346,24 +5450,24 @@ function tryFireAbility(slot, me) {
     showCoinToast("Max standees out — one must break first!");
     return;
   }
-  // Whamo Megaphone: 1s rooted wind-up (shake, no costume yet); the server
-  // applies the stun and broadcasts the ability event afterward, which flips
-  // us into the megaphone action pose.
-  if (ab.type === "megaphone") {
-    if (now < G.cooldowns[slot]) return;
-    G.cooldowns[slot] = now + ab.cd * 1000;
-    me.channelUntil = now + (ab.windupDuration || 1) * 1000;
-    me.channelDuration = (ab.windupDuration || 1) * 1000;
-    me.channelType = "megaphone"; me.channelAbId = null;
-    if (G.testMode) applyLocalAbility(me, ab);
-    else sendMsg({ type: "ability", slot });
+  // Pressing anything else while lining up the Megaphone backs out of the aim
+  // (the Sniper uses its Reload slot for this; Whamo has no spare slot).
+  if (G.aiming && G.aimAb === "megaphone" && ab.type !== "megaphone") {
+    G.aiming = false; G.aimAb = null;
     return;
   }
 
-  // Sniper: shoot is a two-step aim-then-fire; cooldown only spent on fire.
-  if (ab.type === "shoot_sniper") {
-    if ((G.ammo | 0) <= 0) return;
+  // Two-step aim-then-fire abilities (Sniper Shoot, Whamo Megaphone): the first
+  // press enters aim mode, the second fires along the reticle. The cooldown is
+  // only spent on the actual shot, so backing out is free.
+  if (needsAim(ab)) {
+    if (ab.type === "shoot_sniper" && (G.ammo | 0) <= 0) return;
+    // The Sniper is gated by ammo, so it can enter aim on cooldown; the
+    // Megaphone has nothing else stopping it, so don't let it aim a shot it
+    // can't take.
+    if (ab.type !== "shoot_sniper" && !G.aiming && now < G.cooldowns[slot]) return;
     if (!G.aiming) {
+      G.aimAb = ab.type;
       // First press: enter aim mode. Seed direction from the mouse if we
       // have one (so the reticle starts under the cursor); otherwise from
       // current facing.
@@ -5386,12 +5490,14 @@ function tryFireAbility(slot, me) {
       me._anim.actionUntil = now + ACTION_HOLD_MS;
       me._anim.actionAb = ab.id;
     }
-    // Predict ammo consumption locally so the slot greys out instantly.
-    G.ammo = 0;
-    // Brief lock: ignore stale state packets that may still report am=1
-    // for one tick because they were built before our fire arrived.
-    G.sniperPredictLockUntil = now + 400;
-    G.aiming = false;
+    if (ab.type === "shoot_sniper") {
+      // Predict ammo consumption locally so the slot greys out instantly.
+      G.ammo = 0;
+      // Brief lock: ignore stale state packets that may still report am=1
+      // for one tick because they were built before our fire arrived.
+      G.sniperPredictLockUntil = now + 400;
+    }
+    G.aiming = false; G.aimAb = null;
     const aim = { x: G.aimDir.x, y: G.aimDir.y };
     facing = aim;
     if (G.testMode) {
@@ -5610,7 +5716,7 @@ function isPhasing(p) {
   // Sly's dino form ignores interior walls and obstacles. The outer map
   // walls (first 4 entries of WALLS, the map border) still apply via the
   // x/y clamp at the end of stepWithCollision.
-  return p && p.killerChar === "sly" && p.form === "dino";
+  return p && p.role === "killer" && p.killerChar === "sly" && p.form === "dino";
 }
 
 function stepWithCollision(p, dx, dy) {
@@ -6682,8 +6788,33 @@ function drawSlowFields() {
   }
 }
 
+// Abilities that are lined up first and fired on a second press.
+function needsAim(ab) { return ab && (ab.type === "shoot_sniper" || ab.type === "megaphone"); }
+// Whamo's Megaphone blasts a cone rather than a single shot, so preview the
+// actual area it will hit instead of the sniper crosshair.
+function drawMegaphoneCone() {
+  const me = G.players.get(G.myId);
+  if (!me) return;
+  const ab = abilitiesFor(me).find(a => a.type === "megaphone");
+  const range = (ab && ab.range) || 520;
+  const half = ((ab && ab.coneDegrees) || 70) * Math.PI / 360;
+  const a0 = Math.atan2(G.aimDir.y, G.aimDir.x);
+  ctx.save();
+  ctx.translate(me.x, me.y);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, range, a0 - half, a0 + half);
+  ctx.closePath();
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, range);
+  g.addColorStop(0, "rgba(255,154,60,0.30)");
+  g.addColorStop(1, "rgba(255,154,60,0.02)");
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = "rgba(255,154,60,0.75)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+}
 function drawAimReticle() {
   if (!G.aiming) return;
+  if (G.aimAb === "megaphone") { drawMegaphoneCone(); return; }
   const me = G.players.get(G.myId);
   if (!me || !me.alive) return;
   const now = performance.now();
@@ -7551,11 +7682,6 @@ function drawPlayer(p) {
     leanPx += Math.sin(now * 0.05) * 2.6;
     bobPx += Math.sin(now * 0.083) * 1.6;
   }
-  // Whamo's Megaphone wind-up: shakes as if hauling it up, before the stun.
-  if (p.channelType === "megaphone" && now < (p.channelUntil || 0)) {
-    leanPx += Math.sin(now * 0.06) * 2.2;
-    bobPx += Math.sin(now * 0.11) * 1.3;
-  }
   ctx.translate(p.x + (flip ? -leanPx : leanPx), p.y + bobPx);
   // Sway pivots around the player's logical position (close to the
   // feet) so the head swings while the feet stay roughly planted.
@@ -7902,6 +8028,7 @@ function updateAbilitySlots(me) {
     let label = ab.name;
     if (ab.type === "shoot_sniper" && G.aiming) label = "Fire";
     if (ab.type === "reload_sniper" && G.aiming) label = "Cancel";
+    if (ab.type === "megaphone" && G.aiming) label = "Blast";
     // Sly's slot 0 swaps name with form.
     if (ab.type === "trap_fire") label = (me.form === "dino") ? "FIRE!!" : "Trap";
     slot.querySelector(".name").textContent = label;
@@ -7985,7 +8112,7 @@ function updateAbilitySlots(me) {
       mDots.innerHTML = dots;
       sFill.style.height = "0";
       mFill.style.height = "0";
-    } else if (ab.type === "transform" && (me.kills || 0) < 1) {
+    } else if (ab.type === "transform" && (me.transformKills || 0) < 1) {
       // Sly must down a survivor first — show the slot locked.
       slot.classList.add("disabled"); mob.classList.add("disabled");
       slot.classList.remove("aim-active"); mob.classList.remove("aim-active");

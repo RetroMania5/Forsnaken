@@ -115,6 +115,17 @@
   .newpetbtn { width:100%; text-align:center; color:var(--accent); border:1px dashed var(--line);
     border-radius:8px; padding:9px; margin-top:4px; background:transparent; }
   .newpetbtn:hover { border-color:var(--accent); background:var(--panel2); }
+  #pasteWrap { display:none; position:fixed; inset:0; z-index:50; background:rgba(0,0,0,0.6);
+    align-items:center; justify-content:center; padding:20px; }
+  .pastebox { background:#171a24; border:1px solid #333a52; border-radius:14px; padding:18px;
+    width:min(760px, 100%); max-height:86vh; display:flex; flex-direction:column; gap:10px; }
+  .pastebox h3 { margin:0; font-size:17px; }
+  .pastehint { font-size:12px; opacity:0.7; line-height:1.45; }
+  #pasteText { flex:1; min-height:300px; resize:vertical; background:#0e111a; color:#dfe4f2;
+    border:1px solid #333a52; border-radius:10px; padding:10px; font:12px/1.4 ui-monospace,Menlo,monospace;
+    white-space:pre; overflow:auto; }
+  .pasterow { display:flex; align-items:center; gap:10px; justify-content:flex-end; }
+  #pasteMsg { margin-right:auto; font-size:12px; color:#ff9a9a; }
 </style>
 </head>
 <body>
@@ -124,10 +135,24 @@
   <div class="prog" id="prog">0 / 0 slots</div>
   <button id="testBtn">▶ Test</button>
   <button id="importBtn">Import…</button>
+  <button id="pasteBtn">📋 Paste…</button>
   <button id="clearBtn" class="danger">Clear all</button>
   <button id="exportBtn" class="primary">⬇ Export file</button>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 </header>
+<div id="pasteWrap">
+  <div class="pastebox">
+    <h3>Paste export JSON</h3>
+    <div class="pastehint">Paste the contents of a forsnaken-art / skin / pets export, then Load.
+      Same thing the Import… button does — handy when you only have the text.</div>
+    <textarea id="pasteText" spellcheck="false" placeholder='{"app":"forsnaken-art", ...}'></textarea>
+    <div class="pasterow">
+      <span id="pasteMsg"></span>
+      <button id="pasteCancel">Cancel</button>
+      <button id="pasteLoad" class="primary">Load</button>
+    </div>
+  </div>
+</div>
 
 <div class="wrap">
   <aside id="sidebar"></aside>
@@ -799,8 +824,13 @@ function exportOne() {
 }
 function importFile(file) {
   const fr = new FileReader();
-  fr.onload = () => {
-    let d; try { d = JSON.parse(fr.result); } catch { return toast("Not a valid export file."); }
+  fr.onload = () => importJSONText(fr.result);
+  fr.readAsText(file);
+}
+// Same import path as a picked file, but from raw text — so an export can be
+// pasted in directly. Returns an error string, or null when it worked.
+function importJSONText(text) {
+    let d; try { d = JSON.parse(text); } catch { toast("Not a valid export file."); return "That isn't valid JSON."; }
     // A pets export (or any file carrying a pets array) restores pets.
     if (Array.isArray(d.pets)) {
       for (const p of d.pets) {
@@ -810,7 +840,7 @@ function importFile(file) {
           image: p.image ? { filename: p.filename || "pet.png", w: p.w, h: p.h, dataURL: p.image } : null });
       }
       save(); renderSidebar(); renderMain();
-      if (!d.characters && !d.skins) return toast(`Imported ${d.pets.length} pet(s).`);
+      if (!d.characters && !d.skins) { toast(`Imported ${d.pets.length} pet(s).`); return null; }
     }
     // Skins (from a full export or a single-skin file).
     if (Array.isArray(d.skins)) {
@@ -826,9 +856,9 @@ function importFile(file) {
           (store[sk.id] ||= {})[s.slot] = s.noCostume ? { noCostume: true } : { filename: s.filename, w: s.w, h: s.h, dataURL: s.image };
       }
       save(); renderSidebar(); renderMain();
-      if (!d.characters) return toast(`Imported ${d.skins.length} skin(s).`);
+      if (!d.characters) { toast(`Imported ${d.skins.length} skin(s).`); return null; }
     }
-    if (!d.characters) return toast("Unrecognized file.");
+    if (!d.characters) { toast("Unrecognized file."); return "Unrecognized export — no characters, skins or pets in it."; }
     for (const c of d.characters) {
       for (const s of (c.slots || []))
         (store[c.id] ||= {})[s.slot] = s.noCostume
@@ -837,8 +867,7 @@ function importFile(file) {
       if (c.floatWalk) (flags[c.id] ||= {}).floatWalk = true;
     }
     save(); renderSidebar(); renderMain(); toast("Imported.");
-  };
-  fr.readAsText(file);
+    return null;
 }
 function toast(msg) { const n = $("note"); n.textContent = msg; n.style.display = "block";
   clearTimeout(toast._t); toast._t = setTimeout(() => n.style.display = "none", 3200); }
@@ -1010,6 +1039,26 @@ $("testZoom").oninput = e => { testZoom = +e.target.value; $("testZoomV").textCo
 $("exportBtn").onclick = exportFile;
 $("importBtn").onclick = () => $("importFile").click();
 $("importFile").onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ""; };
+// Paste-an-export: same importer, text instead of a file.
+function openPaste() {
+  $("pasteMsg").textContent = "";
+  $("pasteText").value = "";
+  $("pasteWrap").style.display = "flex";
+  $("pasteText").focus();
+}
+function closePaste() { $("pasteWrap").style.display = "none"; }
+$("pasteBtn").onclick = openPaste;
+$("pasteCancel").onclick = closePaste;
+$("pasteWrap").onclick = e => { if (e.target.id === "pasteWrap") closePaste(); };
+$("pasteLoad").onclick = () => {
+  const text = $("pasteText").value.trim();
+  if (!text) { $("pasteMsg").textContent = "Nothing pasted yet."; return; }
+  let err;
+  try { err = importJSONText(text); }
+  catch (e) { err = "Import failed: " + e.message; }
+  if (err) { $("pasteMsg").textContent = err; return; }
+  closePaste();
+};
 $("clearBtn").onclick = () => { if (confirm("Remove ALL added art + skins? (Export first if you want to keep it.)"))
   { store = {}; flags = {}; for (const s of skins) delete byId[s.id]; skins = [];
     if (isSkinSel()) selected = ALL[0].id; save(); renderSidebar(); renderMain(); } };

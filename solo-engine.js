@@ -307,18 +307,18 @@ const ABILITIES = {
   fencer: [
     // Slash: melee swing in front of the fencer. Stuns the killer for
     // stunDuration seconds if any is within range — no damage.
-    { id: "slash", name: "Slash", cd: 25, type: "slash_stun", range: 80, stunDuration: 5 },
+    { id: "slash", name: "Slash", cd: 25, type: "slash_stun", range: 80, stunDuration: 4 },
     // Soda: heals 30 HP over 10s. Limited to maxUses casts per round.
-    { id: "soda",  name: "Soda",  cd: 30, type: "heal_self",  amount: 30, duration: 10, maxUses: 3 },
+    { id: "soda",  name: "Soda",  cd: 30, type: "heal_self",  amount: 24, duration: 10, maxUses: 3 },
   ],
   kacey: [
     // Burger: throw a healing burger in the facing direction. It slows
     // down with friction, bounces off walls/obstacles, and heals any
     // OTHER survivor that touches it. Despawns on pickup or after TTL.
-    { id: "burger", name: "Burger!", cd: 18, type: "throw_burger", speed: 500, healAmount: 25, ttl: 30, bounce: 0.6 },
+    { id: "burger", name: "Burger!", cd: 18, type: "throw_burger", speed: 500, healAmount: 20, ttl: 30, bounce: 0.6 },
     // Meow: short-range aoe. Heals every survivor within radius and
     // applies a light slow (0.9x) to any killer within radius.
-    { id: "meow",   name: "MEOW!",  cd: 35, type: "meow", radius: 600, healAmount: 20, slowMult: 0.9, slowDuration: 4 },
+    { id: "meow",   name: "MEOW!",  cd: 35, type: "meow", radius: 600, healAmount: 16, slowMult: 0.9, slowDuration: 4 },
   ],
   sniper: [
     // Shoot: must be aimed by the client and consumes 1 ammo. Projectile
@@ -326,7 +326,7 @@ const ABILITIES = {
     // obstacle, and stuns the killer for stunDuration seconds on hit.
     // range is effectively unlimited — the bullet only stops on a wall,
     // obstacle, or the outer map boundary (handled in the tick loop).
-    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 99999, stunDuration: 10, hitRadius: 30 },
+    { id: "shoot",  name: "Shoot",  cd: 25, type: "shoot_sniper", speed: 1100, range: 99999, stunDuration: 8, hitRadius: 30 },
     // Reload: 5s channel before ammo refills. Only usable at 0 ammo.
     { id: "reload", name: "Reload", cd: 20, type: "reload_sniper", reloadDuration: 5.0 },
     // Sneak: turns the Sniper mostly invisible to everyone for a few seconds.
@@ -338,16 +338,18 @@ const ABILITIES = {
     // Robot: 3s rooted build, then a robot trundles toward the killer at walk
     // speed. Touches them -> 12s stun. Self-destructs after 40s if it doesn't
     // catch them. Only one robot per Engineer at a time.
-    { id: "robot",  name: "Robot",  cd: 50, type: "spawn_robot", channelDuration: 3.0, speed: 100, hitRadius: 25, stunDuration: 12, ttl: 25 },
+    { id: "robot",  name: "Robot",  cd: 50, type: "spawn_robot", channelDuration: 3.0, speed: 100, hitRadius: 25, stunDuration: 9.6, ttl: 25 },
   ],
   scout: [
     { id: "rally", name: "Rally", cd: 14, type: "speed_team", mult: 1.25, radius: 200, duration: 4.0 },
     { id: "scan",  name: "Scan",  cd: 12, type: "reveal",     duration: 2.0 },
   ],
   angel: [
-    // Stab: short-range dagger. Stuns the killer 3s on hit (no damage),
-    // grants 20% malice (40% if currently ducking).
-    { id: "stab",    name: "Stab",    cd: 8,  type: "stab", range: 80, stunDuration: 3, maliceGain: 20, maliceGainDuck: 40 },
+    // Stab: short-range dagger, no damage. It ONLY stuns when Angel strikes
+    // out of a Duck — an upright stab just chips malice. Malice is 40% from a
+    // ducked hit, half rate (10%) upright. Landing a hit puts it on the longer
+    // hitCd instead of cd, so whiffing is the cheap outcome.
+    { id: "stab",    name: "Stab",    cd: 8,  hitCd: 15, type: "stab", range: 80, stunDuration: 2.4, maliceGain: 10, maliceGainDuck: 40 },
     // Duck: 95% invis + 0.6x speed for 7s. No reveal-on-attack — Angel can
     // stab from inside the duck for the malice bonus.
     { id: "duck",    name: "Duck",    cd: 18, type: "duck", duration: 7.0, speedMult: 0.6 },
@@ -357,12 +359,12 @@ const ABILITIES = {
   ],
   pollen: [
     // Breathe: instant self-heal.
-    { id: "breathe", name: "Breathe", cd: 20, type: "heal_self_instant", amount: 10 },
+    { id: "breathe", name: "Breathe", cd: 20, type: "heal_self_instant", amount: 8 },
     // Heal Station: 5s channel, costs 15 HP up front, drops a fountain
     // that heals nearby survivors 2 HP/sec until a killer melee breaks it.
     { id: "heal_station", name: "Heal Station", cd: 30, type: "build_station",
       stationKind: "heal", channelDuration: 5.0, hpCost: 15, radius: 140,
-      healPerSec: 4 },
+      healPerSec: 3.2 },
     // Defence Station: 5s channel + 15 HP cost like Heal Station, but
     // refreshes a short shield on any survivor inside the radius.
     { id: "defence_station", name: "Defence Station", cd: 30, type: "build_station",
@@ -373,9 +375,10 @@ const ABILITIES = {
     // Standee: drop a cardboard cutout. Up to 3 at once; can't place a 4th
     // until one is broken (the killer walks into it). Break feeds the passive.
     { id: "standee", name: "Standee", cd: 30, type: "standee", maxStandees: 3, breakRadius: 30 },
-    // Megaphone: 1s wind-up (rooted, shaking) then stuns every killer on
-    // screen (approximated by a big radius) for 2s.
-    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", windupDuration: 1.0, stunDuration: 2.0, radius: 480 },
+    // Megaphone: aimed like the Sniper (tap to aim, tap again to blast) with
+    // no wind-up. Hits a cone of coneDegrees wide out to range, and SLOWS every
+    // killer caught in it to slowMult for slowDuration seconds — it no longer stuns.
+    { id: "megaphone", name: "Megaphone", cd: 30, type: "megaphone", range: 520, coneDegrees: 70, slowMult: 0.5, slowDuration: 4.0 },
   ],
   slasher: [
     { id: "throw",  name: "Throw Knife", cd: 5,  type: "projectile", damage: 12, speed: 700, range: 700 },
@@ -389,7 +392,7 @@ const ABILITIES = {
     // Slot 0 — Trap when human, FIRE!! when dino. Server dispatches by form.
     { id: "trap_fire", name: "Trap", cd: 15, type: "trap_fire",
       trapCD: 15, fireCD: 3,
-      trapStunDuration: 4, maxTraps: 3,
+      trapStunDuration: 3.2, maxTraps: 3,
       fireSpeed: 700, fireRange: 800, fireDamage: 10 },
     // Slot 1 — Transform: 5s rooted channel, then dino for 20s, then revert.
     { id: "transform", name: "Transform", cd: 40, type: "transform",
@@ -630,7 +633,8 @@ function onJoin(id, ws, msg) {
     killerChar: "slasher",
     pet: null,               // equipped pet id (cosmetic companion)
     skin: null,              // equipped skin id (cosmetic alt costume)
-    kills: 0,                // survivors downed this round (gates Sly's transform)
+    kills: 0,                // survivors downed this round (feeds mastery totals)
+    transformKills: 0,       // human-form downs banked toward Sly's NEXT transform
     color: SURVIVOR_CHARS.find(c => c.id === "scout").color,
     x: MAP.w / 2, y: MAP.h - 200,
     facing: { x: 1, y: 0 },
@@ -871,6 +875,9 @@ function applyDamage(target, amount, attacker) {
     // Credit the kill (a killer downing a survivor) — Sly needs one to transform.
     if (attacker && attacker.role === "killer" && target.role === "survivor" && attacker !== target) {
       attacker.kills = (attacker.kills || 0) + 1;
+      // Only downs earned in his normal form bank a transform — dino kills
+      // don't pay for the next one.
+      if (attacker.form !== "dino") attacker.transformKills = (attacker.transformKills || 0) + 1;
     }
     broadcast({ type: "down", id: target.id, by: attacker.id, timer: state.roundTimer });
     checkRoundEnd();
@@ -918,7 +925,7 @@ function onAbility(id, msg) {
     if (state.robots.some(r => r.ownerId === p.id)) return;
   }
   // Sly can only shapeshift once he's downed a survivor this round.
-  if (ab.type === "transform" && (p.kills || 0) < 1) return;
+  if (ab.type === "transform" && (p.transformKills || 0) < 1) return;
   // Whamo can't place a 4th standee until one of his three is broken.
   if (ab.type === "standee" && state.standees.filter(s => s.ownerId === p.id).length >= (ab.maxStandees || 3)) return;
   // Generic per-round use-limit (e.g. Fencer's Soda).
@@ -1166,6 +1173,9 @@ function applyAbility(p, ab, slot, msg) {
     }
     case "transform": {
       // 5s rooted channel, then form = "dino" for ab.duration seconds.
+      // Spend the banked human-form down now (not at channel end) so one
+      // kill can never pay for two transforms.
+      p.transformKills = 0;
       const ownerId = p.id;
       const channelMs = (ab.channelDuration || 0) * 1000;
       broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.channelDuration });
@@ -1187,26 +1197,29 @@ function applyAbility(p, ab, slot, msg) {
       break;
     }
     case "megaphone": {
-      // 1s rooted wind-up (the client shakes), then stun every killer within
-      // range (≈ "on screen") for stunDuration seconds.
-      const ownerId = p.id;
-      const windupMs = (ab.windupDuration || 1) * 1000;
-      broadcast({ type: "ability_channel", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.windupDuration || 1 });
-      setTimeout(() => {
-        if (state.phase !== "playing") return;
-        const owner = state.players.get(ownerId);
-        if (!owner || !owner.alive) return;
-        const R = ab.radius || 800;
-        for (const k of state.players.values()) {
-          if (k.role !== "killer" || !k.alive) continue;
-          if (Math.hypot(k.x - owner.x, k.y - owner.y) <= R) {
-            k.effects.slowMult = 0.05;
-            k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, Date.now() + ab.stunDuration * 1000);
-            broadcast({ type: "stun", id: k.id, by: ownerId, duration: ab.stunDuration });
-          }
-        }
-        broadcast({ type: "ability", id: ownerId, slot, abilityId: ab.id, abilityType: ab.type });
-      }, windupMs);
+      // Instant aimed cone — no wind-up. The client aims it like the Sniper and
+      // sends the direction; every killer inside the cone is SLOWED (not stunned).
+      const aim = (msg && msg.aim && typeof msg.aim.x === "number") ? msg.aim : p.facing;
+      const aimNorm = Math.hypot(aim.x, aim.y) || 1;
+      const ax = aim.x / aimNorm, ay = aim.y / aimNorm;
+      const R = ab.range || 520;
+      // Half-angle in radians: deg/2 * PI/180 === deg * PI/360.
+      const cosLimit = Math.cos((ab.coneDegrees || 70) * Math.PI / 360);
+      const affected = [];
+      for (const k of state.players.values()) {
+        if (k.role !== "killer" || !k.alive) continue;
+        const dx = k.x - p.x, dy = k.y - p.y;
+        const d = Math.hypot(dx, dy);
+        if (d > R) continue;
+        // Anyone practically on top of Whamo counts as inside the cone.
+        if (d > 1 && (dx / d) * ax + (dy / d) * ay < cosLimit) continue;
+        k.effects.slowMult = Math.min(k.effects.slowMult || 1, ab.slowMult);
+        k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, now + ab.slowDuration * 1000);
+        affected.push(k.id);
+      }
+      if (affected.length) sendReward(p.id, 2, "Slowed the killer");
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type,
+                  x: p.x, y: p.y, fx: ax, fy: ay, range: R, cone: ab.coneDegrees || 70, affected });
       break;
     }
     case "spawn_robot": {
@@ -1342,15 +1355,25 @@ function applyAbility(p, ab, slot, msg) {
       }
       const wasDucking = now < (p.effects.duckUntil || 0);
       if (best) {
-        best.effects.slowMult = 0.05;
-        best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
-        broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+        // The stun is the reward for striking from a Duck; upright it's just
+        // a poke that builds malice at half rate.
+        if (wasDucking) {
+          best.effects.slowMult = 0.05;
+          best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
+          broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+        }
         // Malice stops accumulating once Angel has burned the respawn —
         // the passive is one-shot per round so there's no second life to
         // earn a second time.
         if (!p.respawned) {
           const gain = wasDucking ? (ab.maliceGainDuck || ab.maliceGain) : ab.maliceGain;
           p.malice = Math.min(100, (p.malice || 0) + gain);
+        }
+        // Connecting costs the longer cooldown. onAbility already charged the
+        // base cd, so overwrite it and tell the client, which predicted cd too.
+        if (ab.hitCd) {
+          p.cooldowns[slot] = now + ab.hitCd * 1000;
+          if (p.ws) send(p.ws, { type: "cooldown", slot, ms: ab.hitCd * 1000 });
         }
       }
       // Stab always reveals Angel — Duck ends immediately, hit or miss.
@@ -1488,6 +1511,14 @@ function startRound() {
   state.standees = [];
   state.coins = []; state.nextCoinAt = Date.now() + COIN_INTERVAL_MS;
 
+  // Sly's dino form is strictly per-round, so clear it on EVERY player rather
+  // than just this round's killer. Someone who ended a round as the dino and is
+  // now a survivor would otherwise keep his wall-phasing: the client's phase
+  // check keys off killerChar + form, both of which survive a role change.
+  for (const p of state.players.values()) {
+    p.form = "human"; p.formUntil = 0; p.transformKills = 0;
+  }
+
   const killerId = state.designatedKillerId;
   const survIds = [...state.players.keys()].filter(pid => pid !== killerId);
   state.survivorStartCount = survIds.length;
@@ -1505,8 +1536,6 @@ function startRound() {
   killer.mainAttackCdUntil = 0;
   killer.ammo = 1; killer.reloadUntil = 0;
   killer.abilityUses = {};
-  killer.form = "human";        // Sly starts human each round; reset for everyone
-  killer.formUntil = 0;
   killer.kills = 0;             // must down a survivor before Sly can transform
   killer.effects = freshEffects();
 
@@ -1568,6 +1597,11 @@ function checkRoundEnd() {
 
 function endRound(winner) {
   if (state.phase !== "playing") return;
+  // Drop the dino the instant the round ends, so nobody walks through walls
+  // during the result hold on the way back to the lobby.
+  for (const p of state.players.values()) {
+    if (p.form === "dino") { p.form = "human"; p.formUntil = 0; broadcast({ type: "form", id: p.id, form: "human" }); }
+  }
   state.phase = "over";
   state.winner = winner;
   state.rejoinVotes.clear();
@@ -2013,6 +2047,7 @@ function tick() {
           sh: now < (p.effects.shieldUntil || 0) ? 1 : 0,
           fm: p.form === "dino" ? 1 : 0,
           kl: p.role === "killer" ? (p.kills || 0) : 0,
+          tk: p.role === "killer" ? (p.transformKills || 0) : 0,
           du: now < (p.effects.duckUntil || 0) ? 1 : 0,
           ml: p.role === "survivor" && p.survivorChar === "angel" ? Math.round(p.malice || 0) : 0,
           wg: p.respawned ? 1 : 0,
