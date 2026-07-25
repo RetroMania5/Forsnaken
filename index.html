@@ -3065,7 +3065,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25n";
+const BUILD = "2026-07-25o";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3552,13 +3552,11 @@ function renderCharDetail(which, isShop, role, charId, detail) {
 // Pets store tab: buy in the shop, equip in the inventory (+ a "None" to unequip).
 function renderPetStore(which, isShop, grid) {
   let list = PETS.slice();
-  // Pets pulled from sale. Hidden from the shop but left working for anyone who
-  // already owns one, so a past purchase never silently disappears.
-  const RETIRED_PETS = ["pmryftzrl208u"];   // Fakerbot
   // Master Pets are earned, never sold — keep them out of the shop entirely.
   // They still appear in the inventory once unlocked, and the character's
   // mastery bar is where you track progress toward them.
-  if (isShop) list = list.filter(p => !p.mastery && !RETIRED_PETS.includes(p.id));
+  list = list.filter(p => !RETIRED_PETS.includes(p.id));   // withdrawn everywhere
+  if (isShop) list = list.filter(p => !p.mastery);
   else list = list.filter(p => isPetOwned(p.id));
   list.sort((a, b) => (a.price - b.price) || a.name.localeCompare(b.name));
   const addCell = (canvasDraw, name, tagEl, cls, onclick) => {
@@ -4040,6 +4038,9 @@ function exitTestMode() {
 // behind purchase without needing a code change here.
 const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600 };
 const DEFAULT_PRICE = 100;
+// Withdrawn pets: delisted from the shop AND revoked from every save on load,
+// so they can't be equipped by anyone who bought one earlier.
+const RETIRED_PETS = ["pmryftzrl208u"];   // Fakerbot
 const DEFAULT_UNLOCKS = ["scout", "slasher", "fencer", "kacey"];
 // End-of-round payout: keyed by [role][outcome]. Coins are persisted to
 // localStorage via saveAccount() inside awardRoundPayout below.
@@ -4102,7 +4103,9 @@ function loadAccount() {
     // Ensure current defaults stay unlocked regardless of migrations.
     const set = new Set([...DEFAULT_UNLOCKS, ...unlocks]);
     Account.unlocks = [...set];
-    Account.pets = Array.isArray(saved.pets) ? saved.pets.filter(x => typeof x === "string") : [];
+    Account.pets = Array.isArray(saved.pets)
+      ? saved.pets.filter(x => typeof x === "string" && !RETIRED_PETS.includes(x))
+      : [];
     Account.equippedPet = (typeof saved.equippedPet === "string" && Account.pets.includes(saved.equippedPet)) ? saved.equippedPet : null;
     Account.skins = Array.isArray(saved.skins) ? saved.skins.filter(x => typeof x === "string") : [];
     Account.equippedSkins = (saved.equippedSkins && typeof saved.equippedSkins === "object") ? { ...saved.equippedSkins } : {};
@@ -4277,7 +4280,9 @@ function loadSaveFromText(text) {
     }
     Account.unlocks = [...new Set([...DEFAULT_UNLOCKS, ...valid])];
     // Pets (older saves may not have them — default to none).
-    Account.pets = Array.isArray(data.pets) ? data.pets.filter(id => typeof id === "string") : [];
+    Account.pets = Array.isArray(data.pets)
+      ? data.pets.filter(id => typeof id === "string" && !RETIRED_PETS.includes(id))
+      : [];   // an old save can't reintroduce a withdrawn pet either
     Account.equippedPet = (typeof data.equippedPet === "string" && Account.pets.includes(data.equippedPet)) ? data.equippedPet : null;
     Account.skins = Array.isArray(data.skins) ? data.skins.filter(id => typeof id === "string") : [];
     Account.equippedSkins = (data.equippedSkins && typeof data.equippedSkins === "object") ? { ...data.equippedSkins } : {};
