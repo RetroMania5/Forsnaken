@@ -3065,7 +3065,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25i";
+const BUILD = "2026-07-25j";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3494,7 +3494,14 @@ function renderCharDetail(which, isShop, role, charId, detail) {
     if (equippedSkinFor(charId) === pvSkin.id) {
       const d = document.createElement("div"); d.className = "detail-owned"; d.textContent = "Wearing ✓"; act.appendChild(d);
     } else {
-      mkBtn(`Wear ${pvSkin.name}`, () => { equipSkin(charId, pvSkin.id); renderStore(which); });
+      mkBtn(`Wear ${pvSkin.name}`, () => {
+        // Skins are per-character and you only ever render as your selected
+        // survivor/killer — so wearing one for a character you aren't playing
+        // looks like it did nothing. Select that character too.
+        if (equippedFor(role) !== charId && isUnlocked(charId)) equipChar(role, charId);
+        equipSkin(charId, pvSkin.id);
+        renderStore(which);
+      });
     }
   } else if (pvSkin.mastery) {
     const need = (MASTERY[role] || MASTERY.survivor).skin;
