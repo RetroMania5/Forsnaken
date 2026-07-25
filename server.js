@@ -1606,7 +1606,18 @@ function endRound(winner) {
   // Return to the lobby only when 2/3 vote to rejoin; keep a long fallback so a
   // fully-idle results screen still recycles instead of hanging forever.
   state.resetAt = Date.now() + REJOIN_FALLBACK_MS;
-  broadcast({ type: "over", winner });
+  // Ship each player's final tally with the result. The client used to read its
+  // own kill count from the live state packets, but those stop the instant the
+  // phase leaves "playing" — which happens in the same call stack as the down
+  // that ends the round, so the killing blow never counted toward mastery.
+  broadcast({
+    type: "over",
+    winner,
+    results: [...state.players.values()].map(p => ({
+      id: p.id, role: p.role, alive: !!p.alive, kills: p.kills || 0,
+      survivorChar: p.survivorChar, killerChar: p.killerChar,
+    })),
+  });
   broadcastRejoinStatus();
 }
 

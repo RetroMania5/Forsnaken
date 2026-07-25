@@ -2857,8 +2857,8 @@ function onMessage(msg) {
       $("portal-bar").classList.add("hidden");
       G.spectateId = null;
       $("spectator-bar").classList.add("hidden");
-      awardRoundPayout(msg.winner);
-      recordMasteryProgress(msg.winner);
+      awardRoundPayout(msg.winner, msg.results);
+      recordMasteryProgress(msg.winner, msg.results);
       showBanner(msg.winner);
       break;
     case "rejoin_status":
@@ -3066,7 +3066,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25q";
+const BUILD = "2026-07-25r";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -4193,15 +4193,21 @@ function checkMastery(charId, role) {
   }
 }
 // Tally kills/wins toward the played character's mastery at round end.
-function recordMasteryProgress(winner) {
+function recordMasteryProgress(winner, results) {
   if (G.testMode) return;
-  const me = G.players.get(G.myId); if (!me) return;
-  if (me.role === "killer") {
-    const c = me.killerChar; if (!c) return;
-    Account.charKills[c] = (Account.charKills[c] || 0) + (me.kills || 0);
-    saveAccount(); checkMastery(c, "killer");
-  } else if (me.role === "survivor" && winner === "survivors") {
-    const c = me.survivorChar; if (!c) return;
+  // Prefer the server's end-of-round tally: our local copy misses the final
+  // down (state packets stop the moment the round ends) and can hold a stale
+  // role, which is what made some survivor wins go unrecorded.
+  const me = G.players.get(G.myId) || null;
+  const fin = (Array.isArray(results) ? results.find(r => r.id === G.myId) : null) || null;
+  const role = (fin && fin.role) || (me && me.role);
+  if (role === "killer") {
+    const c = (fin && fin.killerChar) || (me && me.killerChar); if (!c) return;
+    const kills = fin ? (fin.kills || 0) : (me ? (me.kills || 0) : 0);
+    if (kills > 0) { Account.charKills[c] = (Account.charKills[c] || 0) + kills; saveAccount(); }
+    checkMastery(c, "killer");
+  } else if (role === "survivor" && winner === "survivors") {
+    const c = (fin && fin.survivorChar) || (me && me.survivorChar); if (!c) return;
     Account.charWins[c] = (Account.charWins[c] || 0) + 1;
     saveAccount(); checkMastery(c, "survivor");
   }
@@ -5121,9 +5127,13 @@ function updateSpectatorBar() {
   $("spec-name").textContent = target.name || "—";
 }
 
-function awardRoundPayout(winner) {
+function awardRoundPayout(winner, results) {
   if (G.testMode) return;               // No payout in the sandbox.
-  const me = G.players.get(G.myId);
+  const local = G.players.get(G.myId);
+  const fin = (Array.isArray(results) ? results.find(r => r.id === G.myId) : null) || null;
+  // Same reasoning as mastery: trust the server's final snapshot for role and
+  // alive, so a late death can't be missed when deciding the payout.
+  const me = fin || local;
   if (!me || (me.role !== "survivor" && me.role !== "killer")) return;
   let amount = 0;
   if (me.role === "killer") {
