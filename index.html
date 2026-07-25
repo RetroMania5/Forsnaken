@@ -281,7 +281,9 @@
   /* Touch controls */
   /* Chat lives top-left: the joystick owns bottom-left on touch and the
      ability buttons own bottom-right, so this is the one free corner. */
-  #chat { position: fixed; left: 12px; top: 12px; z-index: 7; width: min(340px, 46vw);
+  /* Must outrank .overlay (10) or the lobby renders straight over it. Stays
+     under the Guide (20) and Settings, which hide chat while they're open. */
+  #chat { position: fixed; left: 12px; top: 12px; z-index: 11; width: min(340px, 46vw);
     display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
   #chat.hidden { display: none; }
   #chat-open { width: 40px; height: 40px; padding: 0; margin: 0; border-radius: 12px;
@@ -3043,7 +3045,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25d";
+const BUILD = "2026-07-25e";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 // Paste a save instead of picking a file. Same loader, same confirm prompt.
@@ -3756,7 +3758,10 @@ function uiLoop(now) {
   // Chat follows you between the lobby and a round, but stays out of the menus
   // and behind any open shop/inventory/menu panel.
   if (chatEl) {
-    const want = chatUsable() && !(lobbyShown && anyLobbyOverlay());
+    const panelUp = (lobbyShown && anyLobbyOverlay())
+      || !$("guide").classList.contains("hidden")
+      || !$("settings").classList.contains("hidden");
+    const want = chatUsable() && !panelUp;
     chatEl.classList.toggle("hidden", !want);
     if (!want && chatIsOpen()) closeChat();
   }
