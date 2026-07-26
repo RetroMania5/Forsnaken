@@ -971,7 +971,14 @@ function drawTest(now) {
     }
   } else if (m.kind === "walk") {                     // walk bob + sway (or float)
     slot = anim.frame === "walkB" ? m.slots[1] : m.slots[0];
-    if (flags[c.id] && flags[c.id].floatWalk) {
+    // Same rule the game uses: the base character's flag OR the skin's own.
+    // byId holds a derived entry for skins (no floatWalk on it), so read the
+    // real record out of `skins` and fall back to the base character's flag.
+    const skRec = c._skin ? skins.find(k => k.id === c.id) : null;
+    const baseId = c._base || c.id;
+    const floats = !!(flags[baseId] && flags[baseId].floatWalk)
+                || !!(skRec && skRec.floatWalk);
+    if (floats) {
       bob = Math.sin(now * 0.006) * 3.5; sway = 0;     // floating hover
     } else {
       const phase = (anim.accum / AN.WALK_FRAME_MS) * Math.PI;
