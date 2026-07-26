@@ -729,6 +729,11 @@ function onJoin(id, ws, msg) {
   if (SURVIVOR_CHARS.some(c => c.id === msg.survivorChar)) player.survivorChar = msg.survivorChar;
   if (KILLER_CHARS.some(c => c.id === msg.killerChar)) player.killerChar = msg.killerChar;
   player.color = survivorCharOf(player).color;
+  // Joining mid-round drops you into spectator rather than an empty screen.
+  // A spectator isn't a survivor, so checkRoundEnd ignores them, and startRound
+  // folds them in as a normal player next round.
+  const midRound = state.phase === "playing";
+  if (midRound) { player.role = "spectator"; player.alive = false; }
   state.players.set(id, player);
   send(ws, {
     type: "welcome",
@@ -739,6 +744,19 @@ function onJoin(id, ws, msg) {
     roundDuration: ROUND_DURATION,
     survivorHpMax: SURVIVOR_HP_MAX,
   });
+  if (midRound) {
+    // The same payload everyone got at round start, so the client can render
+    // the match already in progress.
+    send(ws, {
+      type: "start",
+      players: serializePlayers(),
+      gens: state.generators,
+      roundDuration: ROUND_DURATION,
+      timer: state.roundTimer,
+      mapId: state.currentMap,
+      spectator: true,
+    });
+  }
   broadcastLobby();
 }
 
@@ -868,6 +886,7 @@ function onPos(id, msg) {
 }
 
 function onAttack(id) {
+  { const sp = state.players.get(id); if (sp && sp.role === "spectator") return; }
   if (state.phase !== "playing") return;
   const a = state.players.get(id);
   if (!a || a.role !== "killer" || !a.alive) return;
@@ -988,6 +1007,7 @@ function onAbility(id, msg) {
   if (!p || !p.alive) return;
   const slot = msg.slot | 0;
   if (slot < 0 || slot > 2) return;
+  if (p.role === "spectator") return;
   const charId = p.role === "killer" ? p.killerChar : p.survivorChar;
   const list = ABILITIES[charId];
   if (!list || !list[slot]) return;
@@ -1544,6 +1564,7 @@ function applyAbility(p, ab, slot, msg) {
 }
 
 function onSkill(id, msg) {
+  { const sp = state.players.get(id); if (sp && sp.role === "spectator") return; }
   if (state.phase !== "playing") return;
   const p = state.players.get(id);
   if (!p || p.role !== "survivor" || !p.alive) return;
@@ -1723,6 +1744,8 @@ function endRound(winner) {
 // fallback timer).
 function returnToLobby() {
   state.phase = "lobby";
+  // Spectators become ordinary players again for the next round.
+  for (const p of state.players.values()) if (p.role === "spectator") { p.role = "unassigned"; p.alive = true; }
   state.rejoinVotes.clear();
   state.generators = freshGens();
   state.roundTimer = ROUND_DURATION;

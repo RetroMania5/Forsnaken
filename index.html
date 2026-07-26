@@ -2694,6 +2694,8 @@ function onMessage(msg) {
         }
         if (killerChar) { setupMusic(killerChar, G.mapId); startMusic(); }
       }
+      // Joined a round already in progress — watch it rather than sit idle.
+      if (msg.spectator) { pickInitialSpectate(); updateSpectatorBar(); }
       break;
     case "state":
       G.timer = msg.timer;
@@ -3114,7 +3116,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26c";
+const BUILD = "2026-07-26d";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -6319,6 +6321,7 @@ function render() {
   const sorted = [...G.players.values()].sort((a, b) => a.y - b.y);
   const _petNow = performance.now();
   for (const p of sorted) {
+    if (p.role === "spectator") continue;      // watching, not in the match
     drawPetForOwner(ctx, "g:" + p.id, _petNow, 1, playerAlphaFor(p, _petNow));
     drawPlayer(p);
   }
