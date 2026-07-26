@@ -624,6 +624,13 @@ function freshGens() {
 }
 
 // ---------- HTTP ----------
+const STATIC_TYPES = {
+  ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8", ".json": "application/json",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg",
+};
 const server = http.createServer((req, res) => {
   const url = req.url.split("?")[0];
   if (url === "/" || url === "/index.html") {
@@ -677,6 +684,15 @@ const server = http.createServer((req, res) => {
   }
   if (url === "/factory-bg.js") {
     return sendFile(res, "factory-bg.js", "application/javascript; charset=utf-8");
+  }
+  // Everything else in the app directory. The explicit routes above stay, but
+  // this is the catch-all: without it, ADDING a file meant a code change, and
+  // anything new just 404'd — which is exactly what happened to carnival-bg.js
+  // and every skin-music track. The pattern allows no "." inside a path
+  // segment, so ".." can't appear and the path can't escape __dirname.
+  if (/^\/[A-Za-z0-9_\-]+(\/[A-Za-z0-9_\-]+)*\.[A-Za-z0-9]+$/.test(url)) {
+    const type = STATIC_TYPES[path.extname(url).toLowerCase()];
+    if (type) return sendFile(res, url.slice(1), type, "public, max-age=3600");
   }
   res.writeHead(404); res.end("not found");
 });
