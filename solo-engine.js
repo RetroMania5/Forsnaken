@@ -919,9 +919,8 @@ function onDashWallHit(id) {
   p.effects.dashStrikeUntil = 0;
   p.effects.speedUntil = 0;
   p.effects.speedMult  = 1;
-  p.effects.slowMult   = 0.05;
-  p.effects.slowUntil  = Math.max(p.effects.slowUntil || 0, now + STUN * 1000);
-  broadcast({ type: "stun", id: p.id, by: p.id, duration: STUN });
+  const left = applyStun(p, STUN);
+  broadcast({ type: "stun", id: p.id, by: p.id, duration: left });
 }
 
 function onAbility(id, msg) {
@@ -961,6 +960,19 @@ function onAbility(id, msg) {
   applyAbility(p, ab, slot, msg);
 }
 
+// Stuns stack: a fresh stun extends the tail of one already running instead of
+// overlapping it, so two 3s stuns hold for 6s. Only stacks on top of another
+// STUN — slowUntil is shared with ordinary slows, and extending from the end of
+// a 20s Snow Field would turn a 3s stun into a 23s one.
+const STUN_MULT = 0.05;
+function applyStun(target, seconds) {
+  const now = Date.now();
+  const e = target.effects;
+  const stunned = e.slowMult === STUN_MULT && (e.slowUntil || 0) > now;
+  e.slowMult = STUN_MULT;
+  e.slowUntil = (stunned ? e.slowUntil : now) + seconds * 1000;
+  return Math.max(0, (e.slowUntil - now) / 1000);   // total remaining, for the client
+}
 function applyAbility(p, ab, slot, msg) {
   const now = Date.now();
   switch (ab.type) {
@@ -1315,9 +1327,8 @@ function applyAbility(p, ab, slot, msg) {
         if (d < bestD) { bestD = d; best = k; }
       }
       if (best) {
-        best.effects.slowMult = 0.05;
-        best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
-        broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+        const left = applyStun(best, ab.stunDuration);
+        broadcast({ type: "stun", id: best.id, by: p.id, duration: left });
       }
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type });
       break;
@@ -1380,9 +1391,8 @@ function applyAbility(p, ab, slot, msg) {
         // The stun is the reward for striking from a Duck; upright it's just
         // a poke that builds malice at half rate.
         if (wasDucking) {
-          best.effects.slowMult = 0.05;
-          best.effects.slowUntil = Math.max(best.effects.slowUntil || 0, now + ab.stunDuration * 1000);
-          broadcast({ type: "stun", id: best.id, by: p.id, duration: ab.stunDuration });
+          const left = applyStun(best, ab.stunDuration);
+          broadcast({ type: "stun", id: best.id, by: p.id, duration: left });
         }
         // Malice stops accumulating once Angel has burned the respawn —
         // the passive is one-shot per round so there's no second life to
@@ -1768,9 +1778,8 @@ function tick() {
           const HIT = pr.hitRadius || 22;
           for (const k of killers) {
             if (Math.hypot(k.x - pr.x, k.y - pr.y) < HIT) {
-              k.effects.slowMult = 0.05;
-              k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, Date.now() + pr.stunDuration * 1000);
-              broadcast({ type: "stun", id: k.id, by: pr.ownerId, duration: pr.stunDuration });
+              const left = applyStun(k, pr.stunDuration);
+              broadcast({ type: "stun", id: k.id, by: pr.ownerId, duration: left });
               return false;
             }
           }
@@ -1852,9 +1861,8 @@ function tick() {
         // Conveyors carry the robot too.
         applyConveyor(r, dt);
         if (Math.hypot(r.x - killer.x, r.y - killer.y) < r.hitRadius) {
-          killer.effects.slowMult = 0.05;
-          killer.effects.slowUntil = Math.max(killer.effects.slowUntil || 0, Date.now() + r.stunDuration * 1000);
-          broadcast({ type: "stun", id: killer.id, by: r.ownerId, duration: r.stunDuration });
+          const left = applyStun(killer, r.stunDuration);
+          broadcast({ type: "stun", id: killer.id, by: r.ownerId, duration: left });
           broadcast({ type: "robot_break", id: r.id, x: r.x, y: r.y, hit: true });
           return false;
         }
@@ -1867,9 +1875,8 @@ function tick() {
       for (const s of state.players.values()) {
         if (s.role !== "survivor" || !s.alive) continue;
         if (Math.hypot(s.x - tr.x, s.y - tr.y) < (tr.hitRadius || 22)) {
-          s.effects.slowMult = 0.05;
-          s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, Date.now() + tr.stunDuration * 1000);
-          broadcast({ type: "stun", id: s.id, by: tr.ownerId, duration: tr.stunDuration });
+          const left = applyStun(s, tr.stunDuration);
+          broadcast({ type: "stun", id: s.id, by: tr.ownerId, duration: left });
           broadcast({ type: "trap_break", id: tr.id, x: tr.x, y: tr.y, by: s.id });
           return false;
         }
