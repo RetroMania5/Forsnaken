@@ -528,8 +528,8 @@ const ABILITIES = {
     { id: "puppet", name: "Puppet", cd: 20, type: "spawn_puppet", maxPuppets: 3,
       aggroRadius: 320, hitRadius: 26, ttl: 90,
       kinds: {
-        wife:   { speed: 165, damage: 8 },     // fast, light
-        friend: { speed: 95,  damage: 22 },    // slow, heavy
+        wife:   { speed: 165, damage: 14 },    // fast, light
+        friend: { speed: 95,  damage: 30 },    // slow, heavy
       } },
     // Get Balloon: rolls one of four at random into Jest's slot. Only while the
     // slot is empty; the client plays the slot-machine reveal.

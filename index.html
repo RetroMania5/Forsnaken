@@ -847,7 +847,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#d24a8c"></span><b>Jest</b><span class="gd-muted">puppets &amp; balloon traps</span></div>
       <div class="gd-ab"><b>Attack — Jab</b>: <b>16 damage</b>, 80px reach. Middling on purpose — his pressure comes from what he leaves lying around.</div>
-      <div class="gd-ab"><b>Z — Puppet</b>: drops <b>one of two puppets at random</b>. They sit still until a survivor comes within ~320px, then <b>chase</b>. <b>Wife</b> is fast but only hits for 8; <b>Friend</b> is slow and hits for 22. Up to <b>3 out at once</b>, and a puppet is <b>used up once it catches someone</b>. They can't see a sneaking survivor. CD 20s.</div>
+      <div class="gd-ab"><b>Z — Puppet</b>: drops <b>one of two puppets at random</b>. They sit still until a survivor comes within ~320px, then <b>chase</b>. <b>Wife</b> is fast and hits for 14; <b>Friend</b> is slow and hits for 30. Up to <b>3 out at once</b>, and a puppet is <b>used up once it catches someone</b>. They can't see a sneaking survivor. CD 20s.</div>
       <div class="gd-ab"><b>X — Get Balloon</b>: rolls <b>one of four balloons</b> into your slot. Only while the slot is <b>empty</b>. CD 30s.</div>
       <div class="gd-ab"><b>C — Place</b>: drops the balloon you're holding and empties the slot. It <b>pops on the first survivor to step on it</b>: <b>Sword</b> — you hit <b>1.6× for 15s</b>; <b>Flower</b> — slows them to <b>0.55× for 5s</b>; <b>Pot</b> — <b>15 damage</b>; <b>Dog</b> — you move <b>1.35× for 5s</b>.</div>
     </div>
@@ -3225,7 +3225,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26n";
+const BUILD = "2026-07-26o";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -8714,7 +8714,7 @@ const ITEM_ART = {};   // ITEM_ART[itemId][slot] = canvas
 // art and per-skin item costumes.
 const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90],
   knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42],
-  standee: [34, 46], puppet: [30, 40], balloon: [26, 34] };
+  standee: [34, 46], puppet: [30, 40], balloon: [40, 52] };
 // Cache of baked custom character sprites, re-applied each round so they never
 // revert to the procedural design.
 const CUSTOM_SPRITES = {};   // CUSTOM_SPRITES[sheet][frame] = canvas
