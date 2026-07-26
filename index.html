@@ -3153,10 +3153,24 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26e";
+const BUILD = "2026-07-26f";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
+// Say which map is up and whether its art actually loaded — a painted map that
+// silently falls back looks identical to one that has no art at all.
+CARNIVAL_BG.addEventListener("error", () => { console.log("carnival-bg FAILED to load"); });
+CARNIVAL_BG.addEventListener("load",  () => { console.log("carnival-bg loaded " + CARNIVAL_BG.naturalWidth + "x" + CARNIVAL_BG.naturalHeight); });
+setInterval(() => {
+  const t = $("build-tag"); if (!t) return;
+  let extra = "";
+  if (G.phase === "playing" && G.mapId) {
+    const img = G.mapId === "carnival" ? CARNIVAL_BG : G.mapId === "factory" ? FACTORY_BG : null;
+    const state = !img ? "no art" : (img.complete && img.naturalWidth) ? "art ok" : "ART MISSING";
+    extra = "  ·  " + G.mapId + " (" + state + ")";
+  }
+  t.textContent = "build " + BUILD + extra;
+}, 1000);
 // Paste a save instead of picking a file. Same loader, same confirm prompt.
 function openSavePaste() {
   $("save-paste-text").value = "";
