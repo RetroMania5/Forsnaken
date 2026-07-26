@@ -195,9 +195,68 @@ const CIRCUS_OBSTACLES = [
 // rooms. Types reused (crate / barrel / locker) — client rerenders them
 // with an industrial palette when G.mapId === "factory".
 const FACTORY_OBSTACLES = [];
+// ---- Carnival map ----
+// Collision traced from the hand-drawn hitbox overlay: the red walls plus the
+// props (clown, balls, benches, ball pit). Invisible in game - the painted
+// background is the only thing you see.
+const CARNIVAL_WALLS = [
+  { x: 671, y: 273, w: 57, h: 549 },
+  { x: 691, y: 765, w: 382, h: 57 },
+  { x: 1056, y: 721, w: 44, h: 85 },
+  { x: 1372, y: 710, w: 42, h: 79 },
+  { x: 1385, y: 758, w: 405, h: 40 },
+  { x: 1747, y: 366, w: 62, h: 421 },
+  { x: 1377, y: 335, w: 401, h: 53 },
+  { x: 1146, y: 341, w: 245, h: 51 },
+  { x: 1051, y: 347, w: 116, h: 53 },
+  { x: 1072, y: 1003, w: 419, h: 36 },
+  { x: 1076, y: 1021, w: 57, h: 572 },
+  { x: 506, y: 1419, w: 633, h: 181 },
+  { x: 534, y: 1234, w: 289, h: 47 },
+  { x: 764, y: 1026, w: 66, h: 253 },
+  { x: 398, y: 803, w: 409, h: 263 },
+  { x: 418, y: 276, w: 57, h: 725 },
+  { x: 1453, y: 1020, w: 49, h: 178 },
+  { x: 1737, y: 1000, w: 44, h: 174 },
+  { x: 1746, y: 995, w: 259, h: 38 },
+  { x: 1965, y: 77, w: 51, h: 712 },
+  { x: 2327, y: 64, w: 73, h: 925 },
+  { x: 2345, y: 970, w: 37, h: 56 },
+  { x: 1970, y: 57, w: 388, h: 36 },
+  { x: 1626, y: 8, w: 378, h: 53 },
+  { x: 1465, y: 12, w: 168, h: 76 },
+  { x: 0, y: 0, w: 134, h: 1032 },
+  { x: 17, y: 211, w: 127, h: 816 },
+  { x: 819, y: 133, w: 144, h: 133 },
+  { x: 397, y: 51, w: 153, h: 141 },
+  { x: 1194, y: 74, w: 144, h: 133 },
+  { x: 1242, y: 1226, w: 102, h: 340 },
+  { x: 1872, y: 1247, w: 363, h: 96 },
+  { x: 1873, y: 1489, w: 363, h: 96 },
+  { x: 1137, y: 394, w: 155, h: 132 },
+];
+
+const CARNIVAL_GEN_POOL = [
+  { x: 240, y: 160 },
+  { x: 2200, y: 1160 },
+  { x: 920, y: 1320 },
+  { x: 1480, y: 160 },
+  { x: 160, y: 1120 },
+  { x: 2200, y: 400 },
+  { x: 840, y: 600 },
+  { x: 1520, y: 880 },
+  { x: 1680, y: 1400 },
+  { x: 320, y: 640 },
+  { x: 720, y: 160 },
+  { x: 1880, y: 680 },
+  { x: 1120, y: 920 },
+  { x: 1880, y: 160 },
+];
+const CARNIVAL_OBSTACLES = [];
 const MAPS = {
   circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  gens: CIRCUS_GEN_POOL,  conveyors: [] },
   factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, gens: FACTORY_GEN_POOL, conveyors: FACTORY_CONVEYORS },
+  carnival: { walls: CARNIVAL_WALLS, obstacles: CARNIVAL_OBSTACLES, gens: CARNIVAL_GEN_POOL, conveyors: [] },
 };
 const MAP_IDS = Object.keys(MAPS);
 // Active map references — reassigned in startRound. The helper functions

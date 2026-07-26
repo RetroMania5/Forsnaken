@@ -971,6 +971,7 @@
 <script src="custom-art.js"></script>
 <script src="pets-data.js"></script>
 <script src="factory-bg.js"></script>
+<script src="carnival-bg.js"></script>
 <script>
 "use strict";
 
@@ -1126,9 +1127,48 @@ const FACTORY_OBSTACLES = [];
 // and the active references. (Order matters — const declarations have a
 // Temporal Dead Zone, so MAPS / WALLS / OBSTACLES must live AFTER the
 // obstacle arrays above.)
+// ---- Carnival map (geometry mirrors the server) ----
+const CARNIVAL_WALLS = [
+  { x: 671, y: 273, w: 57, h: 549 },
+  { x: 691, y: 765, w: 382, h: 57 },
+  { x: 1056, y: 721, w: 44, h: 85 },
+  { x: 1372, y: 710, w: 42, h: 79 },
+  { x: 1385, y: 758, w: 405, h: 40 },
+  { x: 1747, y: 366, w: 62, h: 421 },
+  { x: 1377, y: 335, w: 401, h: 53 },
+  { x: 1146, y: 341, w: 245, h: 51 },
+  { x: 1051, y: 347, w: 116, h: 53 },
+  { x: 1072, y: 1003, w: 419, h: 36 },
+  { x: 1076, y: 1021, w: 57, h: 572 },
+  { x: 506, y: 1419, w: 633, h: 181 },
+  { x: 534, y: 1234, w: 289, h: 47 },
+  { x: 764, y: 1026, w: 66, h: 253 },
+  { x: 398, y: 803, w: 409, h: 263 },
+  { x: 418, y: 276, w: 57, h: 725 },
+  { x: 1453, y: 1020, w: 49, h: 178 },
+  { x: 1737, y: 1000, w: 44, h: 174 },
+  { x: 1746, y: 995, w: 259, h: 38 },
+  { x: 1965, y: 77, w: 51, h: 712 },
+  { x: 2327, y: 64, w: 73, h: 925 },
+  { x: 2345, y: 970, w: 37, h: 56 },
+  { x: 1970, y: 57, w: 388, h: 36 },
+  { x: 1626, y: 8, w: 378, h: 53 },
+  { x: 1465, y: 12, w: 168, h: 76 },
+  { x: 0, y: 0, w: 134, h: 1032 },
+  { x: 17, y: 211, w: 127, h: 816 },
+  { x: 819, y: 133, w: 144, h: 133 },
+  { x: 397, y: 51, w: 153, h: 141 },
+  { x: 1194, y: 74, w: 144, h: 133 },
+  { x: 1242, y: 1226, w: 102, h: 340 },
+  { x: 1872, y: 1247, w: 363, h: 96 },
+  { x: 1873, y: 1489, w: 363, h: 96 },
+  { x: 1137, y: 394, w: 155, h: 132 },
+];
+const CARNIVAL_OBSTACLES = [];
 const MAPS = {
   circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  conveyors: [],                oneWays: [] },
   factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, conveyors: FACTORY_CONVEYORS, oneWays: FACTORY_ONEWAYS, bgImage: true },
+  carnival: { walls: CARNIVAL_WALLS, obstacles: CARNIVAL_OBSTACLES, conveyors: [], oneWays: [], bgImage: true },
 };
 let WALLS = CIRCUS_WALLS;
 let OBSTACLES = CIRCUS_OBSTACLES;
@@ -1136,6 +1176,14 @@ let CONVEYORS = [];
 let ONEWAYS = [];   // directional gates: block movement against `allow` (L/R/U/D)
 const FACTORY_BG = new Image();
 if (window.FORSNAKEN_FACTORY_BG) FACTORY_BG.src = window.FORSNAKEN_FACTORY_BG;
+const CARNIVAL_BG = new Image();
+if (window.FORSNAKEN_CARNIVAL_BG) CARNIVAL_BG.src = window.FORSNAKEN_CARNIVAL_BG;
+// Painted backdrop for the current map, or null if it has none.
+function mapBgImage() {
+  if (G.mapId === "factory") return FACTORY_BG;
+  if (G.mapId === "carnival") return CARNIVAL_BG;
+  return null;
+}
 
 // Skill-check geometry (radians).
 const DIAL_RADIUS = 70;
@@ -3066,7 +3114,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25y";
+const BUILD = "2026-07-25z";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -5163,7 +5211,7 @@ function renderCharSelection() {
     b.classList.toggle("selected", b.dataset.id === G.myChars.killer);
 }
 
-const MAP_DISPLAY_NAMES = { random: "🎲 Random", circus: "🎪 Circus", factory: "🏭 Factory" };
+const MAP_DISPLAY_NAMES = { random: "🎲 Random", circus: "🎪 Circus", factory: "🏭 Factory", carnival: "🎠 Carnival" };
 function renderMapSelect(iAmHost) {
   const root = $("map-select");
   if (G.phase !== "lobby") { root.classList.add("hidden"); return; }
@@ -6111,7 +6159,16 @@ function render() {
   ctx.scale(zoom, zoom);
   ctx.translate(-camX, -camY);
 
-  if (G.mapId === "factory") {
+  if (G.mapId === "carnival") {
+    // Painted carnival map. Its collision (walls plus the clown, balls, benches
+    // and ball pit) is invisible — CARNIVAL_WALLS traced from the hitbox art.
+    if (CARNIVAL_BG.complete && CARNIVAL_BG.naturalWidth) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(CARNIVAL_BG, 0, 0, MAP_W, MAP_H);
+    } else {
+      ctx.fillStyle = "#72d26b"; ctx.fillRect(0, 0, MAP_W, MAP_H);   // grass, until the art lands
+    }
+  } else if (G.mapId === "factory") {
     if (FACTORY_BG.complete && FACTORY_BG.naturalWidth) {
       // Painted factory map — the walls/crates/one-ways live in the art; the
       // matching invisible collision comes from FACTORY_WALLS/ONEWAYS.
