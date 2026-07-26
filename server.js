@@ -315,6 +315,7 @@ const KILLER_CHARS = [
     // Dino-form overrides. Speed is much lower but damage and reach climb,
     // and the client lets him phase through interior walls / obstacles.
     speedMultDino: 1.1, attackDamageDino: 28, attackRadiusDino: 150 },
+  { id: "jest",    name: "Jest",    color: "#d24a8c", speedMult: 1.00, attackRadius: 80,  attackDamage: 16, attackName: "Jab",         attackCooldown: 1.0, blurb: "puppets & balloon traps" },
 ];
 
 // ---- HP ----
@@ -428,6 +429,30 @@ const ABILITIES = {
     { id: "transform", name: "Transform", cd: 40, type: "transform",
       channelDuration: 5.0, duration: 20.0 },
   ],
+  jest: [
+    // Puppet: drops one of two puppets at random. They sit still until a
+    // survivor comes within aggroRadius, then chase; catching one deals damage
+    // and consumes the puppet. Cap of maxPuppets placed at once.
+    { id: "puppet", name: "Puppet", cd: 20, type: "spawn_puppet", maxPuppets: 3,
+      aggroRadius: 320, hitRadius: 26, ttl: 90,
+      kinds: {
+        wife:   { speed: 165, damage: 8 },     // fast, light
+        friend: { speed: 95,  damage: 22 },    // slow, heavy
+      } },
+    // Get Balloon: rolls one of four at random into Jest's slot. Only while the
+    // slot is empty; the client plays the slot-machine reveal.
+    { id: "balloon", name: "Get Balloon", cd: 30, type: "get_balloon",
+      kinds: ["sword", "flower", "pot", "dog"] },
+    // Place: drops whatever is in the slot and empties it. A balloon pops the
+    // moment a survivor steps on it.
+    { id: "place", name: "Place", cd: 2, type: "place_balloon", stepRadius: 34,
+      effects: {
+        sword:  { killerAttackMult: 1.6, duration: 15 },   // Jest hits harder
+        flower: { slowMult: 0.55, duration: 5 },           // survivor slowed
+        pot:    { damage: 15 },
+        dog:    { killerSpeedMult: 1.35, duration: 5 },    // Jest speeds up
+      } },
+  ],
   lunar: [
     // Build Portal: 4s rooted channel, drops a portal at the killer's
     // position when the channel completes. Cap at maxPortals — placing a
@@ -486,6 +511,8 @@ const state = {
   clovers: [],     // Pollen's clover trail
   stations: [],    // Pollen's heal + defence stations
   standees: [],    // Whamo's cardboard standees
+  puppets: [],     // Jest's puppets (chase when a survivor is near)
+  balloons: [],    // Jest's placed balloons (pop when stepped on)
   coins: [],       // collectable coin pickups on the map
   nextCoinAt: 0,   // Date.now() when the next coin may spawn
   nextEntityId: 1,
@@ -736,6 +763,7 @@ function freshEffects() {
     speedMult: 1, speedUntil: 0,
     healUntil: 0, healRate: 0,
     stalkUntil: 0,
+    atkMult: 1, atkUntil: 0,      // timed damage multiplier (Jest's sword balloon)
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
     sneakUntil: 0,
@@ -880,6 +908,9 @@ function onAttack(id) {
       dmg *= 2;
       a.effects.stalkUntil = 0; // consume
     }
+    // Timed buff (sword balloon) — unlike Stalk this lasts its duration
+    // instead of being spent on the first hit.
+    if (now < (a.effects.atkUntil || 0)) dmg *= (a.effects.atkMult || 1);
     applyDamage(best, dmg, a);
   }
   // Killer's basic attack also shatters any slow field whose center
@@ -1273,6 +1304,47 @@ function applyAbility(p, ab, slot, msg) {
       }, channelMs);
       break;
     }
+    case "spawn_puppet": {
+      const mine = state.puppets.filter(q => q.ownerId === p.id);
+      if (mine.length >= (ab.maxPuppets || 3)) return;      // cap enforced server-side too
+      const names = Object.keys(ab.kinds);
+      const kind = names[Math.floor(Math.random() * names.length)];
+      const k = ab.kinds[kind];
+      const pup = {
+        id: state.nextEntityId++, ownerId: p.id, kind,
+        x: p.x, y: p.y, speed: k.speed, damage: k.damage,
+        aggro: ab.aggroRadius || 320, hitRadius: ab.hitRadius || 26,
+        dieAt: now + (ab.ttl || 90) * 1000,
+      };
+      state.puppets.push(pup);
+      broadcast({ type: "puppet_place", id: pup.id, x: pup.x, y: pup.y, kind, ownerId: p.id });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, kind });
+      break;
+    }
+    case "get_balloon": {
+      if (p.balloon) return;                                 // slot must be empty
+      const kind = ab.kinds[Math.floor(Math.random() * ab.kinds.length)];
+      p.balloon = kind;
+      // The client plays the slot-machine reveal off this message.
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, kind });
+      send(p.ws, { type: "balloon_slot", kind });
+      break;
+    }
+    case "place_balloon": {
+      if (!p.balloon) return;                                // nothing to place
+      const kind = p.balloon;
+      p.balloon = null;
+      const b = {
+        id: state.nextEntityId++, ownerId: p.id, kind,
+        x: p.x, y: p.y, r: ab.stepRadius || 34,
+        armAt: now + 500,                                    // brief arming, so Jest can walk off it
+      };
+      state.balloons.push(b);
+      broadcast({ type: "balloon_place", id: b.id, x: b.x, y: b.y, kind, ownerId: p.id });
+      broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, kind });
+      send(p.ws, { type: "balloon_slot", kind: null });
+      break;
+    }
     case "standee": {
       const st = { id: state.nextEntityId++, x: p.x, y: p.y, ownerId: p.id, breakRadius: ab.breakRadius || 30 };
       state.standees.push(st);
@@ -1592,6 +1664,8 @@ function startRound() {
   state.clovers = [];
   state.stations = [];
   state.standees = [];
+  state.puppets = [];
+  state.balloons = [];
   state.coins = []; state.nextCoinAt = Date.now() + COIN_INTERVAL_MS;
 
   // Sly's dino form is strictly per-round, so clear it on EVERY player rather
@@ -1600,6 +1674,7 @@ function startRound() {
   // check keys off killerChar + form, both of which survive a role change.
   for (const p of state.players.values()) {
     p.form = "human"; p.formUntil = 0; p.transformKills = 0;
+    p.balloon = null;                       // Jest starts each round empty-handed
   }
 
   const killerId = state.designatedKillerId;
@@ -1731,6 +1806,8 @@ function returnToLobby() {
   state.clovers = [];
   state.stations = [];
   state.standees = [];
+  state.puppets = [];
+  state.balloons = [];
   state.coins = []; state.nextCoinAt = Date.now() + COIN_INTERVAL_MS;
   for (const p of state.players.values()) {
     p.role = "unassigned";
@@ -1919,6 +1996,67 @@ function tick() {
           broadcast({ type: "robot_break", id: r.id, x: r.x, y: r.y, hit: true });
           return false;
         }
+      }
+      return true;
+    });
+
+    // Jest's puppets: idle until a survivor wanders inside their aggro radius,
+    // then chase. Catching one deals damage and consumes the puppet.
+    state.puppets = state.puppets.filter(pup => {
+      if (now >= pup.dieAt) {
+        broadcast({ type: "puppet_break", id: pup.id, x: pup.x, y: pup.y, expired: true });
+        return false;
+      }
+      let target = null, bestD = pup.aggro;
+      for (const sv of state.players.values()) {
+        if (sv.role !== "survivor" || !sv.alive) continue;
+        if (now < (sv.effects.sneakUntil || 0)) continue;      // can't see a sneaking survivor
+        const d = Math.hypot(sv.x - pup.x, sv.y - pup.y);
+        if (d < bestD) { bestD = d; target = sv; }
+      }
+      pup.chasing = !!target;
+      if (target) {
+        const dx = target.x - pup.x, dy = target.y - pup.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const step = pup.speed * dt;
+        const tx = pup.x + (dx / d) * step, ty = pup.y + (dy / d) * step;
+        if (!positionBlocked(tx, pup.y, 12)) pup.x = tx;
+        if (!positionBlocked(pup.x, ty, 12)) pup.y = ty;
+        applyConveyor(pup, dt);
+        if (Math.hypot(pup.x - target.x, pup.y - target.y) < pup.hitRadius) {
+          applyDamage(target, pup.damage, state.players.get(pup.ownerId) || null);
+          broadcast({ type: "puppet_break", id: pup.id, x: pup.x, y: pup.y, hit: true });
+          return false;                                        // spent once it lands
+        }
+      }
+      return true;
+    });
+
+    // Jest's balloons: pop under the first survivor to step on one.
+    state.balloons = state.balloons.filter(b => {
+      if (now < b.armAt) return true;
+      for (const sv of state.players.values()) {
+        if (sv.role !== "survivor" || !sv.alive) continue;
+        if (Math.hypot(sv.x - b.x, sv.y - b.y) > b.r) continue;
+        const owner = state.players.get(b.ownerId) || null;
+        const eff = (ABILITIES.jest.find(a => a.type === "place_balloon").effects || {})[b.kind] || {};
+        if (eff.damage) applyDamage(sv, eff.damage, owner);
+        if (eff.slowMult) {
+          sv.effects.slowMult = Math.min(sv.effects.slowMult || 1, eff.slowMult);
+          sv.effects.slowUntil = Math.max(sv.effects.slowUntil || 0, now + eff.duration * 1000);
+        }
+        if (owner && owner.alive) {
+          if (eff.killerAttackMult) {
+            owner.effects.atkMult = eff.killerAttackMult;
+            owner.effects.atkUntil = now + eff.duration * 1000;
+          }
+          if (eff.killerSpeedMult) {
+            owner.effects.speedMult = eff.killerSpeedMult;
+            owner.effects.speedUntil = now + eff.duration * 1000;
+          }
+        }
+        broadcast({ type: "balloon_pop", id: b.id, x: b.x, y: b.y, kind: b.kind, on: sv.id });
+        return false;
       }
       return true;
     });
@@ -2138,6 +2276,7 @@ function tick() {
           hp: p.role === "survivor" ? Math.round(p.hp) : null,
           se: now < p.effects.speedUntil ? 1 : 0,
           st: now < p.effects.stalkUntil ? 1 : 0,
+          bal: p.balloon || null,
           re: now < p.effects.revealedUntil ? 1 : 0,
           sn: now < (p.effects.sneakUntil || 0) ? 1 : 0,
           hd: p.role === "survivor" && p.hiddenInSmoke ? 1 : 0,
@@ -2177,6 +2316,8 @@ function tick() {
         clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
         stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),
         standees: state.standees.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId })),
+        puppets: state.puppets.map(q => ({ id: q.id, x: Math.round(q.x), y: Math.round(q.y), kind: q.kind, ch: q.chasing ? 1 : 0 })),
+        balloons: state.balloons.map(b => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y), kind: b.kind })),
         coins: state.coins.map(c => ({ id: c.id, x: c.x, y: c.y })),
       });
     }

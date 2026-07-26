@@ -844,6 +844,13 @@
       <div class="gd-ab"><b>X — FIRE!!</b> (dino form): hurls a fireball in your facing direction. <b>10 dmg</b> on hit, ~800 px range. CD 3s.</div>
       <div class="gd-ab"><b>C — Transform</b>: <b>5s rooted channel</b>, then you become the dino for <b>20s</b>. Dino is <b>massive (5.4× size)</b>, hits for <b>21 damage</b> (1.5× normal) with a big <b>150 px reach</b> (covers the dino's whole body), and <b>phases through interior walls and obstacles</b> (the outer map border still stops you). It's also a bit <b>faster</b> (1.1× speed). Reverting to human while inside a wall shoves you out automatically. While in dino form, X swaps from Trap to FIRE!!. CD 40s. <b>Every transform costs one down earned in your normal form</b> — kills made as the dino don't count toward the next one, so you always have to earn your way back in.</div>
     </div>
+    <div class="gd-card">
+      <div class="gd-head"><span class="dot" style="background:#d24a8c"></span><b>Jest</b><span class="gd-muted">puppets &amp; balloon traps</span></div>
+      <div class="gd-ab"><b>Attack — Jab</b>: <b>16 damage</b>, 80px reach. Middling on purpose — his pressure comes from what he leaves lying around.</div>
+      <div class="gd-ab"><b>Z — Puppet</b>: drops <b>one of two puppets at random</b>. They sit still until a survivor comes within ~320px, then <b>chase</b>. <b>Wife</b> is fast but only hits for 8; <b>Friend</b> is slow and hits for 22. Up to <b>3 out at once</b>, and a puppet is <b>used up once it catches someone</b>. They can't see a sneaking survivor. CD 20s.</div>
+      <div class="gd-ab"><b>X — Get Balloon</b>: rolls <b>one of four balloons</b> into your slot. Only while the slot is <b>empty</b>. CD 30s.</div>
+      <div class="gd-ab"><b>C — Place</b>: drops the balloon you're holding and empties the slot. It <b>pops on the first survivor to step on it</b>: <b>Sword</b> — you hit <b>1.6× for 15s</b>; <b>Flower</b> — slows them to <b>0.55× for 5s</b>; <b>Pot</b> — <b>15 damage</b>; <b>Dog</b> — you move <b>1.35× for 5s</b>.</div>
+    </div>
 
     <div class="gd-h">TIPS</div>
     <div class="gd-line">• Sprint is for emergencies — light walking lets you sneak around corners without flooring your stamina.</div>
@@ -2665,6 +2672,10 @@ function onMessage(msg) {
       G.traps = [];
       G.trapBreaks = [];
       G.standees = [];
+      G.puppets = [];
+      G.balloons = [];
+      G.balloonSlot = null;
+      G.balloonRoll = 0;
       G.standeeBreaks = [];
       G.speedyPct = 0;            // Whamo's Speedy meter resets each round
       for (const p of G.players.values()) { p.form = "human"; p.transformKills = 0; }
@@ -2758,6 +2769,8 @@ function onMessage(msg) {
       G.clovers   = msg.clovers   || [];
       G.stations  = msg.stations  || [];
       G.standees  = msg.standees  || [];
+      G.puppets   = msg.puppets   || [];
+      G.balloons  = msg.balloons  || [];
       G.coins     = msg.coins     || [];
       {
         const oldIds = (G.portals || []).map(p => p.id).join(",");
@@ -2813,8 +2826,15 @@ function onMessage(msg) {
       if (p && p._anim) {
         p._anim.actionUntil = performance.now() + ACTION_HOLD_MS;
         if (typeof msg.abilityId === "string") p._anim.actionAb = msg.abilityId;
+        // Jest's reveal is drawn per balloon: ability-get_sword and friends.
+        if (msg.abilityType === "get_balloon" && msg.kind) p._anim.actionAb = "get_" + msg.kind;
         // Hold the dash costume for the whole dash (remote players).
         if (msg.abilityType === "dash_strike") { p._anim.holdUntil = performance.now() + (msg.duration || 3) * 1000; p._anim.holdAb = "dash"; }
+      }
+      // Slot-machine reveal: the label cycles the four balloons before settling.
+      if (msg.abilityType === "get_balloon" && msg.id === G.myId) {
+        G.balloonRoll = performance.now() + 1100;
+        G.balloonRolled = msg.kind || null;
       }
       // MEOW! visual: an expanding pink ring centered on the caster.
       if (msg.abilityType === "meow") {
@@ -2955,6 +2975,23 @@ function onMessage(msg) {
       break;
     case "portal_break":
       G.portalBreaks.push({ x: msg.x, y: msg.y, until: performance.now() + 500 });
+      break;
+    case "balloon_slot":
+      G.balloonSlot = msg.kind || null;
+      break;
+    case "puppet_place":
+      G.puppets = G.puppets || [];
+      G.puppets.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, ownerId: msg.ownerId });
+      break;
+    case "puppet_break":
+      G.puppets = (G.puppets || []).filter(q => q.id !== msg.id);
+      break;
+    case "balloon_place":
+      G.balloons = G.balloons || [];
+      G.balloons.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, ownerId: msg.ownerId });
+      break;
+    case "balloon_pop":
+      G.balloons = (G.balloons || []).filter(b => b.id !== msg.id);
       break;
     case "standee_place":
       G.standees = G.standees || [];
@@ -3116,7 +3153,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26d";
+const BUILD = "2026-07-26e";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -4088,7 +4125,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600 };
+const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600, jest: 800 };
 const DEFAULT_PRICE = 100;
 // Withdrawn pets: delisted from the shop AND revoked from every save on load,
 // so they can't be equipped by anyone who bought one earlier.
@@ -5761,6 +5798,10 @@ function tryFireAbility(slot, me) {
   if (!ab) return;
   const now = performance.now();
 
+  // Jest's balloon slot holds one at a time: draw only when empty, place only
+  // when full.
+  if (ab.type === "get_balloon" && G.balloonSlot) { showCoinToast("Place your balloon first!"); return; }
+  if (ab.type === "place_balloon" && !G.balloonSlot) { showCoinToast("No balloon — use Get Balloon!"); return; }
   // Sly can only shapeshift after he's downed a survivor this round.
   if (ab.type === "transform" && (me.transformKills || 0) < 1) {
     showCoinToast("Down a survivor in normal form to transform!");
@@ -6312,6 +6353,8 @@ function render() {
   drawPortals();
   drawTraps();
   drawStandees();
+  drawPuppets();
+  drawBalloons();
   drawCoins();
   drawSpawnPads();
   drawStations();
@@ -6665,6 +6708,63 @@ function drawCoins() {
     const t = (f.until - now) / 500;
     ctx.fillStyle = `rgba(255,216,74,${t.toFixed(2)})`;
     for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2, r = (1 - t) * 22; ctx.fillRect(f.x + Math.cos(a) * r - 2, f.y + Math.sin(a) * r - 2, 3, 3); }
+  }
+}
+// Jest's puppets. Custom art if it's been drawn, otherwise a simple marionette
+// so they're readable before the item art lands. Wife reads pink/light, Friend
+// heavy/dark, matching their fast-weak / slow-strong split.
+function drawPuppets() {
+  const now = performance.now();
+  for (const q of (G.puppets || [])) {
+    const sx = Math.round(q.x), sy = Math.round(q.y);
+    const art = itemArtCanvas("puppet", q.kind, q.ownerId);
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(sx - 9, sy + 6, 18, 3);
+    if (art) {
+      const w = art._dw || art.width, h = art._dh || art.height;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(art, Math.round(sx - w / 2), Math.round(sy + 6 - h), w, h);
+    } else {
+      const wife = q.kind === "wife";
+      const body = wife ? "#e07ab0" : "#6a4a7a";
+      const bob = q.ch ? Math.sin(now * 0.012) * 2 : 0;    // little jig while chasing
+      ctx.save(); ctx.translate(sx, sy + bob);
+      ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -44); ctx.stroke();   // string
+      ctx.fillStyle = body; ctx.fillRect(-7, -26, 14, 18);                      // body
+      ctx.fillStyle = "#f2e2d0"; ctx.beginPath(); ctx.arc(0, -30, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#20141c";                                               // eyes
+      ctx.fillRect(-3, -32, 2, 2); ctx.fillRect(1, -32, 2, 2);
+      ctx.strokeStyle = body; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-7, -20); ctx.lineTo(-12, -12);
+      ctx.moveTo(7, -20); ctx.lineTo(12, -12); ctx.stroke();                   // arms
+      ctx.restore();
+    }
+    if (q.ch) {                                     // hunting you right now
+      ctx.strokeStyle = "rgba(210,74,140,0.55)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sx, sy, 16, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+}
+const BALLOON_TINT = { sword: "#c8d0e0", flower: "#ff8ec0", pot: "#c07040", dog: "#ffd05a" };
+// Placed balloons. They bob gently; the string anchors them to the floor.
+function drawBalloons() {
+  const now = performance.now();
+  for (const b of (G.balloons || [])) {
+    const sx = Math.round(b.x), sy = Math.round(b.y);
+    const bob = Math.sin(now * 0.004 + b.id) * 2.5;
+    const art = itemArtCanvas("balloon", b.kind, b.ownerId);
+    ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 12 + bob); ctx.stroke();
+    if (art) {
+      const w = art._dw || art.width, h = art._dh || art.height;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(art, Math.round(sx - w / 2), Math.round(sy - 12 + bob - h), w, h);
+    } else {
+      ctx.fillStyle = BALLOON_TINT[b.kind] || "#ffffff";
+      ctx.beginPath(); ctx.ellipse(sx, sy - 22 + bob, 9, 11, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.beginPath(); ctx.ellipse(sx - 3, sy - 26 + bob, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 function drawStandees() {
@@ -8371,6 +8471,18 @@ function updateAbilitySlots(me) {
     if (ab.type === "shoot_sniper" && G.aiming) label = "Fire";
     if (ab.type === "reload_sniper" && G.aiming) label = "Cancel";
     if (ab.type === "megaphone" && G.aiming) label = "Blast";
+    // Jest: show what's loaded, and roll the four names on a reveal.
+    if (ab.type === "get_balloon" || ab.type === "place_balloon") {
+      const rolling = now < (G.balloonRoll || 0);
+      const kinds = ["Sword", "Flower", "Pot", "Dog"];
+      if (ab.type === "place_balloon") {
+        label = rolling ? kinds[Math.floor(now / 90) % 4]
+              : (G.balloonSlot ? "Place " + G.balloonSlot[0].toUpperCase() + G.balloonSlot.slice(1) : "Place");
+      }
+      const gated = ab.type === "get_balloon" ? !!G.balloonSlot : !G.balloonSlot;
+      slot.classList.toggle("disabled", gated && !rolling);
+      mob.classList.toggle("disabled", gated && !rolling);
+    }
     // Sly's slot 0 swaps name with form.
     if (ab.type === "trap_fire") label = (me.form === "dino") ? "FIRE!!" : "Trap";
     slot.querySelector(".name").textContent = label;
@@ -8505,7 +8617,7 @@ const ITEM_ART = {};   // ITEM_ART[itemId][slot] = canvas
 // art and per-skin item costumes.
 const ITEM_BOX = { gen: [62, 62], trap: [30, 30], robot: [30, 34], portal: [58, 58], bullet: [26, 26], fireball: [90, 90],
   knife: [36, 16], burger: [26, 24], spawnpad: [38, 26], clover: [18, 18], healstation: [34, 42], defstation: [30, 42],
-  standee: [34, 46] };
+  standee: [34, 46], puppet: [30, 40], balloon: [26, 34] };
 // Cache of baked custom character sprites, re-applied each round so they never
 // revert to the procedural design.
 const CUSTOM_SPRITES = {};   // CUSTOM_SPRITES[sheet][frame] = canvas
