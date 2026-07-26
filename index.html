@@ -1184,7 +1184,11 @@ let ONEWAYS = [];   // directional gates: block movement against `allow` (L/R/U/
 const FACTORY_BG = new Image();
 if (window.FORSNAKEN_FACTORY_BG) FACTORY_BG.src = window.FORSNAKEN_FACTORY_BG;
 const CARNIVAL_BG = new Image();
+// Two very different failures look identical on screen: the script not loading
+// at all (global missing) versus the image data being rejected. Name which.
 if (window.FORSNAKEN_CARNIVAL_BG) CARNIVAL_BG.src = window.FORSNAKEN_CARNIVAL_BG;
+else console.log("carnival-bg.js did not run — window.FORSNAKEN_CARNIVAL_BG is undefined");
+window.__carnivalHasData = !!window.FORSNAKEN_CARNIVAL_BG;
 // Painted backdrop for the current map, or null if it has none.
 function mapBgImage() {
   if (G.mapId === "factory") return FACTORY_BG;
@@ -3153,7 +3157,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26g";
+const BUILD = "2026-07-26h";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -3166,7 +3170,11 @@ setInterval(() => {
   let extra = "";
   if (G.phase === "playing" && G.mapId) {
     const img = G.mapId === "carnival" ? CARNIVAL_BG : G.mapId === "factory" ? FACTORY_BG : null;
-    const state = !img ? "no art" : (img.complete && img.naturalWidth) ? "art ok" : "ART MISSING";
+    let state;
+    if (!img) state = "no art";
+    else if (img.complete && img.naturalWidth) state = "art ok";
+    else if (G.mapId === "carnival" && !window.__carnivalHasData) state = "BG SCRIPT NOT LOADED";
+    else state = "ART FAILED TO DECODE";
     extra = "  ·  " + G.mapId + " (" + state + ")";
   }
   t.textContent = "build " + BUILD + extra;
