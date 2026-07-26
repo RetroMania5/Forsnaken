@@ -439,6 +439,7 @@ function renderSkin() {
     `<div class="maintitle"><span class="dot" style="background:${c.color}"></span>
        <h2>${escHtml(s.name)}</h2><span class="role">skin · ${escHtml(baseName)}</span>
        <button id="masteryToggle" class="floatbtn ${s.mastery ? "on" : ""}" title="Earned by mastering the character (not bought)">⭐ Mastery${s.mastery ? " ✓" : ""}</button>
+       <button id="skinFloatToggle" class="floatbtn ${s.floatWalk ? "on" : ""}" title="This skin hovers instead of using a walk cycle (independent of the base character)">🕊 Float walk${s.floatWalk ? " ✓" : ""}</button>
        <button id="exportOneBtn" class="floatbtn" title="Export just this skin (one file)">⬇ Export this one</button>
      </div>
      <div class="petrow" style="align-items:flex-end;gap:16px;margin:4px 0 8px;">
@@ -461,6 +462,7 @@ function renderSkin() {
      <div class="hint" style="margin:0 0 12px;">Plays for everyone once only one survivor is left alive. Blank = the game's normal last-survivor theme.</div>
      <div class="grid">${lmsCards}</div>`;
   wireSlotDrops();
+  { const ft = $("skinFloatToggle"); if (ft) ft.onclick = () => { s.floatWalk = !s.floatWalk; save(); renderMain(); renderSidebar(); }; }
   $("skinName").oninput = e => { s.name = e.target.value; if (byId[s.id]) byId[s.id].name = s.name; save(); renderSidebar(); };
   { const sp = $("skinPrice"); if (sp) sp.oninput = e => { s.price = Math.max(0, +e.target.value || 0); save(); renderSidebar(); }; }
   $("masteryToggle").onclick = () => { s.mastery = !s.mastery; if (s.mastery && !s.masterPet) s.masterPet = { behavior: "float" }; save(); renderSidebar(); renderSkin(); };
@@ -795,6 +797,7 @@ function serializeSkin(s) {
   const music = {};
   for (const ms of ALL_MUSIC_SLOTS) { const m = (s.music || {})[ms.id]; if (m) music[ms.id] = { filename: m.filename, audio: m.dataURL }; }
   const out = { id: s.id, base: s.base, name: s.name, price: +s.price || 0, slots: entries, music };
+  if (s.floatWalk) out.floatWalk = true;
   if (s.mastery) {
     out.mastery = true;
     const mp = s.masterPet || {};
@@ -850,6 +853,7 @@ function importJSONText(text) {
           const music = {};
           for (const k in (sk.music || {})) if (sk.music[k]) music[k] = { filename: sk.music[k].filename || "track", dataURL: sk.music[k].audio };
           const rec = { id: sk.id, base: sk.base, name: sk.name || "Skin", price: +sk.price || 0, music };
+          if (sk.floatWalk) rec.floatWalk = true;
           if (sk.mastery) { rec.mastery = true; if (sk.masterPet) rec.masterPet = { name: sk.masterPet.name || "", behavior: sk.masterPet.behavior === "walk" ? "walk" : "float", filename: sk.masterPet.filename, w: sk.masterPet.w, h: sk.masterPet.h, dataURL: sk.masterPet.image }; }
           skins.push(rec); registerSkin(rec);
         }

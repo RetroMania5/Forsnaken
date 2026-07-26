@@ -3066,7 +3066,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-25w";
+const BUILD = "2026-07-25x";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -7946,7 +7946,7 @@ function drawPlayer(p) {
         }
       }
     } else if (!holdAb && (p._anim.frame === "walkA" || p._anim.frame === "walkB")) {
-      if (FLOAT_WALK.has(charIdFor(p))) {
+      if (floatsWhenWalking(p)) {
         // Floating walk: a smooth continuous hover instead of footstep bob/sway.
         bobPx = Math.sin(now * 0.006) * 3.5;
         swayRad = 0;
@@ -8430,6 +8430,12 @@ function updateAbilitySlots(me) {
 // ---------- Custom art (from the art tool) ----------
 // Characters whose walk should be a floating hover (set in the art tool export).
 const FLOAT_WALK = new Set();
+// Skins can hover independently of their base character, so a floaty costume
+// works on an ordinary walker (and vice versa — the skin only ever adds it).
+const FLOAT_WALK_SKINS = new Set();
+function floatsWhenWalking(p) {
+  return FLOAT_WALK.has(charIdFor(p)) || !!(p && p.skin && FLOAT_WALK_SKINS.has(p.skin));
+}
 // Channel type -> ability id, so the ability costume is held during the build-up.
 const CHANNEL_AB = { spawn_robot: "robot", slow_field: "field", build_portal: "build_portal",
   teleport_portal: "teleport_portal", transform: "transform", spawn_pad: "spawner" };
@@ -8641,7 +8647,9 @@ const SKINS = [], SKIN_BY_ID = {}, SKIN_SPRITES = {}, SKIN_MUSIC = {}, SKIN_ITEM
 (function loadSkins() {
   for (const sd of (window.FORSNAKEN_SKINS || [])) {
     const skin = { id: sd.id, base: sd.base, name: sd.name || "Skin", price: +sd.price || 0,
-      art: sd.art || {}, music: sd.music || {}, mastery: !!sd.mastery, masterPet: sd.masterPet || null };
+      art: sd.art || {}, music: sd.music || {}, mastery: !!sd.mastery, masterPet: sd.masterPet || null,
+      floatWalk: !!sd.floatWalk };
+    if (skin.floatWalk) FLOAT_WALK_SKINS.add(skin.id);
     SKINS.push(skin); SKIN_BY_ID[skin.id] = skin;
     if (skin.music && Object.keys(skin.music).length) SKIN_MUSIC[skin.id] = skin.music;
     // A mastery skin's Master Pet becomes a real (unlock-only) pet.
