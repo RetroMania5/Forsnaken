@@ -3162,7 +3162,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26i";
+const BUILD = "2026-07-26j";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -4152,7 +4152,7 @@ function exitTestMode() {
 // is for per-char price overrides; anything else falls back to DEFAULT_PRICE.
 // This means future characters added to the server are automatically locked
 // behind purchase without needing a code change here.
-const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600, jest: 800 };
+const CHAR_PRICES = { sniper: 200, angel: 500, sentinel: 450, runner: 600, engineer: 700, whamo: 700, pollen: 750, stalker: 300, lunar: 600, sly: 600, jest: 650 };
 const DEFAULT_PRICE = 100;
 // Withdrawn pets: delisted from the shop AND revoked from every save on load,
 // so they can't be equipped by anyone who bought one earlier.
