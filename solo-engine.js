@@ -346,16 +346,15 @@ const CARNIVAL_GEN_POOL = [
 ];
 const CARNIVAL_OBSTACLES = [];
 const MAPS = {
-  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  gens: CIRCUS_GEN_POOL,  conveyors: [] },
   factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, gens: FACTORY_GEN_POOL, conveyors: FACTORY_CONVEYORS },
   carnival: { walls: CARNIVAL_WALLS, obstacles: CARNIVAL_OBSTACLES, gens: CARNIVAL_GEN_POOL, conveyors: [] },
 };
 const MAP_IDS = Object.keys(MAPS);
 // Active map references — reassigned in startRound. The helper functions
 // below (positionBlocked, etc.) read from WALLS / OBSTACLES / CONVEYORS.
-let WALLS = CIRCUS_WALLS;
-let OBSTACLES = CIRCUS_OBSTACLES;
-let GEN_POOL = CIRCUS_GEN_POOL;
+let WALLS = FACTORY_WALLS;
+let OBSTACLES = FACTORY_OBSTACLES;
+let GEN_POOL = FACTORY_GEN_POOL;
 let CONVEYORS = [];
 
 function pointInRect(x, y, r) {
@@ -402,7 +401,7 @@ const SURVIVOR_CHARS = [
 const KILLER_CHARS = [
   { id: "slasher", name: "Slasher", color: "#e94560", speedMult: 1.00, attackRadius: 70,  attackDamage: 17, attackName: "Knife Slash",  attackCooldown: 1.0, blurb: "balanced reach" },
   { id: "stalker", name: "Stalker", color: "#7a2030", speedMult: 0.92, attackRadius: 110, attackDamage: 13, attackName: "Claw Strike", attackCooldown: 1.3, blurb: "long reach, slower, lower dmg" },
-  { id: "lunar",   name: "Lunar",   color: "#9070ff", speedMult: 1.00, attackRadius: 80,  attackDamage: 15, attackName: "Punch",       attackCooldown: 1.0, blurb: "portals & teleport" },
+  { id: "lunar",   name: "Lunar",   color: "#9070ff", speedMult: 1.00, attackRadius: 80,  attackDamage: 11, attackName: "Punch",       attackCooldown: 1.0, blurb: "portals & teleport" },
   { id: "sly",     name: "Sly",     color: "#3a2a4a", speedMult: 1.00, attackRadius: 75,  attackDamage: 14, attackName: "Strike",      attackCooldown: 1.0, blurb: "human / dino shapeshifter",
     // Dino-form overrides. Speed is much lower but damage and reach climb,
     // and the client lets him phase through interior walls / obstacles.
@@ -556,7 +555,7 @@ const ABILITIES = {
     // sends this ability with portalId; server validates, channels for
     // channelDuration, then teleports the killer. The bar's Back button
     // simply closes the menu without spending the CD.
-    { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 2.0 },
+    { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 0.5 },
     // Dash: 3s speed boost; the first survivor Lunar collides with during
     // the dash takes hitDamage and is slowed to hitSlowMult for hitSlowDuration.
     { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 3.0, speedMult: 1.8, hitDamage: 30, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
@@ -586,7 +585,7 @@ const state = {
   designatedKillerId: null,
   hostClientId: null,           // persistent id of the host, so they can reclaim on rejoin
   randomKillerEnabled: false,
-  selectedMap: "random",        // "random" | "circus" | "factory"
+  selectedMap: "random",        // "random" | "factory" | "carnival"
   roundTimer: ROUND_DURATION,
   winner: null,
   resetAt: 0,

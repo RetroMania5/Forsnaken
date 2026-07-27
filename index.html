@@ -831,9 +831,9 @@
     </div>
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#9070ff"></span><b>Lunar</b><span class="gd-muted">balanced speed, portal-based mobility</span></div>
-      <div class="gd-ab"><b>Z — Punch</b>: 15 dmg melee, 80 px reach. CD 1.0s.</div>
+      <div class="gd-ab"><b>Z — Punch</b>: 11 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
-      <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 2s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
+      <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 0.5s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
       <div class="gd-ab"><b>V — Dash</b>: <b>1.8× speed for 3s</b>. The first survivor you collide with takes <b>30 damage</b> and is slowed to <b>0.7× for 3s</b>, and the dash <b>ends immediately</b> on hit. If you slam into a wall mid-dash you <b>stun yourself for 2s</b> and the dash ends. CD 20s.</div>
       <div class="gd-ab"><b>Portal alert</b>: whenever a survivor is standing on one of your portals, an orange arrow appears above you pointing toward it (with the distance).</div>
     </div>
@@ -1236,12 +1236,11 @@ const CARNIVAL_WALLS = [
 ];
 const CARNIVAL_OBSTACLES = [];
 const MAPS = {
-  circus:  { walls: CIRCUS_WALLS,  obstacles: CIRCUS_OBSTACLES,  conveyors: [],                oneWays: [] },
   factory: { walls: FACTORY_WALLS, obstacles: FACTORY_OBSTACLES, conveyors: FACTORY_CONVEYORS, oneWays: FACTORY_ONEWAYS, bgImage: true },
   carnival: { walls: CARNIVAL_WALLS, obstacles: CARNIVAL_OBSTACLES, conveyors: [], oneWays: [], bgImage: true },
 };
-let WALLS = CIRCUS_WALLS;
-let OBSTACLES = CIRCUS_OBSTACLES;
+let WALLS = FACTORY_WALLS;
+let OBSTACLES = FACTORY_OBSTACLES;
 let CONVEYORS = [];
 let ONEWAYS = [];   // directional gates: block movement against `allow` (L/R/U/D)
 const FACTORY_BG = new Image();
@@ -1330,11 +1329,11 @@ const G = {
   stationBreaks: [],       // VFX when a Pollen station is shattered
   spectateId: null,        // set when local player is dead
   scanArrowUntil: 0,
-  mapId: "circus",
+  mapId: "factory",
   designatedKillerId: null,
   randomKillerEnabled: false,
   selectedMap: "random",
-  mapIds: ["circus", "factory"],
+  mapIds: ["factory", "carnival"],
   survivorChars: [],   // from welcome
   killerChars: [],     // from welcome
   abilities: {},       // from welcome: charId -> [ab1, ab2]
@@ -2714,7 +2713,7 @@ function onMessage(msg) {
       G.winner = null;
       G.phase = "playing";
       // Swap to the round's map.
-      G.mapId = msg.mapId || "circus";
+      G.mapId = msg.mapId || "factory";
       if (MAPS[G.mapId]) {
         WALLS     = MAPS[G.mapId].walls;
         OBSTACLES = MAPS[G.mapId].obstacles;
@@ -3126,7 +3125,7 @@ function resyncRoundMusicSkin() {
   const killer = [...G.players.values()].find(p => p.role === "killer");
   if (!killer || !killer.killerChar) return;
   const skinId = (killer.id === G.myId) ? G.mySkin : killer.skin;
-  const key = killer.killerChar + "|" + (G.mapId || "circus") + "|" + (skinId || "");
+  const key = killer.killerChar + "|" + (G.mapId || "factory") + "|" + (skinId || "");
   if (Music.loadedFor === key) return;
   setupMusic(killer.killerChar, G.mapId);
   startMusic();
@@ -3220,7 +3219,7 @@ window.addEventListener("keydown", (e) => {
 
 // Bumped whenever the client changes, so "is my page stale?" is answerable at
 // a glance instead of by guesswork. Shown in the paste box and logged on boot.
-const BUILD = "2026-07-26r";
+const BUILD = "2026-07-26s";
 console.log("Forsnaken build " + BUILD);
 if ($("build-stamp")) $("build-stamp").textContent = BUILD;
 if ($("build-tag")) $("build-tag").textContent = "build " + BUILD;
@@ -4677,7 +4676,7 @@ function resolveLmsTrack(killerChar) {
   return killerLmsUrl(killerChar);
 }
 function setupMusic(killerChar, mapId) {
-  const mapKey = mapId || "circus";
+  const mapKey = mapId || "factory";
   // The killer's equipped skin can override the chase tiers (stage 1-3 + chase).
   // If I'm the killer, trust G.mySkin: the round starts before our own
   // role-aware set_skin has round-tripped, so the broadcast copy of p.skin is
@@ -4688,7 +4687,7 @@ function setupMusic(killerChar, mapId) {
   const key = killerChar + "|" + mapKey + "|" + (skinId || "");
   if (Music.loadedFor === key) { Music.mode = "round"; return; }
   stopMusic();
-  Music.base = mkAudio(MAP_BASE_MUSIC[mapKey] || MAP_BASE_MUSIC.circus);
+  Music.base = mkAudio(MAP_BASE_MUSIC[mapKey] || MAP_BASE_MUSIC.factory);
   for (let i = 0; i < 4; i++) {
     const custom = skinMusic && skinMusic[MUSIC_TIER_SLOT[i]];   // data-URI track or undefined
     Music.tier[i] = mkAudio(custom || killerMusicUrl(killerChar, i + 1));
@@ -5342,7 +5341,7 @@ function renderCharSelection() {
     b.classList.toggle("selected", b.dataset.id === G.myChars.killer);
 }
 
-const MAP_DISPLAY_NAMES = { random: "🎲 Random", circus: "🎪 Circus", factory: "🏭 Factory", carnival: "🎠 Carnival" };
+const MAP_DISPLAY_NAMES = { random: "🎲 Random", factory: "🏭 Factory", carnival: "🎠 Carnival" };
 function renderMapSelect(iAmHost) {
   const root = $("map-select");
   if (G.phase !== "lobby") { root.classList.add("hidden"); return; }
