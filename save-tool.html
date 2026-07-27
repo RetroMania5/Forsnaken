@@ -1,0 +1,261 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forsnaken Save Recovery</title>
+<style>
+  :root { --bg:#12151f; --panel:#1a1e2b; --line:#333a52; --dim:#9aa0bd; --accent:#7db4ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#e8ecf7; font:15px/1.5 system-ui,-apple-system,sans-serif; }
+  header { padding:18px 20px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap;
+           gap:12px; align-items:center; position:sticky; top:0; background:var(--bg); z-index:5; }
+  h1 { margin:0; font-size:19px; } h1 small { color:var(--dim); font-weight:400; font-size:13px; margin-left:8px; }
+  .spacer { flex:1; }
+  button { font:inherit; padding:9px 16px; border-radius:10px; border:1px solid var(--line);
+           background:#232838; color:#e8ecf7; cursor:pointer; }
+  button:hover { background:#2c3346; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#0b1020; font-weight:700; }
+  main { padding:20px; max-width:1080px; margin:0 auto; display:grid; gap:18px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+  h2 { margin:0 0 4px; font-size:16px; }
+  .hint { color:var(--dim); font-size:13px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px; }
+  label.row { display:flex; align-items:center; gap:9px; padding:7px 10px; border:1px solid var(--line);
+              border-radius:9px; background:#161a26; cursor:pointer; }
+  label.row:hover { border-color:#4a5578; }
+  label.row .nm { flex:1; } label.row .px { color:var(--dim); font-size:12px; }
+  input[type=number], input[type=text] { font:inherit; background:#0e111a; color:#e8ecf7;
+        border:1px solid var(--line); border-radius:9px; padding:8px 10px; width:130px; }
+  .mastery { display:grid; grid-template-columns:1fr 110px 110px; gap:8px; align-items:center;
+             padding:6px 0; border-bottom:1px solid #232838; }
+  .mastery b { font-weight:600; } .mastery .lbl { color:var(--dim); font-size:12px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  textarea { width:100%; min-height:120px; background:#0e111a; color:#e8ecf7; border:1px solid var(--line);
+             border-radius:10px; padding:10px; font:12px/1.4 ui-monospace,Menlo,monospace; white-space:pre; }
+  .warn { color:#ffb9c4; font-size:13px; }
+  .ok { color:#8fe0a0; font-size:13px; }
+</style>
+
+<header>
+  <h1>Forsnaken Save Recovery <small>build your own save file</small></h1>
+  <div class="spacer"></div>
+  <button id="loadFile">Load a save…</button>
+  <button id="allBtn">Unlock everything</button>
+  <button id="resetBtn">Reset</button>
+  <button id="exportBtn" class="primary">Export save</button>
+  <input id="file" type="file" accept=".txt,.json,application/json,text/plain" hidden>
+</header>
+
+<main>
+  <section>
+    <h2>Coins</h2>
+    <div class="hint">How many coins the save starts with.</div>
+    <input id="coins" type="number" min="0" step="10" value="0">
+  </section>
+
+  <section>
+    <h2>Survivors</h2>
+    <div class="hint">Tick the ones you own. The four free starters are always unlocked by the game.</div>
+    <div class="grid" id="survGrid"></div>
+  </section>
+
+  <section>
+    <h2>Killers</h2>
+    <div class="hint">Same again — tick what you own.</div>
+    <div class="grid" id="killGrid"></div>
+  </section>
+
+  <section>
+    <h2>Pets</h2>
+    <div class="hint" id="petHint">Loaded from pets-data.js.</div>
+    <div class="grid" id="petGrid"></div>
+  </section>
+
+  <section>
+    <h2>Skins</h2>
+    <div class="hint" id="skinHint">Loaded from custom-art.js. Mastery skins are normally earned, but you can grant them here.</div>
+    <div class="grid" id="skinGrid"></div>
+  </section>
+
+  <section>
+    <h2>Mastery progress</h2>
+    <div class="hint">Kills count for killers, wins for survivors. These drive the Master Pet and Mastery Skin unlocks.</div>
+    <div id="masteryList"></div>
+  </section>
+
+  <section>
+    <h2>Preview</h2>
+    <div class="hint">Exactly what will be written. Copy it straight into the game's <b>Paste save</b> box if you prefer.</div>
+    <textarea id="preview" spellcheck="false" readonly></textarea>
+  </section>
+</main>
+
+<script src="pets-data.js"></script>
+<script src="custom-art.js"></script>
+<script>
+const ROSTER = {"survivors": [{"id": "runner", "name": "Runner", "price": 600}, {"id": "engineer", "name": "Engineer", "price": 700}, {"id": "scout", "name": "Scout", "price": 0}, {"id": "sentinel", "name": "Frost Knight", "price": 450}, {"id": "sniper", "name": "Sniper", "price": 200}, {"id": "fencer", "name": "Fencer", "price": 0}, {"id": "kacey", "name": "Kacey", "price": 0}, {"id": "angel", "name": "Angel", "price": 500}, {"id": "pollen", "name": "Pollen", "price": 750}, {"id": "whamo", "name": "Whamo", "price": 700}], "killers": [{"id": "slasher", "name": "Slasher", "price": 0}, {"id": "stalker", "name": "Stalker", "price": 300}, {"id": "lunar", "name": "Lunar", "price": 600}, {"id": "sly", "name": "Sly", "price": 600}, {"id": "jest", "name": "Jest", "price": 650}], "free": ["scout", "slasher", "fencer", "kacey"], "version": 6};
+const $ = id => document.getElementById(id);
+const PETS  = (window.FORSNAKEN_PETS  || []).filter(p => p && p.id);
+const SKINS = (window.FORSNAKEN_SKINS || []).filter(s => s && s.id);
+const ALL_CHARS = [...ROSTER.survivors, ...ROSTER.killers];
+
+// The live save being edited. Mirrors what the game writes in downloadSave().
+const save = {
+  version: ROSTER.version, coins: 0,
+  unlocks: [...ROSTER.free], pets: [], equippedPet: null,
+  skins: [], equippedSkins: {}, charKills: {}, charWins: {},
+};
+
+function charRow(c, grid) {
+  const free = ROSTER.free.includes(c.id);
+  const l = document.createElement("label"); l.className = "row";
+  l.innerHTML = `<input type="checkbox" ${free ? "checked disabled" : ""}>
+                 <span class="nm">${c.name}</span>
+                 <span class="px">${free ? "free" : "🪙 " + c.price}</span>`;
+  const box = l.querySelector("input");
+  box.checked = save.unlocks.includes(c.id) || free;
+  box.onchange = () => {
+    if (box.checked) { if (!save.unlocks.includes(c.id)) save.unlocks.push(c.id); }
+    else save.unlocks = save.unlocks.filter(x => x !== c.id);
+    refresh();
+  };
+  l.dataset.char = c.id;
+  grid.appendChild(l);
+}
+
+function build() {
+  $("survGrid").innerHTML = ""; $("killGrid").innerHTML = "";
+  ROSTER.survivors.forEach(c => charRow(c, $("survGrid")));
+  ROSTER.killers.forEach(c => charRow(c, $("killGrid")));
+
+  const pg = $("petGrid"); pg.innerHTML = "";
+  if (!PETS.length) $("petHint").innerHTML = '<span class="warn">pets-data.js not found — put this file in the Forsnaken folder.</span>';
+  PETS.forEach(p => {
+    const l = document.createElement("label"); l.className = "row";
+    const mastery = /__mp$/.test(p.id);
+    l.innerHTML = `<input type="checkbox"><span class="nm">${p.name}</span>
+                   <span class="px">${mastery ? "⭐ mastery" : "🪙 " + (p.price || 0)}</span>`;
+    const box = l.querySelector("input");
+    box.checked = save.pets.includes(p.id);
+    box.onchange = () => {
+      if (box.checked) { if (!save.pets.includes(p.id)) save.pets.push(p.id); }
+      else { save.pets = save.pets.filter(x => x !== p.id);
+             if (save.equippedPet === p.id) save.equippedPet = null; }
+      refresh();
+    };
+    pg.appendChild(l);
+  });
+  // Master Pets that only exist via a mastery skin
+  SKINS.filter(s => s.mastery && s.masterPet).forEach(s => {
+    const id = s.id + "__mp";
+    if (PETS.some(p => p.id === id)) return;
+    const l = document.createElement("label"); l.className = "row";
+    l.innerHTML = `<input type="checkbox"><span class="nm">${s.masterPet.name || "Master Pet"}</span><span class="px">⭐ mastery</span>`;
+    const box = l.querySelector("input");
+    box.checked = save.pets.includes(id);
+    box.onchange = () => {
+      if (box.checked) { if (!save.pets.includes(id)) save.pets.push(id); }
+      else { save.pets = save.pets.filter(x => x !== id); if (save.equippedPet === id) save.equippedPet = null; }
+      refresh();
+    };
+    pg.appendChild(l);
+  });
+
+  const sg = $("skinGrid"); sg.innerHTML = "";
+  if (!SKINS.length) $("skinHint").innerHTML = '<span class="warn">custom-art.js not found — put this file in the Forsnaken folder.</span>';
+  SKINS.forEach(s => {
+    const base = ALL_CHARS.find(c => c.id === s.base);
+    const l = document.createElement("label"); l.className = "row";
+    l.innerHTML = `<input type="checkbox"><span class="nm">${s.mastery ? "⭐ " : ""}${s.name}</span>
+                   <span class="px">${base ? base.name : s.base}</span>`;
+    const box = l.querySelector("input");
+    box.checked = save.skins.includes(s.id);
+    box.onchange = () => {
+      if (box.checked) { if (!save.skins.includes(s.id)) save.skins.push(s.id); }
+      else { save.skins = save.skins.filter(x => x !== s.id);
+             if (save.equippedSkins[s.base] === s.id) delete save.equippedSkins[s.base]; }
+      refresh();
+    };
+    sg.appendChild(l);
+  });
+
+  const ml = $("masteryList"); ml.innerHTML = "";
+  ALL_CHARS.forEach(c => {
+    const killer = ROSTER.killers.some(k => k.id === c.id);
+    const row = document.createElement("div"); row.className = "mastery";
+    row.innerHTML = `<b>${c.name}</b>
+      <div><div class="lbl">${killer ? "kills" : "wins"}</div>
+      <input type="number" min="0" step="1" style="width:100px"></div><div></div>`;
+    const inp = row.querySelector("input");
+    inp.value = (killer ? save.charKills[c.id] : save.charWins[c.id]) || 0;
+    inp.oninput = () => {
+      const v = Math.max(0, parseInt(inp.value || "0", 10));
+      if (killer) save.charKills[c.id] = v; else save.charWins[c.id] = v;
+      refresh(false);
+    };
+    ml.appendChild(row);
+  });
+}
+
+function payload() {
+  return {
+    version: save.version,
+    coins: Math.max(0, Math.floor(+$("coins").value || 0)),
+    unlocks: [...new Set([...ROSTER.free, ...save.unlocks])],
+    pets: save.pets,
+    equippedPet: save.equippedPet,
+    skins: save.skins,
+    equippedSkins: save.equippedSkins,
+    charKills: save.charKills,
+    charWins: save.charWins,
+    exportedAt: new Date().toISOString(),
+  };
+}
+function refresh(rebuild = true) {
+  if (rebuild) build();
+  $("preview").value = JSON.stringify(payload(), null, 2);
+}
+
+$("coins").oninput = () => refresh(false);
+$("allBtn").onclick = () => {
+  save.unlocks = ALL_CHARS.map(c => c.id);
+  save.pets = [...PETS.map(p => p.id),
+               ...SKINS.filter(s => s.mastery && s.masterPet).map(s => s.id + "__mp")];
+  save.skins = SKINS.map(s => s.id);
+  refresh();
+};
+$("resetBtn").onclick = () => {
+  save.unlocks = [...ROSTER.free]; save.pets = []; save.equippedPet = null;
+  save.skins = []; save.equippedSkins = {}; save.charKills = {}; save.charWins = {};
+  $("coins").value = 0; refresh();
+};
+$("loadFile").onclick = () => $("file").click();
+$("file").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    let d; try { d = JSON.parse(fr.result); }
+    catch { alert("That file isn't valid JSON."); return; }
+    save.version = d.version || ROSTER.version;
+    $("coins").value = +d.coins || 0;
+    save.unlocks = Array.isArray(d.unlocks) ? d.unlocks.slice() : [...ROSTER.free];
+    save.pets = Array.isArray(d.pets) ? d.pets.slice() : [];
+    save.equippedPet = typeof d.equippedPet === "string" ? d.equippedPet : null;
+    save.skins = Array.isArray(d.skins) ? d.skins.slice() : [];
+    save.equippedSkins = (d.equippedSkins && typeof d.equippedSkins === "object") ? {...d.equippedSkins} : {};
+    save.charKills = (d.charKills && typeof d.charKills === "object") ? {...d.charKills} : {};
+    save.charWins = (d.charWins && typeof d.charWins === "object") ? {...d.charWins} : {};
+    refresh();
+  };
+  fr.readAsText(f);
+  e.target.value = "";
+};
+$("exportBtn").onclick = () => {
+  const blob = new Blob([JSON.stringify(payload(), null, 2)], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `forsaken-save-${new Date().toISOString().slice(0,10)}.txt`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+refresh();
+</script>
