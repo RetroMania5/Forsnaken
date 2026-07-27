@@ -7309,6 +7309,31 @@ function drawSlowFields() {
 function needsAim(ab) { return ab && (ab.type === "shoot_sniper" || ab.type === "megaphone"); }
 // Whamo's Megaphone blasts a cone rather than a single shot, so preview the
 // actual area it will hit instead of the sniper crosshair.
+// Distance from (x0,y0) along unit direction (dx,dy) to the first wall or
+// obstacle, capped at maxDist. Mirrors the server's lineBlocked test so the
+// previewed cone matches what the blast will actually reach.
+function rayHitDist(x0, y0, dx, dy, maxDist) {
+  let best = maxDist;
+  const ex = dx * maxDist, ey = dy * maxDist;
+  const scan = (r) => {
+    const left = r.x - r.w / 2, right = r.x + r.w / 2;
+    const top = r.y - r.h / 2, bottom = r.y + r.h / 2;
+    const p = [-ex, ex, -ey, ey];
+    const q = [x0 - left, right - x0, y0 - top, bottom - y0];
+    let t0 = 0, t1 = 1;
+    for (let i = 0; i < 4; i++) {
+      if (p[i] === 0) { if (q[i] < 0) return; continue; }
+      const t = q[i] / p[i];
+      if (p[i] < 0) { if (t > t1) return; if (t > t0) t0 = t; }
+      else          { if (t < t0) return; if (t < t1) t1 = t; }
+    }
+    const dist = t0 * maxDist;
+    if (dist < best) best = dist;
+  };
+  for (const w of WALLS) scan(w);
+  for (const o of OBSTACLES) scan(o);
+  return best;
+}
 function drawMegaphoneCone() {
   const me = G.players.get(G.myId);
   if (!me) return;
@@ -7318,9 +7343,17 @@ function drawMegaphoneCone() {
   const a0 = Math.atan2(G.aimDir.y, G.aimDir.x);
   ctx.save();
   ctx.translate(me.x, me.y);
+  // Fan of rays instead of a plain arc, each stopping at the first wall, so
+  // the shape you see is the shape that actually lands.
+  const RAYS = 48;
   ctx.beginPath();
   ctx.moveTo(0, 0);
-  ctx.arc(0, 0, range, a0 - half, a0 + half);
+  for (let i = 0; i <= RAYS; i++) {
+    const a = a0 - half + (2 * half) * (i / RAYS);
+    const dx = Math.cos(a), dy = Math.sin(a);
+    const dist = rayHitDist(me.x, me.y, dx, dy, range);
+    ctx.lineTo(dx * dist, dy * dist);
+  }
   ctx.closePath();
   const g = ctx.createRadialGradient(0, 0, 0, 0, 0, range);
   g.addColorStop(0, "rgba(255,154,60,0.30)");

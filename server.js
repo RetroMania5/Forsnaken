@@ -338,6 +338,34 @@ function positionBlocked(x, y, r) {
   for (const o of OBSTACLES) if (circleRectOverlap(x, y, r, o)) return true;
   return false;
 }
+// True if the segment (x0,y0)->(x1,y1) crosses this rect. Liang-Barsky: clip
+// the parameter range t∈[0,1] against each axis slab; anything left over is an
+// overlap. A segment that STARTS inside the rect counts as hitting it.
+function segmentHitsRect(x0, y0, x1, y1, r) {
+  const left = r.x - r.w / 2, right = r.x + r.w / 2;
+  const top = r.y - r.h / 2, bottom = r.y + r.h / 2;
+  const dx = x1 - x0, dy = y1 - y0;
+  const p = [-dx, dx, -dy, dy];
+  const q = [x0 - left, right - x0, y0 - top, bottom - y0];
+  let t0 = 0, t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return false;   // parallel to this slab and outside it
+      continue;
+    }
+    const t = q[i] / p[i];
+    if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else          { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return true;
+}
+// Line of sight: is there any wall or obstacle between these two points?
+// Used by aimed abilities so they can't reach through the map.
+function lineBlocked(x0, y0, x1, y1) {
+  for (const w of WALLS) if (segmentHitsRect(x0, y0, x1, y1, w)) return true;
+  for (const o of OBSTACLES) if (segmentHitsRect(x0, y0, x1, y1, o)) return true;
+  return false;
+}
 // A random open spot on the current map (not inside a wall/obstacle).
 function randomFreeSpot() {
   for (let i = 0; i < 30; i++) {
@@ -1439,6 +1467,9 @@ function applyAbility(p, ab, slot, msg) {
         if (d > R) continue;
         // Anyone practically on top of Whamo counts as inside the cone.
         if (d > 1 && (dx / d) * ax + (dy / d) * ay < cosLimit) continue;
+        // The blast does not carry through geometry — a killer behind a wall
+        // is safe even when they're inside the cone's arc.
+        if (lineBlocked(p.x, p.y, k.x, k.y)) continue;
         k.effects.slowMult = Math.min(k.effects.slowMult || 1, ab.slowMult);
         k.effects.slowUntil = Math.max(k.effects.slowUntil || 0, now + ab.slowDuration * 1000);
         affected.push(k.id);
