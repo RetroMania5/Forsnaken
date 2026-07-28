@@ -886,7 +886,7 @@
       <div class="gd-ab"><b>Z — Punch</b>: 11 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 0.5s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
-      <div class="gd-ab"><b>V — Dash</b>: <b>1.8× speed for 3s</b>. The first survivor you collide with takes <b>30 damage</b> and is slowed to <b>0.7× for 3s</b>, and the dash <b>ends immediately</b> on hit. If you slam into a wall mid-dash you <b>stun yourself for 2s</b> and the dash ends. CD 20s.</div>
+      <div class="gd-ab"><b>V — Dash</b>: charge off in the direction you're facing at <b>1.8× speed</b> and <b>keep going</b> — there's no timer. You only stop when you <b>press V again</b> (free, no stun) or <b>slam into a wall</b> (<b>2s self-stun</b>). You can <b>lean the charge slightly</b> with your movement keys, but not steer properly. Survivors you plough through take <b>30 damage</b> and are slowed to <b>0.7× for 3s</b> — and you <b>keep going</b>, hitting each of them once per charge. CD 20s.</div>
       <div class="gd-ab"><b>Portal alert</b>: whenever a survivor is standing on one of your portals, an orange arrow appears above you pointing toward it (with the distance).</div>
     </div>
     <div class="gd-card">
@@ -1039,6 +1039,9 @@ const MAP_W = 2400, MAP_H = 1600;
 const WALL_T = 30;
 const PLAYER_R = 18;
 const BASE_SURV_SPEED = 200, BASE_KILL_SPEED = 230;
+// How fast Lunar can lean her charge, in radians/sec. Deliberately low: a
+// correction, not steering. ~69 deg/s, so a full turn takes over five seconds.
+const DASH_TURN_RATE = 1.2;
 const SPRINT_MULT = 1.35;
 const INTERACT_R = 80;
 const SEND_RATE = 50;
@@ -3150,14 +3153,18 @@ function onMessage(msg) {
       break;
     }
     case "dash_hit": {
-      // Server says a dasher (msg.by) struck a survivor — the dash is
-      // spent. Clear local dash predictions for the attacker.
-      if (msg.by === G.myId) {
+      // A survivor was run down. The charge is NOT spent — she ploughs on
+      // through, so nothing local is cleared here.
+      break;
+    }
+    case "dash_end": {
+      // Charge over (button, wall, or the safety cap). Drop the costume hold
+      // so remote Lunars stop showing the dash pose.
+      const p = G.players.get(msg.id);
+      if (p && p._anim) { p._anim.holdUntil = 0; p._anim.holdAb = null; }
+      if (msg.id === G.myId) {
         const me = G.players.get(G.myId);
-        if (me) {
-          me._localSpeedUntil = 0;
-          me._localDashUntil  = 0;
-        }
+        if (me) { me._localSpeedUntil = 0; me._localDashUntil = 0; me._dashDir = null; }
       }
       break;
     }
@@ -6041,8 +6048,28 @@ function gameTick(now) {
       if (me.id === G.myId && now < (me._localShieldUntil || 0)) speed *= 0.6;
       // Angel Duck: 0.6x speed while ducking (server doesn't enforce — local mirror).
       if (me.ducking || (me.id === G.myId && now < (me._localDuckUntil || 0))) speed *= 0.6;
-      const _dashIntDx = v.x * speed * dt;
-      const _dashIntDy = v.y * speed * dt;
+      // Lunar's charge: she runs on the locked heading rather than on input,
+      // at full speed the whole way. Input can lean the heading, but only
+      // slowly — enough to correct a line, not enough to steer around.
+      let _dashVX = v.x, _dashVY = v.y;
+      if (me.id === G.myId && now < (me._localDashUntil || 0) && me._dashDir) {
+        const inMag = Math.hypot(v.x, v.y);
+        if (inMag > 0.05) {
+          const cur = Math.atan2(me._dashDir.y, me._dashDir.x);
+          const want = Math.atan2(v.y / inMag, v.x / inMag);
+          // Shortest way round, then clamp to the turn rate.
+          let diff = ((want - cur + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+          const maxTurn = DASH_TURN_RATE * dt;
+          const step = Math.max(-maxTurn, Math.min(maxTurn, diff));
+          const a = cur + step;
+          me._dashDir = { x: Math.cos(a), y: Math.sin(a) };
+        }
+        _dashVX = me._dashDir.x;
+        _dashVY = me._dashDir.y;   // magnitude 1 — she never slows down
+        facing = { x: _dashVX, y: _dashVY };
+      }
+      const _dashIntDx = _dashVX * speed * dt;
+      const _dashIntDy = _dashVY * speed * dt;
       const _dashStartX = me.x, _dashStartY = me.y;
       stepWithCollision(me, _dashIntDx, _dashIntDy);
       // Lunar dash + wall: if the dash is active locally and collision
@@ -6057,6 +6084,7 @@ function gameTick(now) {
           me._dashWallHitSent = true;
           me._localDashUntil  = 0;
           me._localSpeedUntil = 0;
+          me._dashDir = null;
           if (!G.testMode) sendMsg({ type: "dash_wall_hit" });
         }
       }
@@ -6320,6 +6348,19 @@ function tryFireAbility(slot, me) {
   if (!ab) return;
   const now = performance.now();
 
+  // Lunar mid-charge: the same button pulls her out of it. Cancelling is free
+  // — the cooldown was already spent when she set off — so this returns before
+  // any of the normal cast handling.
+  if (ab.type === "dash_strike" && now < (me._localDashUntil || 0)) {
+    me._localDashUntil = 0;
+    me._localSpeedUntil = 0;
+    me._dashDir = null;
+    me._dashWallHitSent = false;
+    if (me._anim) me._anim.holdUntil = 0;
+    if (!G.testMode) sendMsg({ type: "dash_end" });
+    return;
+  }
+
   // Jest's balloon slot holds one at a time: draw only when empty, place only
   // when full.
   if (ab.type === "get_balloon" && G.balloonSlot) { showCoinToast("Place your balloon first!"); return; }
@@ -6471,6 +6512,13 @@ function tryFireAbility(slot, me) {
     // Track the dash window for wall-hit detection.
     me._localDashUntil = now + ab.duration * 1000;
     me._dashWallHitSent = false;
+    // Lock the heading at the moment of the press. From here she runs on this
+    // vector until a wall or the button stops her; input only nudges it.
+    {
+      const f = (facing && Math.hypot(facing.x, facing.y) > 0.01) ? facing : { x: 1, y: 0 };
+      const n = Math.hypot(f.x, f.y) || 1;
+      me._dashDir = { x: f.x / n, y: f.y / n };
+    }
     // Hold the dash costume for the whole dash.
     if (me._anim) { me._anim.holdUntil = now + ab.duration * 1000; me._anim.holdAb = ab.id; }
   } else if (ab.type === "shield") {

@@ -588,7 +588,12 @@ const ABILITIES = {
     { id: "teleport_portal", name: "Teleport", cd: 20, type: "teleport_portal", channelDuration: 0.5 },
     // Dash: 3s speed boost; the first survivor Lunar collides with during
     // the dash takes hitDamage and is slowed to hitSlowMult for hitSlowDuration.
-    { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 3.0, speedMult: 1.8, hitDamage: 30, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
+    // Runs until Lunar presses the button again or hits a wall — there is no
+    // set duration. `duration` is only a safety cap so a client that dies
+    // mid-dash can't leave the charge running forever. Survivors she ploughs
+    // through take the hit but do NOT stop her; each one can only be hit once
+    // per dash, or contact would deal damage every tick.
+    { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 12.0, speedMult: 1.8, hitDamage: 30, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
   ],
 };
 
@@ -764,6 +769,7 @@ function handle(id, ws, msg) {
     case "attack":    return onAttack(id);
     case "ability":   return onAbility(id, msg);
     case "dash_wall_hit": return onDashWallHit(id);
+    case "dash_end": return onDashEnd(id);
     case "skill":     return onSkill(id, msg);
     case "set_pet":   return onSetPet(id, msg);
     case "set_skin":  return onSetSkin(id, msg);
@@ -910,6 +916,7 @@ function freshEffects() {
     duckUntil: 0,
     shieldUntil: 0,
     dashStrikeUntil: 0,
+    dashHits: [],                 // survivors already run down this dash
     dashHitDamage: 0,
     dashHitSlowMult: 1,
     dashHitSlowDuration: 0,
@@ -1148,6 +1155,19 @@ function onDashWallHit(id) {
   broadcast({ type: "stun", id: p.id, by: p.id, duration: left });
 }
 
+// Lunar pressed the button again to pull out of the charge. No stun — this is
+// the clean way to stop, as opposed to finding a wall with her face.
+function onDashEnd(id) {
+  if (state.phase !== "playing") return;
+  const p = state.players.get(id);
+  if (!p || !p.alive) return;
+  if (!p.effects.dashStrikeUntil) return;
+  p.effects.dashStrikeUntil = 0;
+  p.effects.speedUntil = 0;
+  p.effects.speedMult  = 1;
+  broadcast({ type: "dash_end", id: p.id });
+}
+
 function onAbility(id, msg) {
   if (state.phase !== "playing") return;
   const p = state.players.get(id);
@@ -1382,6 +1402,7 @@ function applyAbility(p, ab, slot, msg) {
       p.effects.speedMult = ab.speedMult;
       p.effects.speedUntil = now + ab.duration * 1000;
       p.effects.dashStrikeUntil = now + ab.duration * 1000;
+      p.effects.dashHits = [];              // fresh set of victims per charge
       p.effects.dashHitDamage = ab.hitDamage;
       p.effects.dashHitSlowMult = ab.hitSlowMult;
       p.effects.dashHitSlowDuration = ab.hitSlowDuration;
@@ -2077,23 +2098,22 @@ function tick() {
     for (const h of projHits) applyDamage(h.s, h.dmg, h.att);
     if (broken.length > 0) broadcast({ type: "projectile_break", projectiles: broken });
 
-    // Lunar dash collision: first survivor within 30 px of a dashing
-    // killer takes hitDamage + a slow, then the dash ends (both the
-    // strike window and the speed boost — the dash is "spent" on hit).
+    // Lunar dash collision: any survivor she ploughs through takes hitDamage
+    // and a slow. She does NOT stop — the charge only ends on a wall or on the
+    // button. Each survivor can be hit once per dash; without that, standing in
+    // contact would deal damage on every tick.
     for (const k of state.players.values()) {
       if (k.role !== "killer" || !k.alive) continue;
       if (!k.effects.dashStrikeUntil || now >= k.effects.dashStrikeUntil) continue;
       for (const s of state.players.values()) {
         if (s.role !== "survivor" || !s.alive) continue;
+        if (k.effects.dashHits.includes(s.id)) continue;      // already ran this one down
         if (Math.hypot(s.x - k.x, s.y - k.y) < 30) {
+          k.effects.dashHits.push(s.id);
           applyDamage(s, k.effects.dashHitDamage || 30, k);
           s.effects.slowMult = Math.min(s.effects.slowMult || 1, k.effects.dashHitSlowMult || 0.7);
           s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, now + (k.effects.dashHitSlowDuration || 3) * 1000);
-          k.effects.dashStrikeUntil = 0;
-          k.effects.speedUntil = 0;     // end the dash's speed boost too
-          k.effects.speedMult  = 1;
           broadcast({ type: "dash_hit", id: s.id, by: k.id, x: s.x, y: s.y });
-          break;
         }
       }
     }
