@@ -658,6 +658,39 @@
 @media (prefers-reduced-motion: reduce) {
   #blind, .blind-flower { animation-duration: 1ms; }
 }
+/* ── Player list (left edge) ───────────────────────────────────────────── */
+#hud-players {
+  position: fixed; left: 10px; top: 96px; z-index: 6;
+  display: flex; flex-direction: column; gap: 4px;
+  pointer-events: none; max-width: 210px;
+}
+.pl-row {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(10,10,16,0.55); border-left: 4px solid #888;
+  border-radius: 3px; padding: 4px 8px 4px 6px;
+  font-size: 12px; line-height: 1.25;
+}
+.pl-row .pl-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 600; text-shadow: 1px 1px 0 rgba(0,0,0,.7);
+}
+.pl-row .pl-tag { font-size: 9px; letter-spacing: .06em; opacity: .75; }
+.pl-hp { width: 46px; height: 7px; background: rgba(0,0,0,.55); border-radius: 2px; overflow: hidden; }
+.pl-hp i { display: block; height: 100%; background: #6ad06a; transition: width .18s linear; }
+.pl-hp i.mid { background: #e8c14a; }
+.pl-hp i.low { background: #e05050; }
+/* Killers show no health bar — they can't be damaged. */
+.pl-row.killer .pl-hp { display: none; }
+.pl-row.killer .pl-tag { color: #ff9a9a; }
+/* Dead: greyed right down, so the living read at a glance. */
+.pl-row.dead { opacity: .38; filter: grayscale(1); }
+.pl-row.dead .pl-name { text-decoration: line-through; }
+.pl-row.me { box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+@media (max-width: 720px) {
+  #hud-players { top: 84px; max-width: 150px; }
+  .pl-row { font-size: 11px; padding: 3px 6px; }
+  .pl-hp { width: 34px; }
+}
 </style>
 </head>
 <body>
@@ -675,6 +708,9 @@
 </div>
 
 <div id="hud" class="hidden">
+  <!-- Scoreboard down the left: everyone's name, character colour and health.
+       Dead players stay listed but go grey. -->
+  <div id="hud-players"></div>
   <div class="hud-top">
     <div class="role" id="hud-role">SURVIVOR</div>
     <div class="gens" id="hud-gens">Generators: 0/4</div>
@@ -6103,7 +6139,10 @@ function gameTick(now) {
           && !me._dashWallHitSent) {
         const intMag = Math.hypot(_dashIntDx, _dashIntDy);
         const actMag = Math.hypot(me.x - _dashStartX, me.y - _dashStartY);
-        if (intMag > 6 && actMag < intMag * 0.4) {
+        // Either she's been stopped dead, or there's wall directly ahead of
+        // the charge. The second test is what catches sliding along a face.
+        const headOn = me._dashDir && wallAhead(me.x, me.y, me._dashDir.x, me._dashDir.y, PLAYER_R * 0.9);
+        if (headOn || (intMag > 6 && actMag < intMag * 0.4)) {
           me._dashWallHitSent = true;
           me._localDashUntil  = 0;
           me._localSpeedUntil = 0;
@@ -6674,6 +6713,76 @@ function isPhasing(p) {
   return p && p.role === "killer" && p.killerChar === "sly" && p.form === "dino";
 }
 
+// Is there a wall right in front of this point? Used by Lunar's charge: the
+// collision step RESOLVES penetration by pushing you out, so a grazing hit
+// slides along the wall and "did I actually move" never trips. Probing ahead
+// catches a head-on hit while letting a glancing one carry on.
+function wallAhead(x, y, dx, dy, dist) {
+  const px = x + dx * dist, py = y + dy * dist;
+  for (const w of WALLS) if (circleVsRect(px, py, PLAYER_R, w)) return true;
+  for (const o of OBSTACLES) if (circleVsRect(px, py, PLAYER_R, o)) return true;
+  return false;
+}
+// ── Left-edge player list ──────────────────────────────────────────────
+// Name, character colour and health for everyone in the round. Rebuilt only
+// when something visible actually changes, so it isn't churning DOM 60x a
+// second for a list that mostly sits still.
+let _plSig = "";
+function renderPlayerList(me) {
+  const box = $("hud-players");
+  if (!box) return;
+  const rows = [...G.players.values()]
+    .filter(p => p.role === "survivor" || p.role === "killer")
+    .sort((a, b) => (a.role === b.role ? (a.name || "").localeCompare(b.name || "")
+                                       : (a.role === "killer" ? -1 : 1)));
+  const sig = rows.map(p => [p.id, p.name, p.role, p.alive ? 1 : 0,
+                             Math.round(p.hp == null ? -1 : p.hp), charColorOf(p)].join("~")).join("|");
+  if (sig === _plSig) return;
+  _plSig = sig;
+
+  box.innerHTML = "";
+  for (const p of rows) {
+    const row = document.createElement("div");
+    const isKiller = p.role === "killer";
+    row.className = "pl-row" + (isKiller ? " killer" : "") +
+                    (p.alive ? "" : " dead") + (p.id === G.myId ? " me" : "");
+    row.style.borderLeftColor = charColorOf(p);
+
+    const name = document.createElement("div");
+    name.className = "pl-name";
+    name.textContent = p.name || "Player";
+    row.appendChild(name);
+
+    const tag = document.createElement("div");
+    tag.className = "pl-tag";
+    tag.textContent = !p.alive ? "DOWN" : (isKiller ? "KILLER" : "");
+    row.appendChild(tag);
+
+    if (!isKiller) {
+      const hp = document.createElement("div");
+      hp.className = "pl-hp";
+      const fill = document.createElement("i");
+      const pct = p.alive ? Math.max(0, Math.min(100, (p.hp == null ? G.survivorHpMax : p.hp) / G.survivorHpMax * 100)) : 0;
+      fill.style.width = pct + "%";
+      fill.className = pct <= 30 ? "low" : (pct <= 65 ? "mid" : "");
+      hp.appendChild(fill);
+      row.appendChild(hp);
+    }
+    box.appendChild(row);
+  }
+}
+// A player's colour comes from their character, falling back to whatever the
+// server sent if the roster hasn't landed yet.
+function charColorOf(p) {
+  if (p.role === "killer") {
+    const k = (G.killerChars || []).find(c => c.id === p.killerChar);
+    if (k) return k.color;
+  } else {
+    const sc = (G.survivorChars || []).find(c => c.id === p.survivorChar);
+    if (sc) return sc.color;
+  }
+  return p.color || "#8ab4d8";
+}
 function stepWithCollision(p, dx, dy) {
   const phasing = isPhasing(p);
   p.x += dx;
@@ -9066,6 +9175,8 @@ function updateHUD() {
   const timerEl = $("hud-timer");
   timerEl.textContent = fmtTime(G.timer);
   timerEl.classList.toggle("low", G.timer <= 30);
+
+  renderPlayerList(me);
 
   // HP bar (survivors only)
   const hpBar = $("bar-hp");

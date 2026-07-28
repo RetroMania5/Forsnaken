@@ -203,8 +203,20 @@ window.ForsakenSolo = (function () {
           if (m.gens) this.gens = m.gens.map(g => ({ x: g.x, y: g.y, done: !!g.done }));
           break;
         case "lobby":
-          this.updateRoster(m.players); break;
+          this.updateRoster(m.players);
+          // Only on the TRANSITION into the lobby. Rerolling on every lobby
+          // broadcast would loop forever: pick_char makes the server
+          // re-broadcast the lobby, which would make every bot pick again.
+          if (this._phase !== "lobby") {
+            this._phase = "lobby";
+            this.rerollChars();
+            this.saidOnce = {};
+            this.wasChased = false; this.wasHunting = false;
+            this.lastHp = 100; this.lastAllies = undefined; this.lastSurvs = undefined;
+          }
+          break;
         case "start":
+          this._phase = "playing";
           this.updateRoster(m.players);
           if (m.gens) this.gens = m.gens.map(g => ({ x: g.x, y: g.y, done: !!g.done }));
           const me = (m.players || []).find(p => p.id === this.id);
@@ -238,14 +250,6 @@ window.ForsakenSolo = (function () {
           if (m.id === this.id) this.alive = false; break;
         case "lms": case "over":
           if (m.type === "over") { this.playing = false; this._rejVoted = false; } break;
-        case "lobby":
-          // Back between rounds — new characters, and clear the round's
-          // one-shot chat flags so lines can fire again next game.
-          this.rerollChars();
-          this.saidOnce = {};
-          this.wasChased = false; this.wasHunting = false;
-          this.lastHp = 100; this.lastAllies = undefined; this.lastSurvs = undefined;
-          break;
         case "rejoin_status":
           // Follow the human: once anyone votes to rejoin, the bots vote too so
           // a solo player can send everyone back to the lobby with one click.
