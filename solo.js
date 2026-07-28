@@ -13,9 +13,6 @@ window.ForsakenSolo = (function () {
   const SURV_SPEED = 200, KILL_SPEED = 230, SPRINT = 1.35, DT = 0.05;
   const BOT_R = 16;                 // collision radius (a touch under the human's 18)
   const RAD = Math.PI / 180;
-  // Steering: try the straight-ahead direction first, then progressively wider
-  // angles left/right so a blocked bot walks *around* a wall instead of into it.
-  const STEER = [0, 22, -22, 45, -45, 70, -70, 100, -100, 135, -135];
 
   const rnd  = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const hyp  = (dx, dy) => Math.hypot(dx, dy);
@@ -24,11 +21,38 @@ window.ForsakenSolo = (function () {
   const rot  = (v, deg) => { const a = deg * RAD, c = Math.cos(a), s = Math.sin(a);
                              return { x: v.x * c - v.y * s, y: v.x * s + v.y * c }; };
 
+  // ── Bot chatter ─────────────────────────────────────────────────────────
+  // Short status lines keyed to what the bot is actually doing, so the talk
+  // matches the play. One pool per situation; a bot picks at random, and both
+  // a per-bot cooldown and a shared floor stop four of them talking at once.
+  const CHATTER = {
+    genStart:  ["on a gen", "starting a gen", "working on one over here", "gen in progress"],
+    genDone:   ["gen done!", "that's one down", "one more finished", "gen popped"],
+    chased:    ["he's on me!", "being chased!", "get him off me", "running, running"],
+    escaped:   ["lost him", "shook him off", "that was close", "safe for now"],
+    hurt:      ["i'm hurt", "taking damage", "not doing great", "low health here"],
+    critical:  ["need a heal badly", "i'm nearly down", "help, please", "one more hit and i'm out"],
+    healing:   ["patching you up", "hold still, healing", "i've got you", "on my way to help"],
+    thanks:    ["thanks!", "much better", "appreciated", "back in this"],
+    allyDown:  ["someone's down", "we lost one", "that's not good", "down to fewer of us"],
+    lastMan:   ["i'm the last one", "all on me now", "just me left", "wish me luck"],
+    idle:      ["where is everyone", "all quiet", "looking for a gen", "spreading out"],
+    killerNear:["he's close", "i can hear him", "he's nearby", "keeping my distance"],
+    // Killer lines.
+    kHunt:     ["i see you", "found one", "come here", "no hiding"],
+    kHit:      ["got you", "that'll hurt", "closer now", "stay still"],
+    kDown:     ["down you go", "one less", "that's one", "next"],
+    kLost:     ["where'd you go", "lost them", "they're quick", "hiding won't help"],
+    kTaunt:    ["gens won't save you", "tick tock", "i'm coming", "nowhere to run"],
+  };
+  let lastChatAny = 0;                 // shared floor so they don't talk over each other
+
   let G, onMessage, bots = [], aiTimer = null, SOLO = null;
   // Authoritative wall/obstacle test from the engine (current map's geometry).
   const blocked = (x, y) => (SOLO && SOLO.blocked ? SOLO.blocked(x, y, BOT_R) : false);
 
   // ── Navigation grid + A* (so bots route around walls, not into them) ──────
+  const ARRIVE = 26;       // close enough — stop rather than jitter on the spot
   const CELL = 22;         // grid resolution
   const GRID_R = BOT_R;    // build the graph with the bot's real radius so A* never
                            // plans a route through a gap the body can't fit through.
@@ -100,6 +124,22 @@ window.ForsakenSolo = (function () {
     }
     return null;
   }
+  // String-pulling. A* on a grid returns a staircase of cell centres; walking
+  // those literally makes a bot weave left-right the whole way. Keep only the
+  // corners you actually need by skipping ahead to the furthest waypoint still
+  // in clear line of sight.
+  function smoothPath(path) {
+    if (!path || path.length < 3) return path;
+    const out = [path[0]];
+    let i = 0;
+    while (i < path.length - 1) {
+      let j = path.length - 1;
+      while (j > i + 1 && !lineOpen(path[i].x, path[i].y, path[j].x, path[j].y)) j--;
+      out.push(path[j]);
+      i = j;
+    }
+    return out;
+  }
   function lineOpen(ax, ay, bx, by) {
     const d = hyp(bx - ax, by - ay), steps = Math.ceil(d / (CELL / 2));
     for (let k = 1; k <= steps; k++) { const u = k / steps; if (blocked(ax + (bx - ax) * u, ay + (by - ay) * u)) return false; }
@@ -129,6 +169,9 @@ window.ForsakenSolo = (function () {
       this.bx = 0; this.by = 0; this.facing = { x: 1, y: 0 };
       this.alive = true; this.playing = false;
       this.hug = 0; this.hugSide = 1;   // wall-following commitment
+      this.clearTicks = 0;              // consecutive ticks with a clear path ahead
+      this.stuckRuns = 0; this.panicUntil = 0; this.panicDir = { x: 1, y: 0 };
+      this.nextChat = 0; this.saidOnce = {}; this.wasChased = false; this.lastHp = 100;
       this.path = null; this.pathI = 0; this.pathTgt = null; this.repathAt = 0;
       this.stunUntil = 0; this.nextUse = [0, 0, 0];
       this.nextSkill = 0; this.nextAttack = 0;
@@ -167,7 +210,9 @@ window.ForsakenSolo = (function () {
           if (meS) this.alive = meS.alive;
           break;
         case "gen_done":
-          (m.indices || []).forEach(i => { if (this.gens[i]) this.gens[i].done = true; }); break;
+          (m.indices || []).forEach(i => { if (this.gens[i]) this.gens[i].done = true; });
+          if (this.role !== "killer") this.say("genDone", Date.now(), { gap: 10000 });
+          break;
         case "stun":
           if (m.id === this.id) this.stunUntil = Date.now() + (m.duration || 1) * 1000; break;
         case "down":
@@ -195,41 +240,90 @@ window.ForsakenSolo = (function () {
     move(dir, speed) {
       if (!dir.x && !dir.y) return false;
       const step = speed * DT;
-      if (this.hug > 0) this.hug--;
       const tryStep = (d) => {
         const nx = clmp(this.bx + d.x * step, 20, this.map.w - 20);
         const ny = clmp(this.by + d.y * step, 20, this.map.h - 20);
         if (blocked(nx, ny)) return false;
         this.bx = nx; this.by = ny; this.facing = d; return true;
       };
-      // Straight ahead is clear → take it and drop any wall-follow.
-      if (tryStep(dir)) { this.hug = 0; return true; }
-      // Blocked: commit to following the wall on the roomier side for a few
-      // ticks (hysteresis) so we detour around it instead of oscillating.
-      if (this.hug <= 0) this.hugSide = this.clearer(dir, step);
-      for (const side of [this.hugSide, -this.hugSide]) {
-        for (const a of [45, 70, 95, 120, 145]) {
-          if (tryStep(rot(dir, side * a))) { this.hug = 10; this.hugSide = side; return true; }
+      // Shoved inside geometry (a push, a teleport, a spawn on a wall)? Climb
+      // out before trying to steer, or every direction reads as blocked.
+      if (blocked(this.bx, this.by)) { this.unstick(step); return true; }
+
+      // Already detouring: stay committed to the side we chose. Straight ahead
+      // is tried LAST and only releases the detour after several clear ticks —
+      // without that, a concave corner alternates blocked/clear every tick and
+      // the bot visibly shivers left and right instead of walking out.
+      if (this.hug > 0) {
+        this.hug--;
+        for (const a of [30, 55, 85, 115, 145]) {
+          if (tryStep(rot(dir, this.hugSide * a))) { this.clearTicks = 0; return true; }
         }
+        if (tryStep(dir)) {
+          this.clearTicks = (this.clearTicks || 0) + 1;
+          if (this.clearTicks >= 4) { this.hug = 0; this.clearTicks = 0; }
+          return true;
+        }
+        this.hug = 0;                 // that side is a dead end — re-pick below
       }
-      return false; // fully boxed in this tick
+
+      if (tryStep(dir)) { this.clearTicks = 0; return true; }
+
+      // Newly blocked: commit to the roomier side for a good while.
+      this.hugSide = this.clearer(dir, step);
+      this.hug = 26;
+      this.clearTicks = 0;
+      for (const a of [40, 65, 95, 125, 155]) {
+        if (tryStep(rot(dir, this.hugSide * a))) return true;
+      }
+      for (const a of [40, 65, 95, 125, 155, 180]) {
+        if (tryStep(rot(dir, -this.hugSide * a))) return true;
+      }
+      return false;                   // genuinely boxed in this tick
     }
-    // Which turn direction (+1 / -1) has more open room ahead of a blocked path.
+    // Which turn direction (+1 / -1) has more open room ahead of a blocked
+    // path. Looks further than it used to, so the side we commit to is the one
+    // that actually leads somewhere rather than the one that's clear for a step.
     clearer(dir, step) {
       const run = (side) => {
         const d = rot(dir, side * 75); let n = 0;
-        for (let k = 1; k <= 5; k++) { if (blocked(this.bx + d.x * step * k, this.by + d.y * step * k)) break; n++; }
+        for (let k = 1; k <= 10; k++) { if (blocked(this.bx + d.x * step * k, this.by + d.y * step * k)) break; n++; }
         return n;
       };
       return run(1) >= run(-1) ? 1 : -1;
     }
+    // Walk out of a wall we're standing inside, towards open ground.
+    unstick(step) {
+      let best = null, bestD = Infinity;
+      for (let a = 0; a < 360; a += 30) {
+        const d = rot({ x: 1, y: 0 }, a);
+        for (let k = 1; k <= 6; k++) {
+          const nx = this.bx + d.x * step * k, ny = this.by + d.y * step * k;
+          if (!blocked(nx, ny)) { if (k < bestD) { bestD = k; best = { nx, ny, d }; } break; }
+        }
+      }
+      if (best) { this.bx = best.nx; this.by = best.ny; this.facing = best.d; }
+      this.path = null; this.repathAt = 0; this.hug = 0;
+    }
     // Path-follow toward (tx,ty): A* around walls, then local move() per step.
     navTo(tx, ty, speed, now) {
+      // Arrival deadband. Without this a bot that has reached its destination
+      // keeps asking to move a fraction of a pixel and twitches on the spot —
+      // which reads as the bot vibrating left and right forever.
+      const dTgt = hyp(tx - this.bx, ty - this.by);
+      if (dTgt < ARRIVE) { this.path = null; this.hug = 0; return; }
       if (!this.pathTgt || hyp(this.pathTgt.x - tx, this.pathTgt.y - ty) > 60 || now > this.repathAt || !this.path) {
-        this.path = findPath(this.bx, this.by, tx, ty);
+        this.path = smoothPath(findPath(this.bx, this.by, tx, ty));
         this.pathI = 0; this.pathTgt = { x: tx, y: ty }; this.repathAt = now + 700;
       }
-      if (!this.path || !this.path.length) { this.move(norm(tx - this.bx, ty - this.by), speed); return; }
+      if (!this.path || !this.path.length) {
+        // No route (target walled in, or we're off the graph). Head roughly
+        // that way but let the wall-follow do the work, and retry sooner —
+        // beelining here is what used to bury bots in corners.
+        this.repathAt = Math.min(this.repathAt, now + 250);
+        this.move(norm(tx - this.bx, ty - this.by), speed);
+        return;
+      }
       // Advance past waypoints we've reached or can see straight to.
       while (this.pathI < this.path.length - 1 &&
              (hyp(this.path[this.pathI].x - this.bx, this.path[this.pathI].y - this.by) < CELL * 0.8 ||
@@ -237,6 +331,23 @@ window.ForsakenSolo = (function () {
         this.pathI++;
       const wp = this.path[Math.min(this.pathI, this.path.length - 1)];
       this.move(norm(wp.x - this.bx, wp.y - this.by), speed);
+    }
+    // `once` keys a line to a one-off event so it isn't repeated all round.
+    say(pool, now, opts) {
+      const o = opts || {};
+      if (now < this.nextChat) return false;
+      if (now - lastChatAny < 1800) return false;      // let the last line breathe
+      if (o.once) { if (this.saidOnce[o.once]) return false; this.saidOnce[o.once] = 1; }
+      const lines = CHATTER[pool];
+      if (!lines || !lines.length) return false;
+      this.emit({ type: "chat", text: rnd(lines) });
+      this.nextChat = now + (o.gap || 9000) + Math.random() * 5000;
+      lastChatAny = now;
+      return true;
+    }
+    speedNow() {
+      const base = this.role === "killer" ? KILL_SPEED : SURV_SPEED;
+      return base * SPRINT;
     }
     sendPos() { this.emit({ type: "pos", x: this.bx, y: this.by, facing: this.facing }); }
     useAbility(slot, ab, now, aim) {
@@ -252,8 +363,24 @@ window.ForsakenSolo = (function () {
       if (!this.playing || !this.alive || !this.snap) return;
       if (now < this.stunUntil) { this.sendPos(); return; }
       // Anti-stuck: if we've barely moved while trying to navigate, force a re-path.
-      if (!this._mv || now - this._mv.at > 1500) {
-        if (this._mv && hyp(this.bx - this._mv.x, this.by - this._mv.y) < 24) { this.path = null; this.repathAt = 0; this.hug = 0; }
+      if (now < (this.panicUntil || 0)) {
+        // Thoroughly wedged: barge off in one committed direction for a moment
+        // rather than re-deciding every tick against the same wall.
+        this.move(this.panicDir, this.speedNow());
+        this.sendPos();
+        return;
+      }
+      if (!this._mv || now - this._mv.at > 700) {
+        const moved = this._mv ? hyp(this.bx - this._mv.x, this.by - this._mv.y) : 999;
+        if (moved < 18) {
+          this.stuckRuns = (this.stuckRuns || 0) + 1;
+          this.path = null; this.repathAt = 0; this.hug = 0;
+          if (this.stuckRuns >= 3) {           // re-pathing isn't working
+            this.panicDir = rot({ x: 1, y: 0 }, Math.random() * 360);
+            this.panicUntil = now + 700;
+            this.stuckRuns = 0;
+          }
+        } else this.stuckRuns = 0;
         this._mv = { x: this.bx, y: this.by, at: now };
       }
       const role = this.role || (this.roster.get(this.id) || {}).role;
@@ -268,10 +395,23 @@ window.ForsakenSolo = (function () {
       for (const s of survs) { const d = hyp(s.x - this.bx, s.y - this.by); if (d < best) { best = d; t = s; } }
       const dir = norm(t.x - this.bx, t.y - this.by);
       const ks = this.killerStats();
+
+      // ── Talk about the hunt ────────────────────────────────────────────
+      const onTrail = best < 420;
+      if (onTrail && !this.wasHunting) this.say("kHunt", now, { gap: 9000 });
+      else if (!onTrail && this.wasHunting && best > 800) this.say("kLost", now, { gap: 12000 });
+      else if (!onTrail) this.say("kTaunt", now, { gap: 20000 });
+      if (survs.length < (this.lastSurvs == null ? survs.length : this.lastSurvs)) {
+        this.say("kDown", now, { gap: 8000 });
+      }
+      this.wasHunting = onTrail;
+      this.lastSurvs = survs.length;
+
       this.navTo(t.x, t.y, KILL_SPEED * SPRINT, now);
       if (best <= (ks.attackRadius || 75) * 0.95 && now >= this.nextAttack) {
         this.emit({ type: "attack" });
         this.nextAttack = now + (ks.attackCooldown || 1) * 1000;
+        this.say("kHit", now, { gap: 11000 });
       }
       const list = this.myAbilities();
       list.forEach((ab, slot) => {
@@ -298,8 +438,23 @@ window.ForsakenSolo = (function () {
       const dirFromK = killer ? norm(this.bx - killer.x, this.by - killer.y) : { x: 0, y: -1 };
       const dirToK   = killer ? norm(killer.x - this.bx, killer.y - this.by) : { x: 1, y: 0 };
       const allies = players.filter(p => p.id !== this.id && (this.roster.get(p.id) || {}).role === "survivor" && p.alive);
+
+      // ── Talk about it ──────────────────────────────────────────────────
+      const chased = dK < 320;
+      if (myHp <= 30) this.say("critical", now, { gap: 7000 });
+      else if (myHp < 70 && myHp < this.lastHp) this.say("hurt", now, { gap: 12000 });
+      if (chased && !this.wasChased) this.say("chased", now, { gap: 8000 });
+      else if (!chased && this.wasChased && dK > 700) this.say("escaped", now, { gap: 12000 });
+      else if (chased && dK < 560) this.say("killerNear", now, { gap: 14000 });
+      if (allies.length === 0 && this.alive) this.say("lastMan", now, { once: "lms", gap: 5000 });
+      else if (allies.length < this.lastAllies) this.say("allyDown", now, { gap: 10000 });
+      this.wasChased = chased;
+      this.lastHp = myHp;
+      this.lastAllies = allies.length;
       let injured = null, injBest = 1e9;
       for (const a of allies) if (a.hp != null && a.hp < 70) { const d = hyp(a.x - this.bx, a.y - this.by); if (d < injBest) { injBest = d; injured = a; } }
+
+      if (injured && injBest < 260) this.say("healing", now, { gap: 15000 });
 
       // Abilities (cooperative): CC the killer, heal/support allies, self-preserve.
       const list = this.myAbilities();
@@ -382,5 +537,26 @@ window.ForsakenSolo = (function () {
     aiTimer = setInterval(aiTick, 50);
   }
 
-  return { start };
+  // Test hook: lets the movement and chatter be driven headlessly, with no
+  // engine, no sockets and no rendering. Harmless in the browser.
+  const __test = {
+    CHATTER,
+    setSolo: (s) => { SOLO = s; },
+    resetNav: () => { nav = null; navMapId = null; },
+    ensureNav,
+    findPath,
+    resetChatFloor: () => { lastChatAny = 0; },
+    makeBot: () => {
+      const b = Object.create(Bot.prototype);
+      b.hug = 0; b.hugSide = 1; b.clearTicks = 0;
+      b.stuckRuns = 0; b.panicUntil = 0; b.panicDir = { x: 1, y: 0 };
+      b.nextChat = 0; b.saidOnce = {}; b.wasChased = false; b.lastHp = 100;
+      b.path = null; b.pathI = 0; b.pathTgt = null; b.repathAt = 0;
+      b.facing = { x: 1, y: 0 };
+      b.emit = () => {};
+      return b;
+    },
+  };
+
+  return { start, __test };
 })();
