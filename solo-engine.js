@@ -593,7 +593,14 @@ const ABILITIES = {
     // mid-dash can't leave the charge running forever. Survivors she ploughs
     // through take the hit but do NOT stop her; each one can only be hit once
     // per dash, or contact would deal damage every tick.
-    { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 12.0, speedMult: 1.8, hitDamage: 30, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
+    // Full speed from the first frame, and it runs until she hits something.
+    // A wall stops her with a stun; a survivor stops her too, but opens a
+    // `chainWindow` where the dash is free to use again. Every link in that
+    // chain hits `chainBonus` harder. Catching the SAME survivor twice in a row
+    // ends it and drops the ability onto its normal cooldown; catching someone
+    // new keeps the chain alive.
+    { id: "dash", name: "Dash", cd: 20, type: "dash_strike", duration: 12.0, speedMult: 1.8,
+      hitDamage: 30, chainBonus: 15, chainWindow: 4.0, hitSlowMult: 0.7, hitSlowDuration: 3.0 },
   ],
 };
 
@@ -916,7 +923,9 @@ function freshEffects() {
     duckUntil: 0,
     shieldUntil: 0,
     dashStrikeUntil: 0,
-    dashHits: [],                 // survivors already run down this dash
+    dashChainUntil: 0,            // free re-use window after a connecting dash
+    dashChainCount: 0,            // links so far, drives the damage ramp
+    dashLastTarget: null,         // same one twice in a row ends the chain
     dashHitDamage: 0,
     dashHitSlowMult: 1,
     dashHitSlowDuration: 0,
@@ -1153,6 +1162,43 @@ function onDashWallHit(id) {
   p.effects.speedMult  = 1;
   const left = applyStun(p, STUN);
   broadcast({ type: "stun", id: p.id, by: p.id, duration: left });
+}
+
+// One dash connecting with one survivor.
+function resolveDashHit(k, s, now) {
+  const list = ABILITIES[k.killerChar] || [];
+  const slot = list.findIndex(a => a.type === "dash_strike");
+  const ab = slot >= 0 ? list[slot] : {};
+  const chained = now < (k.effects.dashChainUntil || 0);
+  const sameTarget = chained && k.effects.dashLastTarget === s.id;
+  const links = k.effects.dashChainCount || 0;
+
+  // Damage climbs with every link, including the one that ends the chain.
+  const dmg = (ab.hitDamage || 30) + links * (ab.chainBonus || 15);
+  applyDamage(s, dmg, k);
+  s.effects.slowMult = Math.min(s.effects.slowMult || 1, ab.hitSlowMult || 0.7);
+  s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, now + (ab.hitSlowDuration || 3) * 1000);
+
+  // Contact always stops her.
+  k.effects.dashStrikeUntil = 0;
+  k.effects.speedUntil = 0;
+  k.effects.speedMult = 1;
+
+  if (sameTarget) {
+    // Ran the same survivor down twice — the chain is spent and the normal
+    // cooldown (set when she cast) stands.
+    k.effects.dashChainUntil = 0;
+    k.effects.dashChainCount = 0;
+    k.effects.dashLastTarget = null;
+  } else {
+    k.effects.dashChainCount = links + 1;
+    k.effects.dashLastTarget = s.id;
+    k.effects.dashChainUntil = now + (ab.chainWindow || 4) * 1000;
+    if (slot >= 0) k.cooldowns[slot] = 0;        // free to go again
+  }
+  broadcast({ type: "dash_hit", id: s.id, by: k.id, x: s.x, y: s.y, damage: dmg,
+              chain: sameTarget ? 0 : k.effects.dashChainCount,
+              window: sameTarget ? 0 : (ab.chainWindow || 4), slot });
 }
 
 // Lunar pressed the button again to pull out of the charge. No stun — this is
@@ -1399,10 +1445,15 @@ function applyAbility(p, ab, slot, msg) {
       broadcast({ type: "ability", id: p.id, slot, abilityId: ab.id, abilityType: ab.type, duration: ab.duration });
       break;
     case "dash_strike":
+      // A cast outside the window starts a fresh chain; inside it, the run
+      // continues and the damage ramp carries over.
+      if (now >= (p.effects.dashChainUntil || 0)) {
+        p.effects.dashChainCount = 0;
+        p.effects.dashLastTarget = null;
+      }
       p.effects.speedMult = ab.speedMult;
       p.effects.speedUntil = now + ab.duration * 1000;
       p.effects.dashStrikeUntil = now + ab.duration * 1000;
-      p.effects.dashHits = [];              // fresh set of victims per charge
       p.effects.dashHitDamage = ab.hitDamage;
       p.effects.dashHitSlowMult = ab.hitSlowMult;
       p.effects.dashHitSlowDuration = ab.hitSlowDuration;
@@ -2098,23 +2149,16 @@ function tick() {
     for (const h of projHits) applyDamage(h.s, h.dmg, h.att);
     if (broken.length > 0) broadcast({ type: "projectile_break", projectiles: broken });
 
-    // Lunar dash collision: any survivor she ploughs through takes hitDamage
-    // and a slow. She does NOT stop — the charge only ends on a wall or on the
-    // button. Each survivor can be hit once per dash; without that, standing in
-    // contact would deal damage on every tick.
+    // Lunar dash collision. Connecting stops her dead and starts (or extends)
+    // the chain — see the ability definition for the rules.
     for (const k of state.players.values()) {
       if (k.role !== "killer" || !k.alive) continue;
       if (!k.effects.dashStrikeUntil || now >= k.effects.dashStrikeUntil) continue;
       for (const s of state.players.values()) {
         if (s.role !== "survivor" || !s.alive) continue;
-        if (k.effects.dashHits.includes(s.id)) continue;      // already ran this one down
-        if (Math.hypot(s.x - k.x, s.y - k.y) < 30) {
-          k.effects.dashHits.push(s.id);
-          applyDamage(s, k.effects.dashHitDamage || 30, k);
-          s.effects.slowMult = Math.min(s.effects.slowMult || 1, k.effects.dashHitSlowMult || 0.7);
-          s.effects.slowUntil = Math.max(s.effects.slowUntil || 0, now + (k.effects.dashHitSlowDuration || 3) * 1000);
-          broadcast({ type: "dash_hit", id: s.id, by: k.id, x: s.x, y: s.y });
-        }
+        if (Math.hypot(s.x - k.x, s.y - k.y) >= 30) continue;
+        resolveDashHit(k, s, now);
+        break;                                   // she stops on the first one
       }
     }
 

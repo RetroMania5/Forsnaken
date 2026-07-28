@@ -886,7 +886,8 @@
       <div class="gd-ab"><b>Z — Punch</b>: 11 dmg melee, 80 px reach. CD 1.0s.</div>
       <div class="gd-ab"><b>X — Build Portal</b>: 4s rooted summoning channel, then drops a portal where you stand. <b>Max 3 active</b> — building a 4th evicts the oldest. CD 15s.</div>
       <div class="gd-ab"><b>C — Teleport</b>: opens a bar at the top of the screen with your portals, each color-coded by the nearest survivor's distance — <span style="color:#7af090">green</span> = far, <span style="color:#ffd060">yellow</span> = nearby, <span style="color:#ff8090">red</span> = right on top of it. Click a portal → 0.5s rooted channel, then warp to it. CD 20s, only spent on commit. Click <b>Back</b> on the bar to cancel without spending the CD.</div>
-      <div class="gd-ab"><b>V — Dash</b>: charge off in the direction you're facing at <b>1.8× speed</b> and <b>keep going</b> — there's no timer. You only stop when you <b>press V again</b> (free, no stun) or <b>slam into a wall</b> (<b>2s self-stun</b>). You can <b>lean the charge slightly</b> with your movement keys, but not steer properly. Survivors you plough through take <b>30 damage</b> and are slowed to <b>0.7× for 3s</b> — and you <b>keep going</b>, hitting each of them once per charge. CD 20s.</div>
+      <div class="gd-ab"><b>V — Dash</b>: charge off at <b>full 1.8× speed instantly</b> in the direction you're facing, and keep going — there's no timer. You can <b>lean the charge slightly</b> with your movement keys, but not steer properly. You stop when you <b>press V again</b> (free), <b>hit a wall</b> (<b>2s self-stun</b>) or <b>hit a survivor</b>.<br>
+      <b>Chaining:</b> connecting deals <b>30 damage</b> + a <b>0.7× slow for 3s</b>, stops you, and gives a <b>4s window where Dash is free to use again</b>. Every link hits <b>15 harder</b> (30 → 45 → 60…). Catch a <b>different</b> survivor and the window refreshes; catch the <b>same one twice in a row</b> and the chain ends on the normal <b>20s cooldown</b>.</div>
       <div class="gd-ab"><b>Portal alert</b>: whenever a survivor is standing on one of your portals, an orange arrow appears above you pointing toward it (with the distance).</div>
     </div>
     <div class="gd-card">
@@ -2871,6 +2872,8 @@ function onMessage(msg) {
       G.balloonPops = [];
       G.blindUntil = 0;
       G.arrowsUntil = 0;
+      G.dashChainUntil = 0;
+      G.dashChainCount = 0;
       Music.blindGain = 1;
       G.standees = [];
       G.puppets = [];
@@ -3153,8 +3156,26 @@ function onMessage(msg) {
       break;
     }
     case "dash_hit": {
-      // A survivor was run down. The charge is NOT spent — she ploughs on
-      // through, so nothing local is cleared here.
+      // Contact stops her. If it opened a chain window, the ability comes back
+      // off cooldown immediately so she can line up the next one.
+      if (msg.by === G.myId) {
+        const me = G.players.get(G.myId);
+        if (me) {
+          me._localSpeedUntil = 0;
+          me._localDashUntil = 0;
+          me._dashDir = null;
+          me._dashWallHitSent = false;
+        }
+        if (msg.window > 0) {
+          G.dashChainUntil = performance.now() + msg.window * 1000;
+          G.dashChainCount = msg.chain || 0;
+          if (msg.slot >= 0) G.cooldowns[msg.slot] = 0;
+          showCoinToast(`Chain x${msg.chain} — dash again!`);
+        } else {
+          G.dashChainUntil = 0;
+          G.dashChainCount = 0;
+        }
+      }
       break;
     }
     case "dash_end": {
@@ -9165,6 +9186,10 @@ function updateAbilitySlots(me) {
     if (ab.type === "shoot_sniper" && G.aiming) label = "Fire";
     if (ab.type === "reload_sniper" && G.aiming) label = "Cancel";
     if (ab.type === "megaphone" && G.aiming) label = "Blast";
+    // Lunar's chain: while the free window is open, say so on the button.
+    if (ab.type === "dash_strike" && now < (G.dashChainUntil || 0)) {
+      label = "Chain x" + (G.dashChainCount || 1);
+    }
     // Jest: show what's loaded, and roll the four names on a reveal.
     if (ab.type === "get_balloon" || ab.type === "place_balloon") {
       const rolling = now < (G.balloonRoll || 0);
