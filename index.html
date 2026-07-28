@@ -625,6 +625,39 @@
     margin-left: 6px;
   }
   .portal-back:hover { background: rgba(120,120,140,0.7); }
+/* ── Flower balloon blind ──────────────────────────────────────────────
+   The flower flies up from below and scales until it covers everything;
+   the backdrop fills in behind it so nothing shows through the petals.
+   Sits above the canvas and HUD but below the menus, and never eats
+   clicks — you are blinded, not locked out. */
+#blind {
+  position: fixed; inset: 0; z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+  background: #f7b8d4;
+  animation: blindIn 900ms ease-out both;
+}
+#blind.hidden { display: none; }
+.blind-flower {
+  position: absolute; left: 50%; top: 50%;
+  font-size: 40vmin; line-height: 1;
+  transform-origin: 50% 50%;
+  animation: blindFlower 1000ms cubic-bezier(.2,.75,.3,1) both;
+  filter: drop-shadow(0 0 40px rgba(255,255,255,.6));
+}
+@keyframes blindIn {
+  0%   { background: rgba(247,184,212,0); }
+  70%  { background: rgba(247,184,212,.85); }
+  100% { background: rgba(247,184,212,1); }
+}
+@keyframes blindFlower {
+  0%   { transform: translate(-50%, 120%) scale(.25) rotate(-40deg); }
+  70%  { transform: translate(-50%, -50%) scale(3.4) rotate(8deg); }
+  100% { transform: translate(-50%, -50%) scale(4.2) rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #blind, .blind-flower { animation-duration: 1ms; }
+}
 </style>
 </head>
 <body>
@@ -673,6 +706,9 @@
   </div>
   <button id="action-btn"><span id="action-label">—</span><div class="cd hidden" id="action-cd">0</div></button>
 </div>
+
+<!-- Jest's flower balloon: rises from below to swallow the whole screen. -->
+<div id="blind" class="hidden" aria-hidden="true"><div class="blind-flower">🌸</div></div>
 
 <div id="menu" class="overlay">
   <div class="panel">
@@ -863,9 +899,9 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#d24a8c"></span><b>Jest</b><span class="gd-muted">puppets &amp; balloon traps</span></div>
       <div class="gd-ab"><b>Attack — Jab</b>: <b>16 damage</b>, 80px reach. Middling on purpose — his pressure comes from what he leaves lying around.</div>
-      <div class="gd-ab"><b>Z — Puppet</b>: drops <b>one of two puppets at random</b>. They sit still until a survivor comes within ~320px, then <b>chase</b>. <b>Wife</b> is fast and hits for 14; <b>Friend</b> is slow and hits for 30. Up to <b>3 out at once</b>, and a puppet is <b>used up once it catches someone</b>. They can't see a sneaking survivor. CD 20s.</div>
+      <div class="gd-ab"><b>Z — Puppet</b>: drops <b>one of two puppets at random</b>. They sit still until a survivor comes within ~320px, then <b>chase</b>. <b>Wife</b> hits for 18 and is <b>slightly faster than a sprinting survivor</b> — you have to break away from her, not outrun her; <b>Friend</b> hits for 36 and is <b>slightly faster than a walk</b>, so sprinting still shakes him. Up to <b>3 out at once</b>, and a puppet is <b>used up once it catches someone</b>. They can't see a sneaking survivor. CD 20s.</div>
       <div class="gd-ab"><b>X — Get Balloon</b>: rolls <b>one of four balloons</b> into your slot. Only while the slot is <b>empty</b>. CD 30s.</div>
-      <div class="gd-ab"><b>C — Place</b>: drops the balloon you're holding and empties the slot. It <b>pops on the first survivor to step on it</b>: <b>Sword</b> — you hit <b>1.6× for 15s</b>; <b>Flower</b> — slows them to <b>0.55× for 5s</b>; <b>Pot</b> — <b>15 damage</b>; <b>Dog</b> — you move <b>1.35× for 5s</b>.</div>
+      <div class="gd-ab"><b>C — Place</b>: drops the balloon you're holding and empties the slot. Balloons sit at <b>10% opacity</b> — nearly invisible. Each <b>pops on the first survivor to step on it</b>: <b>Sword</b> — your hits deal <b>half a survivor's health for 8s</b>; <b>Flower</b> — <b>blinds and deafens</b> them for <b>8s</b>; <b>Bomb</b> — <b>1/6 health + a 4s stun</b>; <b>Dog</b> — you move <b>2× and see an arrow to every survivor for 10s</b>.</div>
     </div>
 
     <div class="gd-h">TIPS</div>
@@ -2827,6 +2863,12 @@ function onMessage(msg) {
       G.robotBreaks = [];
       G.traps = [];
       G.trapBreaks = [];
+      // Jest's balloon leftovers — a blind or arrow buff must not survive
+      // into the next round.
+      G.balloonPops = [];
+      G.blindUntil = 0;
+      G.arrowsUntil = 0;
+      Music.blindGain = 1;
       G.standees = [];
       G.puppets = [];
       G.balloons = [];
@@ -3148,9 +3190,24 @@ function onMessage(msg) {
       G.balloons = G.balloons || [];
       G.balloons.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, o: msg.ownerId });
       break;
-    case "balloon_pop":
+    case "balloon_pop": {
       G.balloons = (G.balloons || []).filter(b => b.id !== msg.id);
+      const isBomb = msg.kind === "bomb";
+      G.balloonPops = G.balloonPops || [];
+      G.balloonPops.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind,
+                           until: performance.now() + (isBomb ? 520 : 320) });
+      playPop();
+      if (isBomb) playBoom();
+      const secs = msg.duration || 0;
+      // The flower blinds whoever stepped on it; the dog hands its owner
+      // wallhack arrows. Both are local sensory effects, so each client only
+      // acts on the one aimed at them.
+      if (msg.kind === "flower" && msg.on === G.myId && secs > 0) startBlind(secs);
+      if (msg.kind === "dog" && msg.by === G.myId && secs > 0) {
+        G.arrowsUntil = performance.now() + secs * 1000;
+      }
       break;
+    }
     case "standee_place":
       G.standees = G.standees || [];
       if (!G.standees.some(s => s.id === msg.id)) G.standees.push({ id: msg.id, x: msg.x, y: msg.y, ownerId: msg.ownerId });
@@ -4778,6 +4835,58 @@ loadSettings();
 const SFX = {
   meow: null,
 };
+// Short one-shots synthesised on the fly — a balloon pop and the bomb's thump
+// don't need asset files, and generating them keeps the bundle unchanged.
+let _sfxCtx = null;
+function sfxCtx() {
+  if (_sfxCtx) return _sfxCtx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try { _sfxCtx = new AC(); } catch { return null; }
+  return _sfxCtx;
+}
+// Muted while the flower balloon has you blinded.
+function sfxAllowed() { return !(G.blindUntil && performance.now() < G.blindUntil); }
+function playPop() {
+  const ac = sfxCtx();
+  if (!ac || !sfxAllowed()) return;
+  try {
+    if (ac.state === "suspended") ac.resume();
+    const t = ac.currentTime;
+    // Rubber snap: a fast downward blip with a click of noise on the front.
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.exponentialRampToValueAtTime(180, t + 0.07);
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t); o.stop(t + 0.1);
+  } catch { /* audio is a nicety, never fatal */ }
+}
+function playBoom() {
+  const ac = sfxCtx();
+  if (!ac || !sfxAllowed()) return;
+  try {
+    if (ac.state === "suspended") ac.resume();
+    const t = ac.currentTime;
+    // Noise burst through a falling low-pass = a small, dull explosion.
+    const len = Math.floor(ac.sampleRate * 0.45);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(1400, t);
+    lp.frequency.exponentialRampToValueAtTime(120, t + 0.4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    src.connect(lp); lp.connect(g); g.connect(ac.destination);
+    src.start(t);
+  } catch { /* ditto */ }
+}
 function loadSFX() {
   SFX.meow = new Audio("sounds/Meow.wav");
   SFX.meow.preload = "auto";
@@ -4997,7 +5106,7 @@ function startLobbyMusic() {
     Music.lobby.volume = 0;
     Music.lobby.preload = "auto";
   }
-  Music.lobby.volume = Math.max(0, Math.min(1, Music.master));
+  Music.lobby.volume = Math.max(0, Math.min(1, musicGain()));
   const p = Music.lobby.play();
   if (p && p.catch) p.catch(() => {});
   Music.mode = "lobby";
@@ -5025,8 +5134,42 @@ function enterLMSMode() {
     if (p && p.catch) p.catch(() => {});
   }
 }
+// Everything audible is scaled by this, so the flower balloon can choke the
+// whole mix without disturbing the player's own volume setting.
+function musicGain() { return Music.master * (Music.blindGain == null ? 1 : Music.blindGain); }
+// ---- Flower balloon: blinded and deafened ------------------------------
+// Local and sensory only — the server tells us it happened, we do the rest.
+function startBlind(secs) {
+  const now = performance.now();
+  G.blindUntil = now + secs * 1000;
+  G.blindFrom = now;
+  const el = $("blind");
+  if (!el) return;
+  el.classList.remove("hidden");
+  // Restart the animations even if a second flower lands mid-effect.
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+}
+// Audio doesn't cut out — it sinks. Over the first second the mix drops away
+// and pitches down together, so it slurs into nothing rather than snapping off.
+function updateBlind() {
+  const now = performance.now();
+  const active = !!(G.blindUntil && now < G.blindUntil);
+  const t = active ? Math.min(1, (now - (G.blindFrom || now)) / 1000) : 0;
+  Music.blindGain = active ? Math.max(0, 1 - t) : 1;
+  const rate = active ? Math.max(0.5, 1 - t * 0.5) : 1;
+  for (const a of [Music.base, ...Music.tier, Music.lms, Music.lobby]) {
+    if (!a) continue;
+    try { if (a.playbackRate !== rate) a.playbackRate = rate; } catch { /* not seekable yet */ }
+  }
+  const el = $("blind");
+  if (el) {
+    const hidden = el.classList.contains("hidden");
+    if (active && hidden) el.classList.remove("hidden");
+    else if (!active && !hidden) el.classList.add("hidden");
+  }
+}
 function setMusicVols(baseV, tierV) {
-  const m = Music.master;
+  const m = musicGain();
   if (Music.base) Music.base.volume = Math.max(0, Math.min(1, baseV * m));
   for (let i = 0; i < 4; i++) {
     if (Music.tier[i]) Music.tier[i].volume = Math.max(0, Math.min(1, tierV[i] * m));
@@ -5035,7 +5178,7 @@ function setMusicVols(baseV, tierV) {
 function updateMusic() {
   // Lobby mode: only the lobby track plays.
   if (Music.mode === "lobby") {
-    if (Music.lobby) Music.lobby.volume = Math.max(0, Math.min(1, Music.master));
+    if (Music.lobby) Music.lobby.volume = Math.max(0, Math.min(1, musicGain()));
     setMusicVols(0, [0, 0, 0, 0]);
     if (Music.lms) Music.lms.volume = 0;
     return;
@@ -5045,7 +5188,7 @@ function updateMusic() {
   // LMS mode: only the killer's lms track is audible.
   if (Music.mode === "lms") {
     setMusicVols(0, [0, 0, 0, 0]);
-    if (Music.lms) Music.lms.volume = Math.max(0, Math.min(1, Music.master));
+    if (Music.lms) Music.lms.volume = Math.max(0, Math.min(1, musicGain()));
     return;
   }
   // Round mode below — keep lms silent and run the regular crossfade.
@@ -5828,6 +5971,7 @@ function gameTick(now) {
   lastTime = now;
   padPoll();                      // single poll point; everything else reads the snapshot
   if (padListenFor) padCaptureBinding();
+  updateBlind();                  // flower balloon: screen cover + audio sinking away
   pollKeyShots();
 
   if (G.phase === "playing") {
@@ -6759,6 +6903,8 @@ function render() {
   drawSmokes();
   // Scan arrow (in world space above the local player)
   drawScanArrow();
+  // Jest's dog balloon: an arrow per living survivor, for the killer only.
+  drawSurvivorArrows();
   // Lunar: arrows pointing at any portal currently being stepped on.
   drawPortalStepArrows();
   // Sniper aim reticle (in world space, only while local sniper is aiming)
@@ -7119,7 +7265,10 @@ function drawPuppets() {
     }
   }
 }
-const BALLOON_TINT = { sword: "#c8d0e0", flower: "#ff8ec0", pot: "#c07040", dog: "#ffd05a" };
+const BALLOON_TINT = { sword: "#c8d0e0", flower: "#ff8ec0", bomb: "#4a4a52", dog: "#ffd05a" };
+// Placed balloons sit at 10% opacity — nearly invisible, so they read as traps
+// you stumble into rather than obstacles you steer around.
+const BALLOON_ALPHA = 0.1;
 // Placed balloons. They bob gently; the string anchors them to the floor.
 function drawBalloons() {
   const now = performance.now();
@@ -7127,6 +7276,8 @@ function drawBalloons() {
     const sx = Math.round(b.x), sy = Math.round(b.y);
     const bob = Math.sin(now * 0.004 + b.id) * 2.5;
     const art = itemArtCanvas("balloon", b.kind, b.o);
+    ctx.save();
+    ctx.globalAlpha = BALLOON_ALPHA;
     ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 12 + bob); ctx.stroke();
     if (art) {
@@ -7138,6 +7289,43 @@ function drawBalloons() {
       ctx.beginPath(); ctx.ellipse(sx, sy - 22 + bob, 9, 11, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = "rgba(255,255,255,0.5)";
       ctx.beginPath(); ctx.ellipse(sx - 3, sy - 26 + bob, 2.5, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // Pop / explosion VFX, drawn at full opacity — the balloon is invisible,
+  // the moment it goes off is not.
+  G.balloonPops = (G.balloonPops || []).filter(p => now < p.until);
+  for (const p of G.balloonPops) {
+    const life = p.until - now;
+    if (p.kind === "bomb") {
+      // Small fireball: a bright core fading out through orange into smoke.
+      const t = 1 - life / 520;
+      const r = 6 + t * 34;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      g.addColorStop(0, "#fff6d0");
+      g.addColorStop(0.45, "#ff9a3c");
+      g.addColorStop(1, "rgba(60,40,40,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else {
+      // Balloon burst: a quick expanding ring plus a few rubber shreds.
+      const t = 1 - life / 320;
+      const r = 5 + t * 22;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      ctx.strokeStyle = BALLOON_TINT[p.kind] || "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = BALLOON_TINT[p.kind] || "#ffffff";
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + p.id;
+        ctx.fillRect(Math.round(p.x + Math.cos(a) * r) - 1,
+                     Math.round(p.y + Math.sin(a) * r) - 1, 3, 3);
+      }
+      ctx.restore();
     }
   }
 }
@@ -8666,6 +8854,53 @@ function drawPlayer(p) {
   }
 }
 
+// Dog balloon: for its duration the killer gets an arrow per living survivor,
+// ringed around them and labelled with the distance. Drawn in world space
+// alongside the other arrow cues so it inherits the camera.
+function drawSurvivorArrows() {
+  const now = performance.now();
+  if (now >= (G.arrowsUntil || 0)) return;
+  const me = G.players.get(G.myId);
+  if (!me || !me.alive || me.role !== "killer") return;
+  const left = (G.arrowsUntil - now) / 1000;
+  const fade = Math.min(1, left);          // ease out over the last second
+  for (const p of G.players.values()) {
+    if (p.role !== "survivor" || !p.alive) continue;
+    const dx = p.x - me.x, dy = p.y - me.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 40) continue;               // standing on top of them, no arrow needed
+    const ang = Math.atan2(dy, dx);
+    const R = 62;                          // ring radius around the killer
+    const ax = me.x + Math.cos(ang) * R, ay = me.y + Math.sin(ang) * R;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(ang);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = p.color || "#ffd05a";
+    ctx.strokeStyle = "rgba(0,0,0,0.75)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(20, 0);
+    ctx.lineTo(2, -9);
+    ctx.lineTo(7, 0);
+    ctx.lineTo(2, 9);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.lineWidth = 3;
+    ctx.font = "bold 10px system-ui";
+    ctx.textAlign = "center";
+    const lx = me.x + Math.cos(ang) * (R + 16), ly = me.y + Math.sin(ang) * (R + 16) + 3;
+    ctx.strokeText(String(Math.round(dist)), lx, ly);
+    ctx.fillText(String(Math.round(dist)), lx, ly);
+    ctx.restore();
+  }
+}
+
 function drawSkillDial(W, H) {
   const me = G.players.get(G.myId);
   if (!me || !me.alive || me.role !== "survivor") return;
@@ -8881,7 +9116,7 @@ function updateAbilitySlots(me) {
     // Jest: show what's loaded, and roll the four names on a reveal.
     if (ab.type === "get_balloon" || ab.type === "place_balloon") {
       const rolling = now < (G.balloonRoll || 0);
-      const kinds = ["Sword", "Flower", "Pot", "Dog"];
+      const kinds = ["Sword", "Flower", "Bomb", "Dog"];
       if (ab.type === "place_balloon") {
         label = rolling ? kinds[Math.floor(now / 90) % 4]
               : (G.balloonSlot ? "Place " + G.balloonSlot[0].toUpperCase() + G.balloonSlot.slice(1) : "Place");

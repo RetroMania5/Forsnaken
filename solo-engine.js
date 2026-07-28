@@ -544,24 +544,34 @@ const ABILITIES = {
     // Puppet: drops one of two puppets at random. They sit still until a
     // survivor comes within aggroRadius, then chase; catching one deals damage
     // and consumes the puppet. Cap of maxPuppets placed at once.
+    // Puppet speeds are set against the player's own: survivors walk at 200 and
+    // sprint at 270 (BASE_SURV_SPEED * SPRINT_MULT on the client). Wife edges
+    // out a sprint, Friend edges out a walk — so you can only shake Friend by
+    // running, and Wife has to be broken away from rather than outrun.
     { id: "puppet", name: "Puppet", cd: 20, type: "spawn_puppet", maxPuppets: 3,
       aggroRadius: 320, hitRadius: 26, ttl: 90,
       kinds: {
-        wife:   { speed: 165, damage: 14 },    // fast, light
-        friend: { speed: 95,  damage: 30 },    // slow, heavy
+        wife:   { speed: 285, damage: 18 },    // fast, light — just above a sprint
+        friend: { speed: 215, damage: 36 },    // slow, heavy — just above a walk
       } },
     // Get Balloon: rolls one of four at random into Jest's slot. Only while the
     // slot is empty; the client plays the slot-machine reveal.
     { id: "balloon", name: "Get Balloon", cd: 30, type: "get_balloon",
-      kinds: ["sword", "flower", "pot", "dog"] },
+      kinds: ["sword", "flower", "bomb", "dog"] },
     // Place: drops whatever is in the slot and empties it. A balloon pops the
-    // moment a survivor steps on it.
+    // moment a survivor steps on it. Damage is written as a FRACTION of a
+    // survivor's health so the numbers stay true if SURVIVOR_HP_MAX moves.
     { id: "place", name: "Place", cd: 2, type: "place_balloon", stepRadius: 34,
       effects: {
-        sword:  { killerAttackMult: 1.6, duration: 15 },   // Jest hits harder
-        flower: { slowMult: 0.55, duration: 5 },           // survivor slowed
-        pot:    { damage: 15 },
-        dog:    { killerSpeedMult: 1.35, duration: 5 },    // Jest speeds up
+        // Jest's next hits take half a survivor's health outright.
+        sword:  { killerAttackFrac: 0.5, duration: 8 },
+        // Blinds the survivor who stepped on it and kills their audio. Purely
+        // client-side sensory — the server just says who and for how long.
+        flower: { blind: true, duration: 8 },
+        // A sixth of their health, plus a stun to sit in.
+        bomb:   { damageFrac: 1 / 6, stun: 4 },
+        // Jest doubles his pace and sees every survivor through walls.
+        dog:    { killerSpeedMult: 2.0, revealArrows: true, duration: 10 },
       } },
   ],
   lunar: [
@@ -890,7 +900,10 @@ function freshEffects() {
     speedMult: 1, speedUntil: 0,
     healUntil: 0, healRate: 0,
     stalkUntil: 0,
-    atkMult: 1, atkUntil: 0,      // timed damage multiplier (Jest's sword balloon)
+    atkMult: 1, atkUntil: 0,      // timed damage multiplier
+    atkFlat: 0,                   // timed FLAT damage override (Jest's sword balloon)
+    arrowsUntil: 0,               // killer sees survivor arrows (Jest's dog balloon)
+    blindUntil: 0,                // screen blacked out + audio killed (flower balloon)
     revealedUntil: 0,
     slowMult: 1, slowUntil: 0,
     sneakUntil: 0,
@@ -1037,7 +1050,12 @@ function onAttack(id) {
     }
     // Timed buff (sword balloon) — unlike Stalk this lasts its duration
     // instead of being spent on the first hit.
-    if (now < (a.effects.atkUntil || 0)) dmg *= (a.effects.atkMult || 1);
+    // A flat override (sword balloon) replaces the hit entirely; a multiplier
+    // still scales it. Only one is ever set at a time.
+    if (now < (a.effects.atkUntil || 0)) {
+      if (a.effects.atkFlat) dmg = a.effects.atkFlat;
+      else dmg *= (a.effects.atkMult || 1);
+    }
     applyDamage(best, dmg, a);
   }
   // Killer's basic attack also shatters any slow field whose center
@@ -2170,22 +2188,40 @@ function tick() {
         if (Math.hypot(sv.x - b.x, sv.y - b.y) > b.r) continue;
         const owner = state.players.get(b.ownerId) || null;
         const eff = (ABILITIES.jest.find(a => a.type === "place_balloon").effects || {})[b.kind] || {};
-        if (eff.damage) applyDamage(sv, eff.damage, owner);
+        // Damage first — a stun on a downed survivor is meaningless.
+        if (eff.damageFrac) applyDamage(sv, Math.round(SURVIVOR_HP_MAX * eff.damageFrac), owner);
+        else if (eff.damage) applyDamage(sv, eff.damage, owner);
+        if (eff.stun && sv.alive) {
+          const left = applyStun(sv, eff.stun);
+          broadcast({ type: "stun", id: sv.id, by: b.ownerId, duration: left });
+        }
         if (eff.slowMult) {
           sv.effects.slowMult = Math.min(sv.effects.slowMult || 1, eff.slowMult);
           sv.effects.slowUntil = Math.max(sv.effects.slowUntil || 0, now + eff.duration * 1000);
         }
+        if (eff.blind) sv.effects.blindUntil = now + eff.duration * 1000;
         if (owner && owner.alive) {
-          if (eff.killerAttackMult) {
+          // The two are mutually exclusive — clear the other so a stale value
+          // can't shadow whichever one is being set now.
+          if (eff.killerAttackFrac) {
+            owner.effects.atkFlat = Math.round(SURVIVOR_HP_MAX * eff.killerAttackFrac);
+            owner.effects.atkMult = 1;
+            owner.effects.atkUntil = now + eff.duration * 1000;
+          } else if (eff.killerAttackMult) {
             owner.effects.atkMult = eff.killerAttackMult;
+            owner.effects.atkFlat = 0;
             owner.effects.atkUntil = now + eff.duration * 1000;
           }
           if (eff.killerSpeedMult) {
             owner.effects.speedMult = eff.killerSpeedMult;
             owner.effects.speedUntil = now + eff.duration * 1000;
           }
+          if (eff.revealArrows) owner.effects.arrowsUntil = now + eff.duration * 1000;
         }
-        broadcast({ type: "balloon_pop", id: b.id, x: b.x, y: b.y, kind: b.kind, on: sv.id });
+        // `by` lets the owner's client know the buff landed on them, and
+        // `duration` drives the client-side blind / arrow overlays.
+        broadcast({ type: "balloon_pop", id: b.id, x: b.x, y: b.y, kind: b.kind,
+                    on: sv.id, by: b.ownerId, duration: eff.duration || 0 });
         return false;
       }
       return true;
