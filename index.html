@@ -3137,14 +3137,16 @@ function onMessage(msg) {
       break;
     case "puppet_place":
       G.puppets = G.puppets || [];
-      G.puppets.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, ownerId: msg.ownerId });
+      // `o`, not `ownerId` — the state snapshot uses that name, and this entry
+      // is replaced by one within a tick.
+      G.puppets.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, o: msg.ownerId });
       break;
     case "puppet_break":
       G.puppets = (G.puppets || []).filter(q => q.id !== msg.id);
       break;
     case "balloon_place":
       G.balloons = G.balloons || [];
-      G.balloons.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, ownerId: msg.ownerId });
+      G.balloons.push({ id: msg.id, x: msg.x, y: msg.y, kind: msg.kind, o: msg.ownerId });
       break;
     case "balloon_pop":
       G.balloons = (G.balloons || []).filter(b => b.id !== msg.id);
@@ -7089,7 +7091,7 @@ function drawPuppets() {
   const now = performance.now();
   for (const q of (G.puppets || [])) {
     const sx = Math.round(q.x), sy = Math.round(q.y);
-    const art = itemArtCanvas("puppet", q.kind, q.ownerId);
+    const art = itemArtCanvas("puppet", q.kind, q.o);
     ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(sx - 9, sy + 6, 18, 3);
     if (art) {
       const w = art._dw || art.width, h = art._dh || art.height;
@@ -7124,7 +7126,7 @@ function drawBalloons() {
   for (const b of (G.balloons || [])) {
     const sx = Math.round(b.x), sy = Math.round(b.y);
     const bob = Math.sin(now * 0.004 + b.id) * 2.5;
-    const art = itemArtCanvas("balloon", b.kind, b.ownerId);
+    const art = itemArtCanvas("balloon", b.kind, b.o);
     ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 12 + bob); ctx.stroke();
     if (art) {
@@ -9063,7 +9065,10 @@ function bakeNative(img, dw, dh) {
 // Resolve an item's baked art — an owner's equipped skin can re-skin its items.
 function itemArtCanvas(id, slot, ownerId) {
   if (ownerId != null) {
-    const owner = G.players.get(ownerId), sk = owner && owner.skin;
+    // skinIdOf, not owner.skin: our own broadcast copy can lag a phase behind
+    // what we have equipped, which would show us the default art on our own
+    // items while everyone else sees the costume.
+    const owner = G.players.get(ownerId), sk = skinIdOf(owner);
     const c = sk && SKIN_ITEM_ART[sk] && SKIN_ITEM_ART[sk][id] && SKIN_ITEM_ART[sk][id][slot];
     if (c) return c;
   }

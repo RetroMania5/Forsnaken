@@ -2446,8 +2446,12 @@ function tick() {
         clovers: state.clovers.map(cv => ({ id: cv.id, x: Math.round(cv.x), y: Math.round(cv.y), o: cv.ownerId, t: +cv.ttl.toFixed(2) })),
         stations: state.stations.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId, kind: st.kind, radius: st.radius })),
         standees: state.standees.map(st => ({ id: st.id, x: st.x, y: st.y, ownerId: st.ownerId })),
-        puppets: state.puppets.map(q => ({ id: q.id, x: Math.round(q.x), y: Math.round(q.y), kind: q.kind, ch: q.chasing ? 1 : 0 })),
-        balloons: state.balloons.map(b => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y), kind: b.kind })),
+        // `o` (owner) matters as much as `kind` here: the client needs both to
+        // pick the right item costume off Jest's equipped skin. Without it the
+        // snapshot overwrites the owner the place event carried, and the skinned
+        // art reverts to the procedural fallback a frame after it appears.
+        puppets: state.puppets.map(q => ({ id: q.id, x: Math.round(q.x), y: Math.round(q.y), kind: q.kind, o: q.ownerId, ch: q.chasing ? 1 : 0 })),
+        balloons: state.balloons.map(b => ({ id: b.id, x: Math.round(b.x), y: Math.round(b.y), kind: b.kind, o: b.ownerId })),
         coins: state.coins.map(c => ({ id: c.id, x: c.x, y: c.y })),
       });
     }
