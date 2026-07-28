@@ -5009,8 +5009,12 @@ function resolveLmsDuo(lastSurvivor, killer) {
 // Killer-CHARACTER x survivor-CHARACTER pairings, for matchups that deserve
 // their own theme regardless of what either side is wearing. A skin-level
 // lmsDuo is more specific and wins over this; both beat the plain track.
+// Because this sits ABOVE the per-skin `lastman` lookup, the pairing survives
+// whatever either side is wearing — a skinned Pollen against a skinned Slasher
+// still gets this track, even if one of those skins carries its own LMS theme.
 const LMS_CHAR_DUO = {
-  jest: { whamo: "music/jest_whamo_lms.m4a" },
+  jest:    { whamo:  "music/jest_whamo_lms.m4a" },
+  slasher: { pollen: "music/slasher_pollen_lms.mp3" },
 };
 function resolveLmsTrack(killerChar) {
   const players = [...G.players.values()];
