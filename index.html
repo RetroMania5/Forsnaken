@@ -704,6 +704,19 @@
     <div class="section">KEY BINDINGS</div>
     <div class="gd-line" style="margin-bottom:6px;">Click a key to rebind, then press a new key. <b>Esc</b> cancels.</div>
     <div id="bindings-list"></div>
+    <div class="section">CONTROLLER</div>
+    <div class="gd-line">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="controller-toggle">
+        <span>Controller play — steer with the left stick, aim with the right. The
+        keyboard keeps working at the same time.</span>
+      </label>
+    </div>
+    <div class="gd-line" id="controller-status">No controller detected.</div>
+    <div id="controller-body" class="hidden">
+      <div class="gd-line" style="margin-bottom:6px;">Click a button to rebind, then press one on the pad. <b>Esc</b> cancels.</div>
+      <div id="pad-bindings-list"></div>
+    </div>
     <div class="section">AUDIO</div>
     <div class="audio-row">
       <label for="music-vol">Music volume <span id="music-vol-val">55%</span></label>
@@ -734,6 +747,9 @@
     <div class="gd-line"><b>E</b> / tap FIX — attempt a skill check on a nearby generator (survivor)</div>
     <div class="gd-line"><b>Q</b> / tap ATK — basic attack (killer)</div>
     <div class="gd-line"><b>Z</b>, <b>X</b>, <b>C</b> / mobile ability buttons — fire your abilities (for killers <b>Z</b> is the main attack, <b>X</b> / <b>C</b> are the abilities)</div>
+    <div class="gd-line"><b>Controller</b> — turn it on in ⚙ Settings. Left stick (or d-pad) moves,
+      right stick aims, <b>A</b>/<b>X</b>/<b>Y</b>/<b>B</b> are the four slots, <b>RB</b> interacts and
+      <b>RT</b> sprints. Every button is rebindable, and the keyboard keeps working alongside it.</div>
 
     <div class="gd-h">VITALS</div>
     <div class="gd-line"><b>HP</b>: 100 for survivors. Down at 0. Killers can't be damaged.</div>
@@ -1383,6 +1399,8 @@ function inputVector() {
   let x = 0, y = 0;
   if (joystick.active) { x = joystick.x; y = joystick.y; }
   else {
+    const pad = padStick("move");
+    if (pad) return pad;
     if (keys["w"] || keys["arrowup"]) y -= 1;
     if (keys["s"] || keys["arrowdown"]) y += 1;
     if (keys["a"] || keys["arrowleft"]) x -= 1;
@@ -1401,6 +1419,8 @@ function aimVector() {
     if (m < 0.05) return null;
     return { x: joystick.x / m, y: joystick.y / m };
   }
+  const pad = padAimVector();
+  if (pad) return pad;
   let x = 0, y = 0;
   if (keys["w"] || keys["arrowup"]) y -= 1;
   if (keys["s"] || keys["arrowdown"]) y += 1;
@@ -1415,7 +1435,86 @@ function sprinting() {
     // Mobile: push the joystick far to sprint, light touch = walk.
     return Math.hypot(joystick.x, joystick.y) > 0.85;
   }
-  return !!keys[Settings.bindings.sprint];
+  return actionDown("sprint");
+}
+
+// ---------- Controller ----------
+// The Gamepad API has no events for button state, so the pad is polled once
+// per frame from gameTick and everything else reads this snapshot.
+const Pad = {
+  index: null,        // which navigator.getGamepads() slot we latched onto
+  connected: false,
+  id: "",
+  buttons: [],        // booleans, triggers already thresholded
+  prev: [],           // last frame, for edge detection
+  axes: [],
+};
+function padPoll() {
+  const list = navigator.getGamepads ? navigator.getGamepads() : null;
+  let gp = null;
+  if (list) {
+    // Stay on the pad we already picked; otherwise adopt the first live one.
+    if (Pad.index !== null && list[Pad.index] && list[Pad.index].connected) gp = list[Pad.index];
+    if (!gp) {
+      for (const g of list) {
+        if (g && g.connected) { gp = g; Pad.index = g.index; break; }
+      }
+    }
+  }
+  Pad.prev = Pad.buttons;
+  if (!gp) {
+    Pad.connected = false; Pad.id = ""; Pad.buttons = []; Pad.axes = [];
+    if (!list || !list.some(g => g && g.connected)) Pad.index = null;
+    return;
+  }
+  Pad.connected = true;
+  Pad.id = gp.id || "Controller";
+  // Buttons arrive as objects on every modern browser, but the spec allows a
+  // bare number; triggers report a 0..1 value rather than a clean press.
+  Pad.buttons = gp.buttons.map(b =>
+    typeof b === "object" ? (b.pressed || b.value > PAD_PRESS) : b > PAD_PRESS);
+  Pad.axes = gp.axes ? [...gp.axes] : [];
+}
+// Controller input only counts when it has been switched on AND a pad is there.
+function padActive() { return !!(Settings.controller.enabled && Pad.connected); }
+function padButtonDown(action) {
+  if (!padActive()) return false;
+  const b = Settings.controller.bindings[action];
+  return Number.isInteger(b) && !!Pad.buttons[b];
+}
+// True only on the frame a button goes down — used by the rebinding UI.
+function padButtonPressed(i) { return !!Pad.buttons[i] && !Pad.prev[i]; }
+// A stick as a vector, or null inside the deadzone. The magnitude is rescaled
+// past the deadzone so easing off the stick doesn't snap straight to full tilt.
+function padStick(which) {
+  if (!padActive()) return null;
+  const aim = which === "aim";
+  const dz = aim ? PAD_AIM_DEADZONE : PAD_DEADZONE;
+  let x = Pad.axes[aim ? 2 : 0] || 0, y = Pad.axes[aim ? 3 : 1] || 0;
+  let m = Math.hypot(x, y);
+  if (m < dz) {
+    if (aim) return null;
+    // Movement falls back to the d-pad when the stick is centred.
+    x = (Pad.buttons[15] ? 1 : 0) - (Pad.buttons[14] ? 1 : 0);
+    y = (Pad.buttons[13] ? 1 : 0) - (Pad.buttons[12] ? 1 : 0);
+    m = Math.hypot(x, y);
+    if (m < 0.05) return null;
+    return { x: x / m, y: y / m };
+  }
+  const s = Math.min(1, (m - dz) / (1 - dz)) / m;
+  return { x: x * s, y: y * s };
+}
+// Aiming prefers the right stick, but the left one works if that's all there is.
+function padAimVector() {
+  const a = padStick("aim") || padStick("move");
+  if (!a) return null;
+  const m = Math.hypot(a.x, a.y);
+  if (m < 0.05) return null;
+  return { x: a.x / m, y: a.y / m };
+}
+// Keyboard and controller both stay live; whichever is pressed wins.
+function actionDown(id) {
+  return !!keys[Settings.bindings[id]] || padButtonDown(id);
 }
 
 // Edge-trigger keyboard
@@ -1423,32 +1522,31 @@ const prevSlot = { slot1: false, slot2: false, slot3: false, slot4: false, inter
 function pollKeyShots() {
   const me = G.players.get(G.myId);
   const isKiller = me && me.role === "killer";
-  const B = Settings.bindings;
   // Only QUEUE actions while actually in a round and alive — otherwise a key
   // pressed in the lobby (or a held key) would sit queued and auto-fire the
   // instant the round starts. We still track key edges every frame so a key
   // already held when the round begins doesn't count as a fresh press.
   const armed = G.phase === "playing" && me && me.alive;
-  const interactDown = !!keys[B.interact];
+  const interactDown = actionDown("interact");
   if (armed && interactDown && !prevSlot.interact && G.context === "interact") G.skillQueued = true;
   prevSlot.interact = interactDown;
   // slot1: killer attack OR survivor's ability 1
-  const s1 = !!keys[B.slot1];
+  const s1 = actionDown("slot1");
   if (armed && s1 && !prevSlot.slot1) {
     if (isKiller) G.attackQueued = true;
     else G.abilityQueued[0] = true;
   }
   prevSlot.slot1 = s1;
   // slot2: killer ability 1 OR survivor's ability 2
-  const s2 = !!keys[B.slot2];
+  const s2 = actionDown("slot2");
   if (armed && s2 && !prevSlot.slot2) G.abilityQueued[isKiller ? 0 : 1] = true;
   prevSlot.slot2 = s2;
   // slot3: killer ability 2 OR survivor's ability 3
-  const s3 = !!keys[B.slot3];
+  const s3 = actionDown("slot3");
   if (armed && s3 && !prevSlot.slot3) G.abilityQueued[isKiller ? 1 : 2] = true;
   prevSlot.slot3 = s3;
   // slot4: killer ability 3 (unused for survivors)
-  const s4 = !!keys[B.slot4];
+  const s4 = actionDown("slot4");
   if (armed && s4 && !prevSlot.slot4 && isKiller) G.abilityQueued[2] = true;
   prevSlot.slot4 = s4;
 }
@@ -3317,10 +3415,75 @@ function renderBindings() {
     list.appendChild(row);
   }
 }
+// ---- Controller bindings UI ----
+let padListenFor = null;
+function padDisplay(i) {
+  if (!Number.isInteger(i)) return "—";
+  return PAD_BUTTON_NAMES[i] || ("Button " + i);
+}
+function renderPadBindings() {
+  const list = $("pad-bindings-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const a of BINDABLE_ACTIONS) {
+    const row = document.createElement("div");
+    row.className = "binding-row" + (padListenFor === a.id ? " listening" : "");
+    const label = document.createElement("div");
+    label.className = "label";
+    const idx = Settings.controller.bindings[a.id];
+    const alt = PAD_BUTTON_ALT[idx];
+    label.innerHTML = `<b>${a.label}</b><span class="hint">${a.hint}${alt ? " · PS: " + alt : ""}</span>`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "key-btn";
+    btn.textContent = padListenFor === a.id ? "press a button…" : padDisplay(idx);
+    btn.addEventListener("click", () => {
+      padListenFor = (padListenFor === a.id) ? null : a.id;
+      renderPadBindings();
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+// Polled from gameTick while a rebind is armed — the Gamepad API fires no
+// events, so a button press can only be noticed by looking for it.
+function padCaptureBinding() {
+  if ($("settings").classList.contains("hidden")) { padListenFor = null; return; }
+  if (!Pad.connected) return;
+  for (let i = 0; i < Pad.buttons.length; i++) {
+    if (!padButtonPressed(i)) continue;
+    Settings.controller.bindings[padListenFor] = i;
+    padListenFor = null;
+    saveSettings();
+    renderPadBindings();
+    return;
+  }
+}
+function renderControllerStatus() {
+  const el = $("controller-status");
+  if (!el) return;
+  if (!navigator.getGamepads) {
+    el.textContent = "This browser has no gamepad support.";
+  } else if (Pad.connected) {
+    el.textContent = "Connected: " + Pad.id;
+  } else {
+    el.textContent = "No controller detected — plug one in and press a button to wake it.";
+  }
+  $("controller-body").classList.toggle("hidden", !Settings.controller.enabled);
+}
+window.addEventListener("gamepadconnected", () => { padPoll(); renderControllerStatus(); });
+window.addEventListener("gamepaddisconnected", () => { padPoll(); renderControllerStatus(); });
+
 function openSettings() {
   $("settings").classList.remove("hidden");
   bindingListenFor = null;
+  padListenFor = null;
   renderBindings();
+  padPoll();
+  $("controller-toggle").checked = !!Settings.controller.enabled;
+  renderPadBindings();
+  renderControllerStatus();
   const pct = Math.round(Settings.musicVolume * 100);
   $("music-vol").value = pct;
   $("music-vol-val").textContent = pct + "%";
@@ -3329,10 +3492,17 @@ function openSettings() {
 function closeSettings() {
   $("settings").classList.add("hidden");
   bindingListenFor = null;
+  padListenFor = null;
 }
 // Capturing keydown so we intercept before the gameplay keys listener
 // when the user is binding a new key.
 document.addEventListener("keydown", (e) => {
+  // Esc also backs out of an armed controller rebind.
+  if (padListenFor && e.key === "Escape") {
+    e.preventDefault(); e.stopPropagation();
+    padListenFor = null; renderPadBindings();
+    return;
+  }
   if (!bindingListenFor) return;
   if ($("settings").classList.contains("hidden")) { bindingListenFor = null; return; }
   e.preventDefault();
@@ -3354,9 +3524,18 @@ $("settings-reset").addEventListener("click", () => {
   Settings.bindings = { ...DEFAULT_BINDINGS };
   Settings.musicVolume = 0.55;
   Settings.customAnims = false;
+  Settings.controller = { enabled: false, bindings: { ...PAD_DEFAULT_BINDINGS } };
   Music.master = Settings.musicVolume;
   saveSettings();
   openSettings();
+});
+$("controller-toggle").addEventListener("change", (e) => {
+  Settings.controller.enabled = !!e.target.checked;
+  padListenFor = null;
+  saveSettings();
+  padPoll();
+  renderPadBindings();
+  renderControllerStatus();
 });
 $("music-vol").addEventListener("input", (e) => {
   const pct = +e.target.value;
@@ -4513,6 +4692,30 @@ const DEFAULT_BINDINGS = {
   interact: "e",
   sprint: "shift",
 };
+// ---- Controller ----------------------------------------------------------
+// Indexes are the W3C "standard mapping", which every mainstream pad reports.
+// Labels below are Xbox; PlayStation equivalents are shown as a hint in the UI.
+const PAD_DEFAULT_BINDINGS = {
+  slot1: 0,      // A / Cross
+  slot2: 2,      // X / Square
+  slot3: 3,      // Y / Triangle
+  slot4: 1,      // B / Circle
+  interact: 5,   // RB / R1
+  sprint: 7,     // RT / R2
+};
+const PAD_BUTTON_NAMES = {
+  0: "A", 1: "B", 2: "X", 3: "Y", 4: "LB", 5: "RB", 6: "LT", 7: "RT",
+  8: "Back", 9: "Start", 10: "L-Stick", 11: "R-Stick",
+  12: "D-Up", 13: "D-Down", 14: "D-Left", 15: "D-Right", 16: "Guide",
+};
+const PAD_BUTTON_ALT = {   // PlayStation names, for the hint line
+  0: "Cross", 1: "Circle", 2: "Square", 3: "Triangle", 4: "L1", 5: "R1", 6: "L2", 7: "R2",
+  8: "Share", 9: "Options", 10: "L3", 11: "R3",
+};
+const PAD_DEADZONE = 0.25;       // left stick / movement
+const PAD_AIM_DEADZONE = 0.30;   // right stick / aiming
+const PAD_PRESS = 0.5;           // analogue triggers count as "down" past this
+
 const BINDABLE_ACTIONS = [
   { id: "slot1", label: "Slot 1",   hint: "killer attack / survivor ability 1" },
   { id: "slot2", label: "Slot 2",   hint: "ability" },
@@ -4525,6 +4728,9 @@ const Settings = {
   bindings: { ...DEFAULT_BINDINGS },
   musicVolume: 0.55,
   customAnims: false,
+  // Controller stays off until asked for: a pad left plugged in shouldn't
+  // start steering someone who is happily using the keyboard.
+  controller: { enabled: false, bindings: { ...PAD_DEFAULT_BINDINGS } },
 };
 const SETTINGS_KEY = "fk:settings";
 function loadSettings() {
@@ -4542,6 +4748,18 @@ function loadSettings() {
     if (typeof saved.customAnims === "boolean") {
       Settings.customAnims = saved.customAnims;
     }
+    const c = saved.controller;
+    if (c && typeof c === "object") {
+      if (typeof c.enabled === "boolean") Settings.controller.enabled = c.enabled;
+      if (c.bindings && typeof c.bindings === "object") {
+        for (const a of BINDABLE_ACTIONS) {
+          const b = c.bindings[a.id];
+          // Button index only — a stale string from an older save must not
+          // silently become a binding that can never match.
+          if (Number.isInteger(b) && b >= 0 && b < 32) Settings.controller.bindings[a.id] = b;
+        }
+      }
+    }
   }
 }
 function saveSettings() {
@@ -4549,6 +4767,7 @@ function saveSettings() {
     bindings: Settings.bindings,
     musicVolume: Settings.musicVolume,
     customAnims: Settings.customAnims,
+    controller: Settings.controller,
   }));
 }
 loadSettings();
@@ -5605,6 +5824,8 @@ let facing = { x: 1, y: 0 };
 function gameTick(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
+  padPoll();                      // single poll point; everything else reads the snapshot
+  if (padListenFor) padCaptureBinding();
   pollKeyShots();
 
   if (G.phase === "playing") {
@@ -5619,9 +5840,13 @@ function gameTick(now) {
       const channeling = me.channelUntil && now < me.channelUntil && me.role !== "killer";
       // While aiming the sniper, input steers the reticle instead of the player.
       if (G.aiming) {
-        // If we have a mouse position, use it — the reticle goes wherever the
-        // cursor is. Otherwise fall back to joystick aim (mobile / no mouse).
-        if (mouse.present) {
+        // A tilted stick beats the mouse: with a pad in hand the cursor is
+        // parked somewhere irrelevant and would fight the reticle.
+        const padAim = padAimVector();
+        if (padAim) {
+          G.aimDir = padAim;
+          facing = { x: padAim.x, y: padAim.y };
+        } else if (mouse.present) {
           const wm = screenToWorld(mouse.x, mouse.y);
           const dx = wm.x - me.x, dy = wm.y - me.y;
           const m = Math.hypot(dx, dy);
