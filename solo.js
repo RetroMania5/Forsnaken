@@ -27,20 +27,32 @@ window.ForsakenSolo = (function () {
   // a per-bot cooldown and a shared floor stop four of them talking at once.
   const CHATTER = {
     genStart:  ["on a gen", "starting a gen", "working on one over here", "gen in progress"],
-    genDone:   ["gen done!", "that's one down", "one more finished", "gen popped"],
-    chased:    ["he's on me!", "being chased!", "get him off me", "running, running"],
-    escaped:   ["lost him", "shook him off", "that was close", "safe for now"],
+    genDone:   ["gen done!", "that's one down", "one more finished", "gen popped",
+                "another one!", "keep going", "we're getting there"],
+    chased:    ["he's on me!", "being chased!", "get him off me", "running, running",
+                "on my tail!", "heeelp", "he found me"],
+    escaped:   ["lost him", "shook him off", "that was close", "safe for now",
+                "phew", "made it", "that was too close"],
     hurt:      ["i'm hurt", "taking damage", "not doing great", "low health here"],
-    critical:  ["need a heal badly", "i'm nearly down", "help, please", "one more hit and i'm out"],
+    critical:  ["SAVE ME!!!", "need a heal badly", "i'm nearly down", "help, please",
+                "one more hit and i'm out", "SAVE ME!!!", "someone come get me"],
+    // Fired when the killer fumbles — stunned, or whiffs right next to us.
+    killerFail:["XD", "XD", "lol", "nice try", "missed me", "too slow", "not even close", "XDDD"],
     healing:   ["patching you up", "hold still, healing", "i've got you", "on my way to help"],
     thanks:    ["thanks!", "much better", "appreciated", "back in this"],
     allyDown:  ["someone's down", "we lost one", "that's not good", "down to fewer of us"],
     lastMan:   ["i'm the last one", "all on me now", "just me left", "wish me luck"],
-    idle:      ["where is everyone", "all quiet", "looking for a gen", "spreading out"],
+    idle:      ["where is everyone", "all quiet", "looking for a gen", "spreading out",
+                "anyone need help?", "which gen next", "i'm bored"],
     killerNear:["he's close", "i can hear him", "he's nearby", "keeping my distance"],
     // Killer lines.
     kHunt:     ["i see you", "found one", "come here", "no hiding"],
-    kHit:      ["got you", "that'll hurt", "closer now", "stay still"],
+    kHit:      ["got you", "that'll hurt", "closer now", "stay still", "nowhere to go"],
+    kStunned:  ["ow", "that was cheap", "you'll pay for that", "grr", "cheap shot"],
+    // Between rounds, milling about in the hub.
+    lobby:     ["ready when you are", "good game", "who's killer next?", "let's go again",
+                "nice round", "i'm ready", "someone press start", "gg", "rematch?",
+                "i like this character", "brb stretching", "waiting..."],
     kDown:     ["down you go", "one less", "that's one", "next"],
     kLost:     ["where'd you go", "lost them", "they're quick", "hiding won't help"],
     kTaunt:    ["gens won't save you", "tick tock", "i'm coming", "nowhere to run"],
@@ -187,9 +199,7 @@ window.ForsakenSolo = (function () {
           this.id = m.id; this.map = m.map || this.map;
           this.survChars = m.survivorChars || []; this.killChars = m.killerChars || [];
           this.abilities = m.abilities || {};
-          this.survChar = rnd(this.survChars).id;
-          this.killChar = rnd(this.killChars).id;
-          this.emit({ type: "pick_char", survivorChar: this.survChar, killerChar: this.killChar });
+          this.rerollChars();
           if (m.gens) this.gens = m.gens.map(g => ({ x: g.x, y: g.y, done: !!g.done }));
           break;
         case "lobby":
@@ -213,12 +223,29 @@ window.ForsakenSolo = (function () {
           (m.indices || []).forEach(i => { if (this.gens[i]) this.gens[i].done = true; });
           if (this.role !== "killer") this.say("genDone", Date.now(), { gap: 10000 });
           break;
-        case "stun":
-          if (m.id === this.id) this.stunUntil = Date.now() + (m.duration || 1) * 1000; break;
+        case "stun": {
+          const t = Date.now();
+          if (m.id === this.id) {
+            this.stunUntil = t + (m.duration || 1) * 1000;
+            if (this.role === "killer") this.say("kStunned", t, { gap: 9000 });
+          } else if (this.role !== "killer" && (this.roster.get(m.id) || {}).role === "killer") {
+            // The killer just ate a stun — that's the moment to laugh.
+            this.say("killerFail", t, { gap: 7000 });
+          }
+          break;
+        }
         case "down":
           if (m.id === this.id) this.alive = false; break;
         case "lms": case "over":
           if (m.type === "over") { this.playing = false; this._rejVoted = false; } break;
+        case "lobby":
+          // Back between rounds — new characters, and clear the round's
+          // one-shot chat flags so lines can fire again next game.
+          this.rerollChars();
+          this.saidOnce = {};
+          this.wasChased = false; this.wasHunting = false;
+          this.lastHp = 100; this.lastAllies = undefined; this.lastSurvs = undefined;
+          break;
         case "rejoin_status":
           // Follow the human: once anyone votes to rejoin, the bots vote too so
           // a solo player can send everyone back to the lobby with one click.
@@ -233,6 +260,19 @@ window.ForsakenSolo = (function () {
       });
     }
 
+    // Pick a fresh pair of characters. Called on join and again in the lobby
+    // between rounds, so the bots don't play the same four every game. Avoids
+    // repeating the character we just used where there's more than one option.
+    rerollChars() {
+      if (!this.survChars.length || !this.killChars.length) return;
+      const pick = (pool, avoid) => {
+        const opts = pool.length > 1 ? pool.filter(c => c.id !== avoid) : pool;
+        return rnd(opts).id;
+      };
+      this.survChar = pick(this.survChars, this.survChar);
+      this.killChar = pick(this.killChars, this.killChar);
+      this.emit({ type: "pick_char", survivorChar: this.survChar, killerChar: this.killChar });
+    }
     myAbilities() { return this.abilities[this.role === "killer" ? this.killChar : this.survChar] || []; }
     killerStats() { return this.killChars.find(c => c.id === this.killChar) || { attackRadius: 75, attackCooldown: 1.0 }; }
     selfSnap() { return this.snap && this.snap.players.find(p => p.id === this.id); }
@@ -360,7 +400,8 @@ window.ForsakenSolo = (function () {
     }
 
     think(now) {
-      if (!this.playing || !this.alive || !this.snap) return;
+      if (!this.playing) { this.thinkLobby(now); return; }
+      if (!this.alive || !this.snap) return;
       if (now < this.stunUntil) { this.sendPos(); return; }
       // Anti-stuck: if we've barely moved while trying to navigate, force a re-path.
       if (now < (this.panicUntil || 0)) {
@@ -386,6 +427,24 @@ window.ForsakenSolo = (function () {
       const role = this.role || (this.roster.get(this.id) || {}).role;
       if (role === "killer") this.thinkKiller(now); else this.thinkSurvivor(now);
       this.sendPos();
+    }
+
+    // Between rounds the bots mill around the hub and chat, so the lobby isn't
+    // four statues. Uses the same pos messages the hub already syncs.
+    thinkLobby(now) {
+      if (!this.lobbyTgt || now > this.lobbyTgtAt ||
+          hyp(this.lobbyTgt.x - this.bx, this.lobbyTgt.y - this.by) < 40) {
+        // The hub is its own small room, not the match map.
+        this.lobbyTgt = { x: 180 + Math.random() * 920, y: 160 + Math.random() * 420 };
+        this.lobbyTgtAt = now + 3000 + Math.random() * 4000;
+      }
+      const d = norm(this.lobbyTgt.x - this.bx, this.lobbyTgt.y - this.by);
+      const step = 120 * DT;
+      this.bx = clmp(this.bx + d.x * step, 40, 1240);
+      this.by = clmp(this.by + d.y * step, 90, 690);
+      this.facing = d;
+      this.sendPos();
+      this.say("lobby", now, { gap: 16000 });
     }
 
     thinkKiller(now) {
@@ -451,8 +510,22 @@ window.ForsakenSolo = (function () {
       this.wasChased = chased;
       this.lastHp = myHp;
       this.lastAllies = allies.length;
+      // Who needs help? The human counts for more than a fellow bot — being
+      // left to die by four AI team-mates is the least fun way to lose.
+      const humanId = G && G.myId;
       let injured = null, injBest = 1e9;
-      for (const a of allies) if (a.hp != null && a.hp < 70) { const d = hyp(a.x - this.bx, a.y - this.by); if (d < injBest) { injBest = d; injured = a; } }
+      for (const a of allies) {
+        if (a.hp == null || a.hp >= 70) continue;
+        let d = hyp(a.x - this.bx, a.y - this.by);
+        if (a.id === humanId) d *= 0.45;           // weighted, not forced
+        if (d < injBest) { injBest = d; injured = a; }
+      }
+      // Is the human in trouble right now? If so, and we're not the one being
+      // chased, go and make a nuisance of ourselves.
+      const human = humanId ? players.find(p => p.id === humanId && p.alive) : null;
+      const humanChased = human && killer &&
+        hyp(killer.x - human.x, killer.y - human.y) < 260 &&
+        hyp(killer.x - this.bx, killer.y - this.by) > 200;
 
       if (injured && injBest < 260) this.say("healing", now, { gap: 15000 });
 
@@ -484,6 +557,13 @@ window.ForsakenSolo = (function () {
         }
       });
 
+      // A team-mate in danger comes before a generator: close in on the killer
+      // to draw attention and get our stuns in range.
+      if (humanChased && hyp(human.x - this.bx, human.y - this.by) < 900) {
+        this.say("healing", now, { gap: 14000 });
+        this.navTo(killer.x, killer.y, SURV_SPEED * SPRINT, now);
+        return;
+      }
       // Movement: flee a close killer, otherwise go work a generator.
       if (killer && dK < 240) {
         this.facing = dirToK;                        // face the killer (for CC) while backpedaling
