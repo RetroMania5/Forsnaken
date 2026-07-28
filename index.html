@@ -4608,9 +4608,9 @@ const Music = {
   master: Settings.musicVolume,
   primed: false,
 };
-function mkAudio(url) {
+function mkAudio(url, loop = true) {
   const a = new Audio(url);
-  a.loop = true;
+  a.loop = loop;
   a.volume = 0;
   a.preload = "auto";
   return a;
@@ -4631,7 +4631,10 @@ function primeAudio() {
 const KILLER_MUSIC_EXT = { lunar: "wav", sly: "wav" };
 // A killer with no tracks of their own borrows another's, so adding a killer
 // doesn't 404 every music request until their audio is recorded.
-const KILLER_MUSIC_FALLBACK = { jest: "slasher" };
+// (Jest used to borrow Slasher's; he has his own set now.)
+const KILLER_MUSIC_FALLBACK = {};
+// LMS themes that play once and stop instead of looping.
+const KILLER_LMS_NOLOOP = { jest: true };
 const musicCharFor = (c) => KILLER_MUSIC_FALLBACK[c] || c;
 // Each map's base ambient track.
 const MAP_BASE_MUSIC = {
@@ -4673,14 +4676,22 @@ function resolveLmsDuo(lastSurvivor, killer) {
   }
   return null;
 }
+// Killer-CHARACTER x survivor-CHARACTER pairings, for matchups that deserve
+// their own theme regardless of what either side is wearing. A skin-level
+// lmsDuo is more specific and wins over this; both beat the plain track.
+const LMS_CHAR_DUO = {
+  jest: { whamo: "music/jest_whamo_lms.m4a" },
+};
 function resolveLmsTrack(killerChar) {
   const players = [...G.players.values()];
+  const lastSurvivor = players.find(p => p.role === "survivor" && p.alive);
   // A matching pair overrides every other LMS rule.
-  const duo = resolveLmsDuo(
-    players.find(p => p.role === "survivor" && p.alive),
-    players.find(p => p.role === "killer")
-  );
+  const duo = resolveLmsDuo(lastSurvivor, players.find(p => p.role === "killer"));
   if (duo) return duo;
+  const charDuo = LMS_CHAR_DUO[killerChar];
+  if (charDuo && lastSurvivor && charDuo[lastSurvivor.survivorChar]) {
+    return charDuo[lastSurvivor.survivorChar];
+  }
   const order = [
     players.find(p => p.role === "survivor" && p.alive),   // the last one standing (once known)
     players.find(p => p.role === "survivor"),               // any survivor
@@ -4692,6 +4703,12 @@ function resolveLmsTrack(killerChar) {
     if (m && m.lastman) return m.lastman;
   }
   return killerLmsUrl(killerChar);
+}
+// Only the built-in <killer>_lms track can be a one-shot sting; a skin or duo
+// theme supplies its own and loops normally.
+function lmsShouldLoop(killerChar, url) {
+  if (url !== killerLmsUrl(killerChar)) return true;
+  return !KILLER_LMS_NOLOOP[musicCharFor(killerChar)];
 }
 function setupMusic(killerChar, mapId) {
   const mapKey = mapId || "factory";
@@ -4724,7 +4741,7 @@ function setupMusic(killerChar, mapId) {
   // survivor is known and swaps in their skin's theme if it differs.
   Music.killerChar = killerChar;
   Music.lmsSrc = resolveLmsTrack(killerChar);
-  Music.lms = mkAudio(Music.lmsSrc);
+  Music.lms = mkAudio(Music.lmsSrc, lmsShouldLoop(killerChar, Music.lmsSrc));
   Music.loadedFor = key;
   Music.mode = "round";
 }
@@ -4778,7 +4795,8 @@ function enterLMSMode() {
   if (url !== Music.lmsSrc || !Music.lms) {
     try { if (Music.lms) { Music.lms.pause(); Music.lms.src = ""; } } catch {}
     Music.lmsSrc = url;
-    Music.lms = mkAudio(url);   // volume starts at 0; updateMusic() fades it up
+    // volume starts at 0; updateMusic() fades it up
+    Music.lms = mkAudio(url, lmsShouldLoop(Music.killerChar, url));
   }
   if (Music.lms) {
     try { Music.lms.currentTime = 0; } catch {}
