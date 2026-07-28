@@ -789,6 +789,15 @@
       <div class="gd-line" style="margin-bottom:6px;">Click a button to rebind, then press one on the pad. <b>Esc</b> cancels.</div>
       <div id="pad-bindings-list"></div>
     </div>
+    <div class="section">BOT VOICES</div>
+    <div class="gd-line">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="tts-toggle">
+        <span>Read bot chat aloud — each bot gets its own voice. Uses your
+        browser's built-in speech, so the list depends on your device.</span>
+      </label>
+    </div>
+    <div id="tts-body" class="hidden"><div id="tts-rows"></div></div>
     <div class="section">AUDIO</div>
     <div class="audio-row">
       <label for="music-vol">Music volume <span id="music-vol-val">55%</span></label>
@@ -993,6 +1002,10 @@
       <div id="player-list"></div>
       <div id="map-select" class="hidden"></div>
       <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
+      <div id="bot-controls" class="hidden" style="display:flex; gap:8px;">
+        <button id="add-bot-btn" class="secondary" type="button" style="flex:1">➕ Add bot</button>
+        <button id="kick-bot-btn" class="secondary" type="button" style="flex:1">➖ Kick bot</button>
+      </div>
       <button id="start-btn" disabled>Start Round</button>
       <button id="lobby-guide-btn" class="secondary">Guide</button>
       <button id="lobby-settings-btn" class="secondary">Settings</button>
@@ -3141,6 +3154,10 @@ function onMessage(msg) {
       break;
     case "chat":
       addChatMessage(msg.name, msg.text, msg.role);
+      if (msg.bot) speakBotLine(msg.id, msg.name, msg.text);
+      break;
+    case "toast":
+      showCoinToast(msg.text);
       break;
     // Server overriding a cooldown we already predicted (Angel's Stab costs
     // more when it actually connects). Duration, not an absolute time — the
@@ -3598,6 +3615,62 @@ function renderControllerStatus() {
 window.addEventListener("gamepadconnected", () => { padPoll(); renderControllerStatus(); });
 window.addEventListener("gamepaddisconnected", () => { padPoll(); renderControllerStatus(); });
 
+// One row per bot slot: a voice picker plus a test button.
+function renderTtsRows() {
+  const box = $("tts-rows");
+  if (!box) return;
+  const voices = ttsVoices();
+  box.innerHTML = "";
+  if (!("speechSynthesis" in window)) {
+    box.innerHTML = '<div class="gd-line">This browser has no speech support.</div>';
+    return;
+  }
+  if (!voices.length) {
+    box.innerHTML = '<div class="gd-line">No voices found yet — they often load a moment after the page.</div>';
+    return;
+  }
+  for (let slot = 0; slot < TTS_SLOTS; slot++) {
+    const row = document.createElement("div");
+    row.className = "binding-row";
+    const label = document.createElement("div");
+    label.className = "label";
+    label.innerHTML = `<b>Bot ${slot + 1}</b><span class="hint">voice for the ${ordinal(slot + 1)} bot in the room</span>`;
+    const sel = document.createElement("select");
+    sel.className = "key-btn";
+    sel.style.minWidth = "150px";
+    const auto = document.createElement("option");
+    auto.value = ""; auto.textContent = "(browser default)";
+    sel.appendChild(auto);
+    for (const v of voices) {
+      const o = document.createElement("option");
+      o.value = v.name; o.textContent = v.name;
+      sel.appendChild(o);
+    }
+    sel.value = Settings.tts.voices[slot] || "";
+    sel.addEventListener("change", () => {
+      if (sel.value) Settings.tts.voices[slot] = sel.value;
+      else delete Settings.tts.voices[slot];
+      saveSettings();
+    });
+    const test = document.createElement("button");
+    test.type = "button"; test.className = "key-btn"; test.textContent = "▶";
+    test.title = "Hear it";
+    test.addEventListener("click", () => {
+      const u = new SpeechSynthesisUtterance("Gen done! He's on me!");
+      const v = voices.find(x => x.name === (Settings.tts.voices[slot] || ""));
+      if (v) u.voice = v;
+      u.pitch = 0.75 + (slot % 4) * 0.22;
+      u.rate = 1.0 + ((slot >> 2) % 2) * 0.15;
+      try { speechSynthesis.speak(u); } catch {}
+    });
+    row.appendChild(label); row.appendChild(sel); row.appendChild(test);
+    box.appendChild(row);
+  }
+}
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 function openSettings() {
   $("settings").classList.remove("hidden");
   bindingListenFor = null;
@@ -3605,6 +3678,9 @@ function openSettings() {
   renderBindings();
   padPoll();
   $("controller-toggle").checked = !!Settings.controller.enabled;
+  $("tts-toggle").checked = !!Settings.tts.enabled;
+  $("tts-body").classList.toggle("hidden", !Settings.tts.enabled);
+  renderTtsRows();
   renderPadBindings();
   renderControllerStatus();
   const pct = Math.round(Settings.musicVolume * 100);
@@ -3648,9 +3724,17 @@ $("settings-reset").addEventListener("click", () => {
   Settings.musicVolume = 0.55;
   Settings.customAnims = false;
   Settings.controller = { enabled: false, bindings: { ...PAD_DEFAULT_BINDINGS } };
+  Settings.tts = { enabled: false, voices: {} };
   Music.master = Settings.musicVolume;
   saveSettings();
   openSettings();
+});
+$("tts-toggle").addEventListener("change", (e) => {
+  Settings.tts.enabled = !!e.target.checked;
+  $("tts-body").classList.toggle("hidden", !Settings.tts.enabled);
+  saveSettings();
+  if (Settings.tts.enabled) renderTtsRows();
+  else try { speechSynthesis.cancel(); } catch {}
 });
 $("controller-toggle").addEventListener("change", (e) => {
   Settings.controller.enabled = !!e.target.checked;
@@ -4349,6 +4433,8 @@ function uiLoop(now) {
 requestAnimationFrame(uiLoop);
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
+$("add-bot-btn").addEventListener("click", () => sendMsg({ type: "add_bot" }));
+$("kick-bot-btn").addEventListener("click", () => sendMsg({ type: "kick_bot" }));
 $("random-killer-toggle").addEventListener("click", () => {
   sendMsg({ type: "toggle_random_killer", enabled: !G.randomKillerEnabled });
 });
@@ -4856,6 +4942,8 @@ const Settings = {
   // Controller stays off until asked for: a pad left plugged in shouldn't
   // start steering someone who is happily using the keyboard.
   controller: { enabled: false, bindings: { ...PAD_DEFAULT_BINDINGS } },
+  // Bot speech: off unless asked for, with a voice remembered per bot slot.
+  tts: { enabled: false, voices: {} },
 };
 const SETTINGS_KEY = "fk:settings";
 function loadSettings() {
@@ -4872,6 +4960,15 @@ function loadSettings() {
     }
     if (typeof saved.customAnims === "boolean") {
       Settings.customAnims = saved.customAnims;
+    }
+    const t = saved.tts;
+    if (t && typeof t === "object") {
+      if (typeof t.enabled === "boolean") Settings.tts.enabled = t.enabled;
+      if (t.voices && typeof t.voices === "object") {
+        for (const k of Object.keys(t.voices)) {
+          if (typeof t.voices[k] === "string") Settings.tts.voices[k] = t.voices[k];
+        }
+      }
     }
     const c = saved.controller;
     if (c && typeof c === "object") {
@@ -4893,6 +4990,7 @@ function saveSettings() {
     musicVolume: Settings.musicVolume,
     customAnims: Settings.customAnims,
     controller: Settings.controller,
+    tts: Settings.tts,
   }));
 }
 loadSettings();
@@ -5206,6 +5304,47 @@ function enterLMSMode() {
 }
 // Everything audible is scaled by this, so the flower balloon can choke the
 // whole mix without disturbing the player's own volume setting.
+// ── Bot text-to-speech ─────────────────────────────────────────────────
+// Off by default. Each bot gets its own voice, assigned from the browser's
+// list; the pitch is nudged per bot too, so they still sound distinct even
+// when a device only ships one or two voices.
+let _voices = [];
+function ttsVoices() {
+  if (!("speechSynthesis" in window)) return [];
+  if (!_voices.length) _voices = speechSynthesis.getVoices() || [];
+  return _voices;
+}
+if ("speechSynthesis" in window) {
+  // The list is often empty until this fires.
+  speechSynthesis.addEventListener("voiceschanged", () => {
+    _voices = speechSynthesis.getVoices() || [];
+    if (!$("settings").classList.contains("hidden")) renderTtsRows();
+  });
+}
+// Stable per-bot slot so the same bot keeps the same voice all game.
+const _botSlots = new Map();
+function botSlotOf(id, name) {
+  if (!_botSlots.has(id)) _botSlots.set(id, _botSlots.size % TTS_SLOTS);
+  return _botSlots.get(id);
+}
+const TTS_SLOTS = 8;
+function speakBotLine(id, name, text) {
+  if (!Settings.tts.enabled || !("speechSynthesis" in window)) return;
+  if (G.blindUntil && performance.now() < G.blindUntil) return;   // flower balloon mutes everything
+  try {
+    const slot = botSlotOf(id, name);
+    const u = new SpeechSynthesisUtterance(text);
+    const want = Settings.tts.voices[slot];
+    const v = ttsVoices().find(x => x.name === want);
+    if (v) u.voice = v;
+    // Spread pitch/rate across slots so bots are told apart by ear even if
+    // the device only has one voice installed.
+    u.pitch = 0.75 + (slot % 4) * 0.22;
+    u.rate = 1.0 + ((slot >> 2) % 2) * 0.15;
+    u.volume = Math.max(0, Math.min(1, Settings.musicVolume + 0.25));
+    speechSynthesis.speak(u);
+  } catch { /* speech is a nicety, never fatal */ }
+}
 function musicGain() { return Music.master * (Music.blindGain == null ? 1 : Music.blindGain); }
 // ---- Flower balloon: blinded and deafened ------------------------------
 // Local and sensory only — the server tells us it happened, we do the rest.
@@ -5871,6 +6010,21 @@ function renderLobby() {
     tog.textContent = `🎲 Random killer: ${G.randomKillerEnabled ? "ON" : "OFF"}`;
   } else {
     tog.classList.add("hidden");
+  }
+  // Host-only bot controls. Kicking is disabled when there are none to kick.
+  const botBox = $("bot-controls");
+  if (botBox) {
+    const show = iAmHost && G.phase === "lobby";
+    botBox.classList.toggle("hidden", !show);
+    if (show) {
+      const botCount = [...G.players.values()].filter(p => p.isBot).length;
+      const kickBtn = $("kick-bot-btn");
+      kickBtn.disabled = botCount === 0;
+      kickBtn.style.opacity = botCount === 0 ? "0.45" : "";
+      kickBtn.textContent = botCount ? `➖ Kick bot (${botCount})` : "➖ Kick bot";
+      $("add-bot-btn").disabled = G.players.size >= 9;
+      $("add-bot-btn").style.opacity = G.players.size >= 9 ? "0.45" : "";
+    }
   }
   renderMapSelect(iAmHost);
   for (const p of G.players.values()) {

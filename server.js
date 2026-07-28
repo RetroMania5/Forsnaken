@@ -590,6 +590,8 @@ const COIN_PICKUP_R = 30;           // pickup radius
 const SKILL_PROGRESS = { green: 0.13, yellow: 0.05, red: -0.10 };
 const SKILL_NEAR_RADIUS = 90;
 const SKILL_COOLDOWN_MS = 400;
+// Room cap. Nine is what the game is balanced and described for.
+const MAX_PLAYERS = 9;
 
 const state = {
   phase: "lobby",
@@ -753,11 +755,34 @@ function handle(id, ws, msg) {
     case "set_skin":  return onSetSkin(id, msg);
     case "rejoin":    return onRejoinVote(id);
     case "chat":      return onChat(id, msg);
+    case "add_bot":   return onAddBot(id);
+    case "kick_bot":  return onKickBot(id, msg);
     case "leave":     return removePlayer(id);
   }
 }
 const CHAT_MAX_LEN = 120;
 const CHAT_MIN_GAP_MS = 600;    // simple flood guard, per player
+// Host-only: fill an empty seat with a bot, or clear one out again.
+function onAddBot(id) {
+  const host = state.players.get(id);
+  if (!host || !host.isHost) return;
+  if (state.players.size >= MAX_PLAYERS) { send(host.ws, { type: "toast", text: "Room is full" }); return; }
+  const p = addBot();
+  if (p) broadcast({ type: "toast", text: p.name + " joined" });
+}
+function onKickBot(id, msg) {
+  const host = state.players.get(id);
+  if (!host || !host.isHost) return;
+  // No id given: drop the most recently added bot.
+  let target = msg && msg.id ? state.players.get(msg.id) : null;
+  if (!target || !target.isBot) {
+    const bots = [...state.players.values()].filter(x => x.isBot);
+    target = bots[bots.length - 1];
+  }
+  if (!target) return;
+  const name = target.name;
+  if (kickBot(target.id)) broadcast({ type: "toast", text: name + " was removed" });
+}
 function onChat(id, msg) {
   const p = state.players.get(id);
   if (!p) return;
@@ -1980,6 +2005,8 @@ function endRound(winner) {
 // Reset the room back to the lobby for the next round (from a rejoin vote or the
 // fallback timer).
 function returnToLobby() {
+  // New characters for the bots each time we come back to the hub.
+  for (const p of state.players.values()) if (p.isBot) botRerollChars(p);
   state.phase = "lobby";
   // Spectators become ordinary players again for the next round.
   for (const p of state.players.values()) if (p.role === "spectator") { p.role = "unassigned"; p.alive = true; }
@@ -2016,10 +2043,473 @@ function returnToLobby() {
 }
 
 let lastTickTime = Date.now();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOTS
+//  Bots are ordinary players with no socket, driven from the server tick.
+//  Because they live in state.players, every existing system — round start,
+//  killer selection, damage, abilities, mastery, chat — treats them as real
+//  players with no special-casing. The AI was proven in solo.js; this is the
+//  same logic re-hosted so it also works in a real multiplayer room.
+// ═══════════════════════════════════════════════════════════════════════
+const BOT_R = 16;                 // a touch under a human's collision radius
+const BOT_SURV_SPEED = 200, BOT_KILL_SPEED = 230, BOT_SPRINT = 1.35;
+const BOT_NAMES = ["Ash", "Brin", "Cove", "Dex", "Echo", "Fern", "Gus", "Hollis"];
+const RAD = Math.PI / 180;
+const bhyp = (dx, dy) => Math.hypot(dx, dy);
+const bnorm = (dx, dy) => { const d = bhyp(dx, dy) || 1; return { x: dx / d, y: dy / d }; };
+const bclmp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const brot = (v, deg) => { const a = deg * RAD, c = Math.cos(a), s = Math.sin(a);
+                           return { x: v.x * c - v.y * s, y: v.x * s + v.y * c }; };
+const bpick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const blocked = (x, y) => positionBlocked(x, y, BOT_R);
+
+// Short status lines, keyed to what the bot is actually doing.
+const CHATTER = {
+  genDone:   ["gen done!", "that's one down", "one more finished", "gen popped", "another one!"],
+  chased:    ["he's on me!", "being chased!", "get him off me", "on my tail!", "heeelp"],
+  escaped:   ["lost him", "shook him off", "that was close", "phew", "made it"],
+  hurt:      ["i'm hurt", "taking damage", "not doing great", "low health here"],
+  critical:  ["SAVE ME!!!", "SAVE ME!!!", "i'm nearly down", "help, please", "one more hit and i'm out"],
+  healing:   ["patching you up", "hold still, healing", "i've got you", "on my way"],
+  allyDown:  ["someone's down", "we lost one", "that's not good"],
+  lastMan:   ["i'm the last one", "all on me now", "just me left", "wish me luck"],
+  killerNear:["he's close", "i can hear him", "keeping my distance"],
+  killerFail:["XD", "XD", "XDDD", "lol", "nice try", "missed me", "too slow"],
+  kHunt:     ["i see you", "found one", "come here", "no hiding"],
+  kHit:      ["got you", "that'll hurt", "closer now", "stay still"],
+  kDown:     ["down you go", "one less", "that's one", "next"],
+  kLost:     ["where'd you go", "lost them", "hiding won't help"],
+  kTaunt:    ["gens won't save you", "tick tock", "i'm coming"],
+  kStunned:  ["ow", "that was cheap", "grr", "cheap shot"],
+  lobby:     ["ready when you are", "good game", "who's killer next?", "let's go again",
+              "gg", "rematch?", "i'm ready", "someone press start"],
+};
+let lastBotChatAt = 0;            // shared floor so four bots don't talk at once
+
+function botSay(p, pool, opts) {
+  const o = opts || {}, now = Date.now(), b = p.bot;
+  if (!b || now < b.nextChat) return;
+  if (now - lastBotChatAt < 1800) return;
+  if (o.once) { if (b.saidOnce[o.once]) return; b.saidOnce[o.once] = 1; }
+  const lines = CHATTER[pool];
+  if (!lines || !lines.length) return;
+  b.nextChat = now + (o.gap || 9000) + Math.random() * 5000;
+  lastBotChatAt = now;
+  // `bot: true` lets clients pick a synthesised voice for it.
+  broadcast({ type: "chat", id: p.id, name: p.name, role: p.role, bot: true, text: bpick(lines) });
+}
+
+let botSeq = 0;
+function addBot() {
+  if (state.players.size >= MAX_PLAYERS) return null;
+  const id = "bot:" + (++botSeq);
+  const used = new Set([...state.players.values()].map(p => p.name));
+  const name = BOT_NAMES.find(n => !used.has(n)) || ("Bot " + botSeq);
+  const p = {
+    id, ws: { readyState: 0, send() {} },   // no socket: send() no-ops, broadcast skips it
+    name, clientId: null, isBot: true,
+    role: "unassigned", survivorChar: "scout", killerChar: "slasher",
+    pet: null, skin: null, kills: 0, transformKills: 0,
+    color: SURVIVOR_CHARS.find(c => c.id === "scout").color,
+    x: MAP.w / 2, y: MAP.h - 200, facing: { x: 1, y: 0 },
+    alive: true, hp: SURVIVOR_HP_MAX,
+    cooldowns: [0, 0, 0], mainAttackCdUntil: 0, ammo: 1, reloadUntil: 0,
+    effects: freshEffects(), isHost: false, joinedAt: Date.now(),
+    bot: {
+      hug: 0, hugSide: 1, clearTicks: 0, stuckRuns: 0, panicUntil: 0, panicDir: { x: 1, y: 0 },
+      path: null, pathI: 0, pathTgt: null, repathAt: 0, mv: null,
+      nextChat: 0, saidOnce: {}, wasChased: false, wasHunting: false,
+      lastHp: SURVIVOR_HP_MAX, lastAllies: null, lastSurvs: null,
+      nextUse: [0, 0, 0], nextAttack: 0,
+      lobbyTgt: null, lobbyTgtAt: 0,
+    },
+  };
+  if (state.phase === "playing") { p.role = "spectator"; p.alive = false; }
+  state.players.set(id, p);
+  botRerollChars(p, true);
+  broadcastLobby();
+  return p;
+}
+function kickBot(id) {
+  const p = state.players.get(id);
+  if (!p || !p.isBot) return false;
+  state.players.delete(id);
+  broadcast({ type: "left", id });
+  broadcastLobby();
+  checkRoundEnd();
+  return true;
+}
+// Fresh characters between rounds, avoiding an immediate repeat. `first` skips
+// that exclusion: a brand-new bot still holds the join defaults, and treating
+// those as "what I just played" would mean a bot could never START as Slasher
+// or Scout.
+function botRerollChars(p, first) {
+  const pickFrom = (pool, avoid) => {
+    const opts = (!first && pool.length > 1) ? pool.filter(c => c.id !== avoid) : pool;
+    return bpick(opts).id;
+  };
+  p.survivorChar = pickFrom(SURVIVOR_CHARS, p.survivorChar);
+  p.killerChar = pickFrom(KILLER_CHARS, p.killerChar);
+  p.color = survivorCharOf(p).color;
+}
+
+// ── Movement ────────────────────────────────────────────────────────────
+function botMove(p, dir, speed, dt) {
+  const b = p.bot;
+  if (!dir.x && !dir.y) return false;
+  const step = speed * dt;
+  const tryStep = (d) => {
+    const nx = bclmp(p.x + d.x * step, 20, MAP.w - 20);
+    const ny = bclmp(p.y + d.y * step, 20, MAP.h - 20);
+    if (blocked(nx, ny)) return false;
+    p.x = nx; p.y = ny; p.facing = d; return true;
+  };
+  if (blocked(p.x, p.y)) { botUnstick(p, step); return true; }
+  // Committed wall-follow: straight ahead is tried LAST and only releases the
+  // detour after several clear ticks, or a concave corner makes it shiver.
+  if (b.hug > 0) {
+    b.hug--;
+    for (const a of [30, 55, 85, 115, 145]) {
+      if (tryStep(brot(dir, b.hugSide * a))) { b.clearTicks = 0; return true; }
+    }
+    if (tryStep(dir)) {
+      b.clearTicks++;
+      if (b.clearTicks >= 4) { b.hug = 0; b.clearTicks = 0; }
+      return true;
+    }
+    b.hug = 0;
+  }
+  if (tryStep(dir)) { b.clearTicks = 0; return true; }
+  b.hugSide = botClearer(p, dir, step);
+  b.hug = 26; b.clearTicks = 0;
+  for (const a of [40, 65, 95, 125, 155]) if (tryStep(brot(dir, b.hugSide * a))) return true;
+  for (const a of [40, 65, 95, 125, 155, 180]) if (tryStep(brot(dir, -b.hugSide * a))) return true;
+  return false;
+}
+function botClearer(p, dir, step) {
+  const run = (side) => {
+    const d = brot(dir, side * 75); let n = 0;
+    for (let k = 1; k <= 10; k++) { if (blocked(p.x + d.x * step * k, p.y + d.y * step * k)) break; n++; }
+    return n;
+  };
+  return run(1) >= run(-1) ? 1 : -1;
+}
+function botUnstick(p, step) {
+  let best = null, bestK = Infinity;
+  for (let a = 0; a < 360; a += 30) {
+    const d = brot({ x: 1, y: 0 }, a);
+    for (let k = 1; k <= 6; k++) {
+      const nx = p.x + d.x * step * k, ny = p.y + d.y * step * k;
+      if (!blocked(nx, ny)) { if (k < bestK) { bestK = k; best = { nx, ny, d }; } break; }
+    }
+  }
+  if (best) { p.x = best.nx; p.y = best.ny; p.facing = best.d; }
+  p.bot.path = null; p.bot.repathAt = 0; p.bot.hug = 0;
+}
+function botNavTo(p, tx, ty, speed, now, dt) {
+  const b = p.bot;
+  if (bhyp(tx - p.x, ty - p.y) < ARRIVE) { b.path = null; b.hug = 0; return; }
+  if (!b.pathTgt || bhyp(b.pathTgt.x - tx, b.pathTgt.y - ty) > 60 || now > b.repathAt || !b.path) {
+    b.path = smoothPath(findPath(p.x, p.y, tx, ty));
+    b.pathI = 0; b.pathTgt = { x: tx, y: ty }; b.repathAt = now + 700;
+  }
+  if (!b.path || !b.path.length) {
+    b.repathAt = Math.min(b.repathAt, now + 250);
+    botMove(p, bnorm(tx - p.x, ty - p.y), speed, dt);
+    return;
+  }
+  while (b.pathI < b.path.length - 1 &&
+         (bhyp(b.path[b.pathI].x - p.x, b.path[b.pathI].y - p.y) < CELL * 0.8 ||
+          lineOpen(p.x, p.y, b.path[b.pathI + 1].x, b.path[b.pathI + 1].y)))
+    b.pathI++;
+  const wp = b.path[Math.min(b.pathI, b.path.length - 1)];
+  botMove(p, bnorm(wp.x - p.x, wp.y - p.y), speed, dt);
+}
+function botUse(p, slot, ab, now, aim) {
+  const b = p.bot;
+  if (now < b.nextUse[slot]) return false;
+  if (aim) p.facing = aim;
+  b.nextUse[slot] = now + (ab.cd || 5) * 1000;
+  onAbility(p.id, { slot, aim: aim || p.facing });
+  return true;
+}
+
+// Nav grid state, rebuilt whenever the map changes.
+let nav = null, navMapId = null;
+const ARRIVE = 26;       // close enough — stop rather than jitter on the spot
+const CELL = 22;         // grid resolution
+function ensureNav(mapId, mapW, mapH) {
+  if (nav && navMapId === mapId) return;
+  const cols = Math.ceil(mapW / CELL), rows = Math.ceil(mapH / CELL);
+  const b = new Uint8Array(cols * rows);
+  // Build the graph with the bot's real radius, so A* never plans a route
+  // through a gap the body cannot fit down.
+  const solid = (x, y) => positionBlocked(x, y, BOT_R);
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++)
+    b[j * cols + i] = solid(i * CELL + CELL / 2, j * CELL + CELL / 2) ? 1 : 0;
+  nav = { cols, rows, b, w: mapW, h: mapH };
+  navMapId = mapId;
+}
+const cIdx = (i, j) => j * nav.cols + i;
+const cFree = (i, j) => i >= 0 && j >= 0 && i < nav.cols && j < nav.rows && !nav.b[cIdx(i, j)];
+function nearestFreeCell(i, j) {
+  if (cFree(i, j)) return { i, j };
+  for (let r = 1; r < 8; r++)
+    for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++)
+      if (Math.abs(di) === r || Math.abs(dj) === r) if (cFree(i + di, j + dj)) return { i: i + di, j: j + dj };
+  return null;
+}
+const DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+function Heap() { this.a = []; }
+Heap.prototype.push = function (item, pri) {
+  const a = this.a; a.push({ item, pri }); let i = a.length - 1;
+  while (i > 0) { const p = (i - 1) >> 1; if (a[p].pri <= a[i].pri) break; const t = a[p]; a[p] = a[i]; a[i] = t; i = p; }
+};
+Heap.prototype.pop = function () {
+  const a = this.a; if (!a.length) return null; const top = a[0], last = a.pop();
+  if (a.length) { a[0] = last; let i = 0; const n = a.length;
+    for (;;) { let l = 2 * i + 1, r = l + 1, s = i;
+      if (l < n && a[l].pri < a[s].pri) s = l; if (r < n && a[r].pri < a[s].pri) s = r;
+      if (s === i) break; const t = a[s]; a[s] = a[i]; a[i] = t; i = s; } }
+  return top.item;
+};
+Heap.prototype.size = function () { return this.a.length; };
+function findPath(sx, sy, tx, ty) {
+  if (!nav) return null;
+  const clampi = (v, hi) => (v < 0 ? 0 : v >= hi ? hi - 1 : v);
+  const s = nearestFreeCell(clampi(Math.floor(sx / CELL), nav.cols), clampi(Math.floor(sy / CELL), nav.rows));
+  const t = nearestFreeCell(clampi(Math.floor(tx / CELL), nav.cols), clampi(Math.floor(ty / CELL), nav.rows));
+  if (!s || !t) return null;
+  const sk = cIdx(s.i, s.j), tk = cIdx(t.i, t.j);
+  const g = new Map(), came = new Map(), closed = new Set();
+  const h = (i, j) => Math.hypot(i - t.i, j - t.j);
+  const open = new Heap();
+  g.set(sk, 0); open.push(sk, h(s.i, s.j));
+  while (open.size()) {
+    const ck = open.pop();
+    if (ck === tk) {
+      const path = []; let k = ck;
+      while (k !== undefined) { const i = k % nav.cols, j = (k - i) / nav.cols; path.push({ x: i * CELL + CELL / 2, y: j * CELL + CELL / 2 }); k = came.get(k); }
+      return path.reverse();
+    }
+    if (closed.has(ck)) continue; closed.add(ck);
+    const ci = ck % nav.cols, cj = (ck - ci) / nav.cols, cg = g.get(ck);
+    for (const [di, dj] of DIRS) {
+      const ni = ci + di, nj = cj + dj;
+      if (!cFree(ni, nj)) continue;
+      if (di && dj && (!cFree(ci + di, cj) || !cFree(ci, cj + dj))) continue; // no corner cut
+      const nk = cIdx(ni, nj);
+      if (closed.has(nk)) continue;
+      const ng = cg + (di && dj ? 1.414 : 1);
+      if (!g.has(nk) || ng < g.get(nk)) { g.set(nk, ng); came.set(nk, ck); open.push(nk, ng + h(ni, nj)); }
+    }
+  }
+  return null;
+}
+function smoothPath(path) {
+  if (!path || path.length < 3) return path;
+  const out = [path[0]];
+  let i = 0;
+  while (i < path.length - 1) {
+    let j = path.length - 1;
+    while (j > i + 1 && !lineOpen(path[i].x, path[i].y, path[j].x, path[j].y)) j--;
+    out.push(path[j]);
+    i = j;
+  }
+  return out;
+}
+function lineOpen(ax, ay, bx, by) {
+  const d = bhyp(bx - ax, by - ay), steps = Math.ceil(d / (CELL / 2));
+  for (let k = 1; k <= steps; k++) { const u = k / steps; if (blocked(ax + (bx - ax) * u, ay + (by - ay) * u)) return false; }
+  return true;
+}
+
+
+// ── Thinking ────────────────────────────────────────────────────────────
+function botThink(p, now, dt) {
+  const bd = p.bot;
+  if (state.phase !== "playing") { botThinkLobby(p, now, dt); return; }
+  if (!p.alive || p.role === "spectator") return;
+  if (now < (p.effects.stunUntil || 0)) return;
+
+  if (now < bd.panicUntil) { botMove(p, bd.panicDir, botSpeed(p), dt); return; }
+  if (!bd.mv || now - bd.mv.at > 700) {
+    const moved = bd.mv ? bhyp(p.x - bd.mv.x, p.y - bd.mv.y) : 999;
+    if (moved < 18) {
+      bd.stuckRuns++;
+      bd.path = null; bd.repathAt = 0; bd.hug = 0;
+      if (bd.stuckRuns >= 3) {
+        bd.panicDir = brot({ x: 1, y: 0 }, Math.random() * 360);
+        bd.panicUntil = now + 700; bd.stuckRuns = 0;
+      }
+    } else bd.stuckRuns = 0;
+    bd.mv = { x: p.x, y: p.y, at: now };
+  }
+  if (p.role === "killer") botThinkKiller(p, now, dt); else botThinkSurvivor(p, now, dt);
+}
+function botSpeed(p) {
+  return (p.role === "killer" ? BOT_KILL_SPEED : BOT_SURV_SPEED) * BOT_SPRINT;
+}
+// Between rounds they mill about the hub and chat, so the lobby isn't statues.
+function botThinkLobby(p, now, dt) {
+  const b = p.bot;
+  if (!b.lobbyTgt || now > b.lobbyTgtAt || bhyp(b.lobbyTgt.x - p.x, b.lobbyTgt.y - p.y) < 40) {
+    b.lobbyTgt = { x: 180 + Math.random() * 920, y: 160 + Math.random() * 420 };
+    b.lobbyTgtAt = now + 3000 + Math.random() * 4000;
+  }
+  const d = bnorm(b.lobbyTgt.x - p.x, b.lobbyTgt.y - p.y);
+  p.x = bclmp(p.x + d.x * 120 * dt, 40, 1240);
+  p.y = bclmp(p.y + d.y * 120 * dt, 90, 690);
+  p.facing = d;
+  botSay(p, "lobby", { gap: 16000 });
+}
+function botThinkKiller(p, now, dt) {
+  const b = p.bot;
+  const survs = [...state.players.values()].filter(s => s.role === "survivor" && s.alive);
+  if (!survs.length) return;
+  let t = survs[0], best = Infinity;
+  for (const s of survs) {
+    if (now < (s.effects.sneakUntil || 0)) continue;     // can't see a sneaking survivor
+    const d = bhyp(s.x - p.x, s.y - p.y);
+    if (d < best) { best = d; t = s; }
+  }
+  if (!isFinite(best)) return;
+  const dir = bnorm(t.x - p.x, t.y - p.y);
+  const kch = killerCharOf(p);
+
+  const onTrail = best < 420;
+  if (onTrail && !b.wasHunting) botSay(p, "kHunt", { gap: 9000 });
+  else if (!onTrail && b.wasHunting && best > 800) botSay(p, "kLost", { gap: 12000 });
+  else if (!onTrail) botSay(p, "kTaunt", { gap: 20000 });
+  if (b.lastSurvs != null && survs.length < b.lastSurvs) botSay(p, "kDown", { gap: 8000 });
+  b.wasHunting = onTrail; b.lastSurvs = survs.length;
+
+  botNavTo(p, t.x, t.y, BOT_KILL_SPEED * BOT_SPRINT, now, dt);
+  if (best <= (kch.attackRadius || 75) * 0.95 && now >= b.nextAttack) {
+    b.nextAttack = now + (kch.attackCooldown || 1) * 1000;
+    onAttack(p.id);
+    botSay(p, "kHit", { gap: 11000 });
+  }
+  (ABILITIES[p.killerChar] || []).forEach((ab, slot) => {
+    switch (ab.type) {
+      case "speed_self":   if (best > 240) botUse(p, slot, ab, now, dir); break;
+      case "teleport":     if (best > 160 && best < 460) botUse(p, slot, ab, now, dir); break;
+      case "buff_attack":  if (best < 220) botUse(p, slot, ab, now, dir); break;
+      case "projectile":   if (best < 650) botUse(p, slot, ab, now, dir); break;
+      case "dash_strike":  if (best > 150 && best < 520) botUse(p, slot, ab, now, dir); break;
+      case "transform":    if (best < 500) botUse(p, slot, ab, now, dir); break;
+      case "trap_fire":    if (best < 260) botUse(p, slot, ab, now, dir); break;
+      case "build_portal": if (best < 400) botUse(p, slot, ab, now, dir); break;
+      case "spawn_puppet": if (best < 520) botUse(p, slot, ab, now, dir); break;
+      case "get_balloon":  if (!p.balloonSlot) botUse(p, slot, ab, now, dir); break;
+      case "place_balloon":if (p.balloonSlot) botUse(p, slot, ab, now, dir); break;
+      default: break;
+    }
+  });
+}
+function botThinkSurvivor(p, now, dt) {
+  const b = p.bot;
+  const all = [...state.players.values()];
+  const killer = all.find(k => k.role === "killer" && k.alive);
+  const myHp = p.hp == null ? SURVIVOR_HP_MAX : p.hp;
+  const dK = killer ? bhyp(killer.x - p.x, killer.y - p.y) : Infinity;
+  const dirFromK = killer ? bnorm(p.x - killer.x, p.y - killer.y) : { x: 0, y: -1 };
+  const dirToK = killer ? bnorm(killer.x - p.x, killer.y - p.y) : { x: 1, y: 0 };
+  const allies = all.filter(a => a.id !== p.id && a.role === "survivor" && a.alive);
+
+  // Who needs help? A HUMAN counts for more than another bot — being left to
+  // die by a team of AI is the least fun way to lose a round.
+  let injured = null, injBest = Infinity;
+  for (const a of allies) {
+    if (a.hp == null || a.hp >= 70) continue;
+    let d = bhyp(a.x - p.x, a.y - p.y);
+    if (!a.isBot) d *= 0.45;
+    if (d < injBest) { injBest = d; injured = a; }
+  }
+  const humanInTrouble = allies.find(a => !a.isBot && killer &&
+    bhyp(killer.x - a.x, killer.y - a.y) < 260) || null;
+
+  const chased = dK < 320;
+  if (myHp <= 30) botSay(p, "critical", { gap: 7000 });
+  else if (myHp < 70 && myHp < b.lastHp) botSay(p, "hurt", { gap: 12000 });
+  if (chased && !b.wasChased) botSay(p, "chased", { gap: 8000 });
+  else if (!chased && b.wasChased && dK > 700) botSay(p, "escaped", { gap: 12000 });
+  else if (chased && dK < 560) botSay(p, "killerNear", { gap: 14000 });
+  if (!allies.length) botSay(p, "lastMan", { once: "lms", gap: 5000 });
+  else if (b.lastAllies != null && allies.length < b.lastAllies) botSay(p, "allyDown", { gap: 10000 });
+  b.wasChased = chased; b.lastHp = myHp; b.lastAllies = allies.length;
+  if (injured && injBest < 260) botSay(p, "healing", { gap: 15000 });
+
+  (ABILITIES[p.survivorChar] || []).forEach((ab, slot) => {
+    switch (ab.type) {
+      case "heal_self": case "heal_self_instant": if (myHp < 45) botUse(p, slot, ab, now); break;
+      case "reload_sniper": if ((p.ammo || 0) === 0) botUse(p, slot, ab, now); break;
+      case "shoot_sniper": if (killer && dK < 850 && (p.ammo || 0) > 0) botUse(p, slot, ab, now, dirToK); break;
+      case "speed_self": if (dK < 240) botUse(p, slot, ab, now, dirFromK); break;
+      case "smoke": case "sneak": case "duck": case "shield": if (dK < 220) botUse(p, slot, ab, now); break;
+      case "stun_burst": if (killer && dK < (ab.radius || 180)) botUse(p, slot, ab, now, dirToK); break;
+      case "slow_field": if (killer && dK < 280) botUse(p, slot, ab, now); break;
+      case "slash_stun": case "stab": if (killer && dK < (ab.range || 80) + 20) botUse(p, slot, ab, now, dirToK); break;
+      case "megaphone": if (killer && dK < (ab.range || 520) * 0.8) botUse(p, slot, ab, now, dirToK); break;
+      case "standee": botUse(p, slot, ab, now); break;
+      case "meow": if ((killer && dK < 600) || injured) botUse(p, slot, ab, now); break;
+      case "throw_burger": if (injured) botUse(p, slot, ab, now, bnorm(injured.x - p.x, injured.y - p.y)); break;
+      case "projectile": if (killer && dK < 620) botUse(p, slot, ab, now, dirToK); break;
+      case "spawn_robot": if (killer && dK < 500) botUse(p, slot, ab, now); break;
+      case "build_station":
+        if (ab.stationKind === "heal" && (injured || myHp < 60)) botUse(p, slot, ab, now);
+        else if (ab.stationKind === "defence" && killer && dK < 320 && allies.length) botUse(p, slot, ab, now);
+        break;
+      case "speed_team": if (allies.some(a => bhyp(a.x - p.x, a.y - p.y) < (ab.radius || 200)) && dK < 320) botUse(p, slot, ab, now); break;
+      case "reveal": botUse(p, slot, ab, now); break;
+      case "spawn_pad": botUse(p, slot, ab, now); break;
+      default: break;
+    }
+  });
+
+  // A team-mate in trouble beats a generator — go and be a nuisance.
+  if (humanInTrouble && killer && bhyp(killer.x - p.x, killer.y - p.y) > 200 &&
+      bhyp(humanInTrouble.x - p.x, humanInTrouble.y - p.y) < 900) {
+    botNavTo(p, killer.x, killer.y, BOT_SURV_SPEED * BOT_SPRINT, now, dt);
+    return;
+  }
+  if (killer && dK < 240) {
+    p.facing = dirToK;                              // face them so CC lands
+    botMove(p, dirFromK, BOT_SURV_SPEED * BOT_SPRINT, dt);
+    return;
+  }
+  if (injured && injBest > 120 && dK > 360) {
+    botNavTo(p, injured.x, injured.y, BOT_SURV_SPEED, now, dt);
+    return;
+  }
+  // Otherwise: work the nearest unfinished generator.
+  const todo = state.generators.map((g, i) => ({ g, i })).filter(e => !e.g.done);
+  if (!todo.length) { botNavTo(p, MAP.w / 2, MAP.h - 220, BOT_SURV_SPEED, now, dt); return; }
+  let tgt = todo[0].g, bestD = Infinity;
+  for (const e of todo) { const d = bhyp(e.g.x - p.x, e.g.y - p.y); if (d < bestD) { bestD = d; tgt = e.g; } }
+  if (bestD > SKILL_NEAR_RADIUS * 0.8) { botNavTo(p, tgt.x, tgt.y, BOT_SURV_SPEED, now, dt); return; }
+  // In range: turn the handle.
+  if (now >= (b.nextSkill || 0)) {
+    b.nextSkill = now + SKILL_COOLDOWN_MS + 120;
+    const roll = Math.random();
+    onSkill(p.id, { gen: state.generators.indexOf(tgt),
+                    result: roll < 0.72 ? "green" : (roll < 0.93 ? "yellow" : "red") });
+  }
+}
+// Driven from the main tick.
+function botTickAll(now, dt) {
+  for (const p of state.players.values()) {
+    if (!p.isBot) continue;
+    try { botThink(p, now, dt); } catch (e) { /* one bad bot must not stop the tick */ }
+  }
+}
+
 function tick() {
   const now = Date.now();
   const dt = (now - lastTickTime) / 1000;
   lastTickTime = now;
+  botTickAll(now, dt);
 
   if (state.phase === "playing") {
     state.roundTimer = Math.max(0, state.roundTimer - dt);
