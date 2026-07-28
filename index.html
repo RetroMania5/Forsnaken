@@ -4493,7 +4493,9 @@ const Account = {
 };
 // Mastery thresholds: reach these on a character to earn its Master Pet, then
 // its Mastery Skin (only counts for characters that HAVE mastery content).
-const MASTERY = { killer: { pet: 35, skin: 75 }, survivor: { pet: 25, skin: 50 } };
+// Killers count downs, survivors count round wins — so the two roles are
+// tuned separately rather than sharing one number.
+const MASTERY = { killer: { pet: 25, skin: 50 }, survivor: { pet: 20, skin: 40 } };
 const ACCOUNT_KEY = "fk:account";
 const ACCOUNT_VERSION = 6;
 // Each entry is either an array of char ids to strip from old saves
