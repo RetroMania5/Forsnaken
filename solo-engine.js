@@ -2118,6 +2118,21 @@ let lastTickTime = Date.now();
 // ═══════════════════════════════════════════════════════════════════════
 const BOT_R = 16;                 // a touch under a human's collision radius
 const BOT_SURV_SPEED = 200, BOT_KILL_SPEED = 230, BOT_SPRINT = 1.35;
+// ── Killer bot difficulty ───────────────────────────────────────────────
+// Human killers are limited by stamina, line of sight and reaction time. Bots
+// had none of those, which is what made them exhausting to play against: they
+// sprinted forever, tracked you through walls and swung the instant you came
+// into reach. These give them the same constraints a person plays under.
+const BOT_KILLER = {
+  sight: 780,          // won't notice a survivor further away than this
+  loseSight: 1150,     // and gives up on a chase past here
+  peekThrough: 240,    // close enough to "hear" you even through a wall
+  reaction: 420,       // ms of hesitation before a swing lands
+  stamMax: 150, stamDrain: 12, stamRegen: 18,   // mirrors a human killer
+  windedUntil: 0.55,   // must recover to this fraction before sprinting again
+  searchFor: 4500,     // ms spent checking your last known spot
+  abilityChance: 0.55, // abilities are used opportunistically, not perfectly
+};
 const BOT_NAMES = ["Ash", "Brin", "Cove", "Dex", "Echo", "Fern", "Gus", "Hollis"];
 const RAD = Math.PI / 180;
 const bhyp = (dx, dy) => Math.hypot(dx, dy);
@@ -2432,15 +2447,35 @@ function botThinkKiller(p, now, dt) {
   const b = p.bot;
   const survs = [...state.players.values()].filter(s => s.role === "survivor" && s.alive);
   if (!survs.length) return;
-  let t = survs[0], best = Infinity;
+  const kch = killerCharOf(p);
+
+  // ── What can it actually see? ─────────────────────────────────────────
+  // Only survivors within sight range, and not through a wall unless they're
+  // close enough to hear. This is what stops a bot beelining across the map
+  // to your exact position the moment the round starts.
+  let t = null, best = Infinity;
   for (const s of survs) {
-    if (now < (s.effects.sneakUntil || 0)) continue;     // can't see a sneaking survivor
+    if (now < (s.effects.sneakUntil || 0)) continue;
     const d = bhyp(s.x - p.x, s.y - p.y);
+    if (d > BOT_KILLER.sight) continue;
+    if (d > BOT_KILLER.peekThrough && lineBlocked(p.x, p.y, s.x, s.y)) continue;
     if (d < best) { best = d; t = s; }
   }
-  if (!isFinite(best)) return;
+  // Lost them? Head for where they were last, then give up and patrol.
+  if (!t) {
+    if (b.lastSeen && now < b.lastSeen.until) {
+      botKillerMove(p, b.lastSeen.x, b.lastSeen.y, now, dt, false);
+      if (bhyp(b.lastSeen.x - p.x, b.lastSeen.y - p.y) < 90) b.lastSeen = null;
+    } else {
+      botKillerPatrol(p, now, dt);
+    }
+    if (b.wasHunting) { botSay(p, "kLost", { gap: 12000 }); b.wasHunting = false; }
+    else botSay(p, "kTaunt", { gap: 20000 });
+    b.aimSince = 0;
+    return;
+  }
+  b.lastSeen = { x: t.x, y: t.y, until: now + BOT_KILLER.searchFor };
   const dir = bnorm(t.x - p.x, t.y - p.y);
-  const kch = killerCharOf(p);
 
   const onTrail = best < 420;
   if (onTrail && !b.wasHunting) botSay(p, "kHunt", { gap: 9000 });
@@ -2449,13 +2484,24 @@ function botThinkKiller(p, now, dt) {
   if (b.lastSurvs != null && survs.length < b.lastSurvs) botSay(p, "kDown", { gap: 8000 });
   b.wasHunting = onTrail; b.lastSurvs = survs.length;
 
-  botNavTo(p, t.x, t.y, BOT_KILL_SPEED * BOT_SPRINT, now, dt);
-  if (best <= (kch.attackRadius || 75) * 0.95 && now >= b.nextAttack) {
-    b.nextAttack = now + (kch.attackCooldown || 1) * 1000;
-    onAttack(p.id);
-    botSay(p, "kHit", { gap: 11000 });
+  botKillerMove(p, t.x, t.y, now, dt, true);
+
+  // Reaction time: it has to have had you in reach for a moment before the
+  // swing lands, so stepping in and out of range actually works.
+  const reach = (kch.attackRadius || 75) * 0.95;
+  if (best <= reach) {
+    if (!b.aimSince) b.aimSince = now;
+    if (now - b.aimSince >= BOT_KILLER.reaction && now >= b.nextAttack) {
+      b.nextAttack = now + (kch.attackCooldown || 1) * 1000;
+      onAttack(p.id);
+      botSay(p, "kHit", { gap: 11000 });
+    }
+  } else {
+    b.aimSince = 0;
   }
   (ABILITIES[p.killerChar] || []).forEach((ab, slot) => {
+    // A person doesn't fire everything the moment it's off cooldown.
+    if (Math.random() > BOT_KILLER.abilityChance) return;
     switch (ab.type) {
       case "speed_self":   if (best > 240) botUse(p, slot, ab, now, dir); break;
       case "teleport":     if (best > 160 && best < 460) botUse(p, slot, ab, now, dir); break;
@@ -2471,6 +2517,34 @@ function botThinkKiller(p, now, dt) {
       default: break;
     }
   });
+}
+// Killer movement with a stamina budget, so it sprints in bursts and has to
+// walk them off — the same trade a human killer makes.
+function botKillerMove(p, tx, ty, now, dt, chasing) {
+  const b = p.bot;
+  if (b.stam == null) b.stam = BOT_KILLER.stamMax;
+  let speed = BOT_KILL_SPEED;
+  if (chasing && !b.winded && b.stam > 0) {
+    speed *= BOT_SPRINT;
+    b.stam -= BOT_KILLER.stamDrain * dt;
+    if (b.stam <= 0) { b.stam = 0; b.winded = true; }
+  } else {
+    b.stam = Math.min(BOT_KILLER.stamMax, b.stam + BOT_KILLER.stamRegen * dt);
+    if (b.winded && b.stam >= BOT_KILLER.stamMax * BOT_KILLER.windedUntil) b.winded = false;
+    if (!chasing) speed *= 0.85;                 // patrolling is a walk
+  }
+  botNavTo(p, tx, ty, speed, now, dt);
+}
+// Nothing in sight: wander between generators, which is where people are.
+function botKillerPatrol(p, now, dt) {
+  const b = p.bot;
+  if (!b.patrolTgt || now > b.patrolAt || bhyp(b.patrolTgt.x - p.x, b.patrolTgt.y - p.y) < 110) {
+    const gens = state.generators.filter(g => !g.done);
+    const spot = gens.length ? bpick(gens) : { x: MAP.w / 2, y: MAP.h / 2 };
+    b.patrolTgt = { x: spot.x, y: spot.y };
+    b.patrolAt = now + 9000;
+  }
+  botKillerMove(p, b.patrolTgt.x, b.patrolTgt.y, now, dt, false);
 }
 function botThinkSurvivor(p, now, dt) {
   const b = p.bot;
