@@ -516,13 +516,13 @@ const ABILITIES = {
     // survivor comes within aggroRadius, then chase; catching one deals damage
     // and consumes the puppet. Cap of maxPuppets placed at once.
     // Puppet speeds are set against the player's own: survivors walk at 200 and
-    // sprint at 270 (BASE_SURV_SPEED * SPRINT_MULT on the client). Wife edges
-    // out a sprint, Friend edges out a walk — so you can only shake Friend by
-    // running, and Wife has to be broken away from rather than outrun.
+    // sprint at 270 (BASE_SURV_SPEED * SPRINT_MULT on the client). Both sit
+    // between the two, so walking never escapes either of them but a sprint
+    // does — Wife just makes you work much harder for it.
     { id: "puppet", name: "Puppet", cd: 20, type: "spawn_puppet", maxPuppets: 3,
       aggroRadius: 320, hitRadius: 26, ttl: 90,
       kinds: {
-        wife:   { speed: 285, damage: 18 },    // fast, light — just above a sprint
+        wife:   { speed: 250, damage: 18 },    // fast, light — a sprint still shakes her
         friend: { speed: 215, damage: 36 },    // slow, heavy — just above a walk
       } },
     // Get Balloon: rolls one of four at random into Jest's slot. Only while the
@@ -1191,8 +1191,22 @@ function onDashWallHit(id) {
   p.effects.dashStrikeUntil = 0;
   p.effects.speedUntil = 0;
   p.effects.speedMult  = 1;
+  p._dashPrev = null;
   const left = applyStun(p, STUN);
   broadcast({ type: "stun", id: p.id, by: p.id, duration: left });
+}
+
+// Sum of both bodies (18 + 18) plus a little grace, so a clean-looking pass
+// registers rather than needing them concentric.
+const DASH_HIT_R = 44;
+// Shortest distance from a point to a line segment — the swept dash test.
+function segPointDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-6) return Math.hypot(px - ax, py - ay);   // no movement this tick
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
 // One dash connecting with one survivor.
@@ -1214,6 +1228,7 @@ function resolveDashHit(k, s, now) {
   k.effects.dashStrikeUntil = 0;
   k.effects.speedUntil = 0;
   k.effects.speedMult = 1;
+  k._dashPrev = null;
 
   if (sameTarget) {
     // Ran the same survivor down twice — the chain is spent and the normal
@@ -1242,6 +1257,7 @@ function onDashEnd(id) {
   p.effects.dashStrikeUntil = 0;
   p.effects.speedUntil = 0;
   p.effects.speedMult  = 1;
+  p._dashPrev = null;
   broadcast({ type: "dash_end", id: p.id });
 }
 
@@ -2721,15 +2737,24 @@ function tick() {
 
     // Lunar dash collision. Connecting stops her dead and starts (or extends)
     // the chain — see the ability definition for the rules.
+    //
+    // Tested along the LINE she covered since the last tick, not just where she
+    // ended up. At 1.8x speed she crosses ~21px a tick while the old point test
+    // only reached 30px — and since both bodies are 18px across, that needed
+    // them nearly concentric on the exact frame we happened to sample. A quick
+    // pass went straight through.
     for (const k of state.players.values()) {
       if (k.role !== "killer" || !k.alive) continue;
-      if (!k.effects.dashStrikeUntil || now >= k.effects.dashStrikeUntil) continue;
+      const dashing = k.effects.dashStrikeUntil && now < k.effects.dashStrikeUntil;
+      if (!dashing) { k._dashPrev = null; continue; }
+      const from = k._dashPrev || { x: k.x, y: k.y };
       for (const s of state.players.values()) {
         if (s.role !== "survivor" || !s.alive) continue;
-        if (Math.hypot(s.x - k.x, s.y - k.y) >= 30) continue;
+        if (segPointDist(s.x, s.y, from.x, from.y, k.x, k.y) >= DASH_HIT_R) continue;
         resolveDashHit(k, s, now);
         break;                                   // she stops on the first one
       }
+      k._dashPrev = { x: k.x, y: k.y };
     }
 
     // Convey-on-tick helper: any entity within a CONVEYORS rect gets
