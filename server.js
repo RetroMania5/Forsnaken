@@ -824,10 +824,24 @@ function broadcastRejoinStatus() {
   const { total, needed } = rejoinNeeded();
   broadcast({ type: "rejoin_status", votes, needed, total });
 }
+// Bots follow the humans. A solo lobby is four bots and one person, and 2/3
+// of five is four votes — so without this the human could never reach the
+// threshold alone and would sit through the fallback timer every round.
+// Votes are added straight to the set rather than back through onRejoinVote,
+// which would recurse into returnToLobby.
+function botsFollowRejoin() {
+  for (const p of state.players.values()) {
+    if (p.isBot) state.rejoinVotes.add(p.id);
+  }
+}
 function onRejoinVote(id) {
   if (state.phase !== "over") return;
-  if (!state.players.has(id)) return;
+  const voter = state.players.get(id);
+  if (!voter) return;
   state.rejoinVotes.add(id);
+  // Only a real player pulls the bots along — otherwise a room of bots would
+  // send itself back the moment the results screen appeared.
+  if (!voter.isBot) botsFollowRejoin();
   broadcastRejoinStatus();
   const votes = countRejoinVotes();
   const { needed } = rejoinNeeded();
