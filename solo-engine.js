@@ -779,6 +779,7 @@ function handle(id, ws, msg) {
     case "ability":   return onAbility(id, msg);
     case "dash_wall_hit": return onDashWallHit(id);
     case "dash_end": return onDashEnd(id);
+    case "duck_end": return onDuckEnd(id);
     case "skill":     return onSkill(id, msg);
     case "set_pet":   return onSetPet(id, msg);
     case "set_skin":  return onSetSkin(id, msg);
@@ -1288,6 +1289,19 @@ function onDashEnd(id) {
   p.effects.speedMult  = 1;
   p._dashPrev = null;
   broadcast({ type: "dash_end", id: p.id });
+}
+
+// Angel standing back up early. Free — the cooldown was spent on the way down,
+// so ducking briefly to break line of sight costs the same as riding it out.
+function onDuckEnd(id) {
+  if (state.phase !== "playing") return;
+  const p = state.players.get(id);
+  if (!p || !p.alive) return;
+  const now = Date.now();
+  if (now >= (p.effects.duckUntil || 0)) return;      // not actually ducking
+  p.effects.duckUntil = 0;
+  p.effects.sneakUntil = 0;                           // cover is blown either way
+  broadcast({ type: "duck_end", id: p.id });
 }
 
 function onAbility(id, msg) {

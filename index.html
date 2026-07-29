@@ -914,7 +914,7 @@
     <div class="gd-card">
       <div class="gd-head"><span class="dot" style="background:#3a1860"></span><b>Angel</b><span class="gd-muted">shady figure — dagger + duck + spawn pad</span></div>
       <div class="gd-ab"><b>Z — Stab</b>: a short-range dagger strike (~80 px), no damage. It <b>only stuns (2.4s) if you strike out of a Duck</b> — stabbing upright never stuns. Malice per hit: <b>40% from a Duck</b>, <b>10% upright</b>. <b>Stabbing ends your Duck immediately</b> (hit or miss). CD <b>8s on a miss, 15s if you connect</b>.</div>
-      <div class="gd-ab"><b>X — Duck</b>: <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. Stab applies its <b>doubled malice bonus</b> if you stab from inside it, then ends the Duck. CD 18s.</div>
+      <div class="gd-ab"><b>X — Duck</b> (press again to stand up early): <b>95% invisible</b> for <b>7s</b>, but you move at <b>0.6× speed</b>. Stab applies its <b>doubled malice bonus</b> if you stab from inside it, then ends the Duck. CD 18s.</div>
       <div class="gd-ab"><b>C — Spawner</b>: <b>3s rooted channel</b>, then drops a spawn pad where you stand. <b>One pad per round</b> — the ability locks once you use it.</div>
       <div class="gd-ab"><b>Passive — Wings</b>: when you die with <b>100% Malice</b> AND you've placed a Spawner pad, you respawn at the pad with <b>65 HP</b> and angelic wings. Malice is consumed by the respawn, and you <b>stop gaining Malice afterward</b> — the passive is one-shot per round. With no pad placed, you die normally.</div>
     </div>
@@ -3243,6 +3243,17 @@ function onMessage(msg) {
           G.dashChainUntil = 0;
           G.dashChainCount = 0;
         }
+      }
+      break;
+    }
+    case "duck_end": {
+      // Someone stood up early — drop their crouch locally so they reappear
+      // on the same frame rather than waiting for the next state sync.
+      const p = G.players.get(msg.id);
+      if (p) { p.ducking = false; p.sneaking = false; }
+      if (msg.id === G.myId) {
+        const me = G.players.get(G.myId);
+        if (me) { me._localDuckUntil = 0; me._localSneakUntil = 0; }
       }
       break;
     }
@@ -6589,6 +6600,18 @@ function tryFireAbility(slot, me) {
   const ab = list[slot];
   if (!ab) return;
   const now = performance.now();
+
+  // Angel mid-crouch: the same button stands her back up. Free, like the
+  // charge cancel — the cooldown went on the way down.
+  if (ab.type === "duck" && now < (me._localDuckUntil || 0)) {
+    me._localDuckUntil = 0;
+    me._localSneakUntil = 0;
+    me.ducking = false;
+    me.sneaking = false;
+    if (me._anim) me._anim.holdUntil = 0;
+    if (!G.testMode) sendMsg({ type: "duck_end" });
+    return;
+  }
 
   // Lunar mid-charge: the same button pulls her out of it. Cancelling is free
   // — the cooldown was already spent when she set off — so this returns before
