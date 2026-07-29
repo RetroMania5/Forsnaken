@@ -691,6 +691,12 @@
   .pl-row { font-size: 11px; padding: 3px 6px; }
   .pl-hp { width: 34px; }
 }
+.kick-btn {
+  background: rgba(200,60,60,.22); color: #ffb3b3; border: 1px solid rgba(255,120,120,.45);
+  border-radius: 4px; width: 22px; height: 22px; line-height: 1;
+  font-size: 12px; cursor: pointer; padding: 0; flex: 0 0 auto;
+}
+.kick-btn:hover { background: rgba(220,60,60,.45); color: #fff; }
 </style>
 </head>
 <body>
@@ -1002,9 +1008,8 @@
       <div id="player-list"></div>
       <div id="map-select" class="hidden"></div>
       <button id="random-killer-toggle" class="secondary hidden" type="button">🎲 Random killer: OFF</button>
-      <div id="bot-controls" class="hidden" style="display:flex; gap:8px;">
-        <button id="add-bot-btn" class="secondary" type="button" style="flex:1">➕ Add bot</button>
-        <button id="kick-bot-btn" class="secondary" type="button" style="flex:1">➖ Kick bot</button>
+      <div id="bot-controls" class="hidden">
+        <button id="add-bot-btn" class="secondary" type="button" style="width:100%">➕ Add bot</button>
       </div>
       <button id="start-btn" disabled>Start Round</button>
       <button id="lobby-guide-btn" class="secondary">Guide</button>
@@ -3159,6 +3164,16 @@ function onMessage(msg) {
     case "toast":
       showCoinToast(msg.text);
       break;
+    case "kicked":
+      G.kickedReason = msg.reason || "You were removed from the room.";
+      showCoinToast(G.kickedReason);
+      break;
+    case "left":
+      // Roster refreshes arrive with the lobby broadcast; this just clears
+      // anything tracking the departed player right away.
+      G.players.delete(msg.id);
+      remoteLerp.delete(msg.id);
+      break;
     // Server overriding a cooldown we already predicted (Angel's Stab costs
     // more when it actually connects). Duration, not an absolute time — the
     // two clocks aren't the same.
@@ -3325,7 +3340,7 @@ function mergeRoster(list) {
       G.players.set(sp.id, p);
     }
     p.name = sp.name; p.color = sp.color; p.role = sp.role;
-    p.isHost = sp.isHost; p.alive = sp.alive;
+    p.isHost = sp.isHost; p.alive = sp.alive; p.isBot = !!sp.isBot;
     p.survivorChar = sp.survivorChar;
     p.killerChar = sp.killerChar;
     p.pet = sp.pet || null;
@@ -4434,7 +4449,6 @@ requestAnimationFrame(uiLoop);
 $("start-btn").addEventListener("click", () => { primeAudio(); sendMsg({ type: "start" }); });
 $("leave-lobby-btn").addEventListener("click", leaveRoom);
 $("add-bot-btn").addEventListener("click", () => sendMsg({ type: "add_bot" }));
-$("kick-bot-btn").addEventListener("click", () => sendMsg({ type: "kick_bot" }));
 $("random-killer-toggle").addEventListener("click", () => {
   sendMsg({ type: "toggle_random_killer", enabled: !G.randomKillerEnabled });
 });
@@ -6017,13 +6031,10 @@ function renderLobby() {
     const show = iAmHost && G.phase === "lobby";
     botBox.classList.toggle("hidden", !show);
     if (show) {
-      const botCount = [...G.players.values()].filter(p => p.isBot).length;
-      const kickBtn = $("kick-bot-btn");
-      kickBtn.disabled = botCount === 0;
-      kickBtn.style.opacity = botCount === 0 ? "0.45" : "";
-      kickBtn.textContent = botCount ? `➖ Kick bot (${botCount})` : "➖ Kick bot";
-      $("add-bot-btn").disabled = G.players.size >= 9;
-      $("add-bot-btn").style.opacity = G.players.size >= 9 ? "0.45" : "";
+      const full = G.players.size >= 9;
+      $("add-bot-btn").disabled = full;
+      $("add-bot-btn").style.opacity = full ? "0.45" : "";
+      $("add-bot-btn").textContent = full ? "➕ Add bot (room full)" : "➕ Add bot";
     }
   }
   renderMapSelect(iAmHost);
@@ -6039,8 +6050,23 @@ function renderLobby() {
       <div style="flex:1">${escapeHTML(p.name)}</div>
       ${p.isHost ? '<span class="tag host">HOST</span>' : ""}
       ${p.id === G.myId ? '<span class="tag you">YOU</span>' : ""}
+      ${p.isBot ? '<span class="tag">BOT</span>' : ""}
       ${isDesignated ? '<span class="tag killer">KILLER</span>' : ""}
     `;
+    // Host can remove anyone but themselves. Its own click handler stops the
+    // press from also toggling the designated killer on this row.
+    if (iAmHost && p.id !== G.myId) {
+      const kick = document.createElement("button");
+      kick.type = "button";
+      kick.className = "kick-btn";
+      kick.textContent = "✕";
+      kick.title = "Remove " + p.name;
+      kick.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sendMsg({ type: "kick", id: p.id });
+      });
+      row.appendChild(kick);
+    }
     if (canDesignate) {
       row.addEventListener("click", () => {
         const newId = (G.designatedKillerId === p.id) ? null : p.id;

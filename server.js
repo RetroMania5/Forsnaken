@@ -757,6 +757,7 @@ function handle(id, ws, msg) {
     case "chat":      return onChat(id, msg);
     case "add_bot":   return onAddBot(id);
     case "kick_bot":  return onKickBot(id, msg);
+    case "kick":      return onKickPlayer(id, msg);
     case "leave":     return removePlayer(id);
   }
 }
@@ -782,6 +783,26 @@ function onKickBot(id, msg) {
   if (!target) return;
   const name = target.name;
   if (kickBot(target.id)) broadcast({ type: "toast", text: name + " was removed" });
+}
+// Host-only: remove any player, bot or human. A human is told why and has
+// their socket closed so they don't sit on a dead connection.
+function onKickPlayer(hostId, msg) {
+  const host = state.players.get(hostId);
+  if (!host || !host.isHost) return;
+  const target = state.players.get(msg && msg.id);
+  if (!target) return;
+  if (target.id === hostId) return;                 // can't kick yourself
+  const name = target.name;
+  state.players.delete(target.id);
+  if (!target.isBot) {
+    send(target.ws, { type: "kicked", reason: "The host removed you from the room." });
+    // Give the message a moment to flush before dropping the socket.
+    setTimeout(() => { try { target.ws.close(); } catch {} }, 250);
+  }
+  broadcast({ type: "left", id: target.id });
+  broadcast({ type: "toast", text: name + " was removed" });
+  broadcastLobby();
+  checkRoundEnd();
 }
 function onChat(id, msg) {
   const p = state.players.get(id);
@@ -3056,7 +3077,7 @@ function broadcastLobby() {
 function serializePlayers() {
   return [...state.players.values()].map(p => ({
     id: p.id, name: p.name, color: p.color,
-    role: p.role, isHost: p.isHost,
+    role: p.role, isHost: p.isHost, isBot: !!p.isBot,
     x: Math.round(p.x), y: Math.round(p.y),
     alive: p.alive,
     hp: p.role === "survivor" ? Math.round(p.hp) : null,
